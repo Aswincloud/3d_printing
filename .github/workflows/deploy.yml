@@ -27,7 +27,7 @@ jobs:
           sed -i "s|REPLACE_WITH_DISPATCH_TOKEN|${{ secrets.DISPATCH_TOKEN }}|g" assets/js/main.js
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
