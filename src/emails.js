@@ -73,6 +73,7 @@ export function quoteOwnerEmail(env, q) {
       ["Phone", esc(q.phone || "Not provided")],
       ["Print Type", esc(q.type)],
       ["Quantity", esc(q.qty)],
+      q.ref_item ? ["About", esc(q.ref_item)] : null,
     ]) +
     `<div style="margin-top:24px"><p style="color:${MUTED};margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:1px">Description</p>` +
     `<div style="background:${CARD};border-left:3px solid ${ORANGE};padding:16px;border-radius:0 8px 8px 0;line-height:1.6">${esc(q.desc)}</div></div>` +
@@ -95,6 +96,7 @@ export function quoteCustomerEmail(env, q) {
     rows([
       ["Print Type", esc(q.type)],
       ["Quantity", esc(q.qty)],
+      q.ref_item ? ["About", esc(q.ref_item)] : null,
       q.file_name ? ["File", esc(q.file_name) + " ✓"] : null,
       ["Description", esc(q.desc)],
     ]) +

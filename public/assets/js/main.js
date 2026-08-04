@@ -33,6 +33,7 @@ function openLightbox(index) {
   lightboxImg.alt = img.alt;
   lightbox.classList.add('active');
   document.body.style.overflow = 'hidden';
+  if (typeof updateLightboxCaption === 'function') updateLightboxCaption();
 }
 
 function closeLightbox() {
@@ -48,6 +49,7 @@ function navigate(dir) {
     lightboxImg.src = img.src;
     lightboxImg.alt = img.alt;
     lightboxImg.style.opacity = '1';
+    if (typeof updateLightboxCaption === 'function') updateLightboxCaption();
   }, 150);
 }
 
@@ -292,6 +294,9 @@ form?.addEventListener('submit', async (e) => {
     desc:  form.querySelector('[name=desc]').value.trim(),
     file_url: '',
     file_name: '',
+    // Set when they arrived here from a gallery image or a product card. Empty
+    // for an ordinary quote request, so that path is unchanged.
+    ref_item: document.getElementById('refItem')?.value || '',
   };
 
   // Upload file if provided
@@ -545,7 +550,17 @@ function renderProducts() {
     });
 
     foot.append(price, add);
-    body.append(name, desc, foot);
+
+    // For a variation on something we do sell — another colour, another size.
+    const ask = document.createElement('button');
+    ask.type = 'button';
+    ask.className = 'product-ask';
+    ask.textContent = 'Different colour or size? Ask for a quote';
+    ask.addEventListener('click', () => {
+      startQuoteFor({ name: p.name, image: p.image, kind: 'product' });
+    });
+
+    body.append(name, desc, foot, ask);
     card.append(media, body);
     productGrid.appendChild(card);
   }
@@ -1018,6 +1033,74 @@ function closeReceipt() {
 document.getElementById('receiptClose')?.addEventListener('click', closeReceipt);
 document.getElementById('receiptOverlay')?.addEventListener('click', closeReceipt);
 
+
+/* ===== QUOTE FOR A SPECIFIC ITEM ===== */
+/* Two entry points, one destination: the existing quote form.
+     - a gallery photo (18 of the 53 are unnamed pieces with no price, and this
+       is the only way to ask about those)
+     - a product card, for a variation on something already listed
+   Both scroll to the form and attach a visible reference so Aswin knows what
+   the request is about without the customer having to describe the photo. */
+
+function startQuoteFor({ name, image, kind }) {
+  const box = document.getElementById('quoteRef');
+  const hidden = document.getElementById('refItem');
+  if (!box || !hidden) return;
+
+  const label = name || 'this piece';
+  document.getElementById('quoteRefImg').src = image || '';
+  document.getElementById('quoteRefImg').alt = label;
+  document.getElementById('quoteRefName').textContent = label;
+  document.getElementById('quoteRefNote').textContent = kind === 'product'
+    ? 'A variation of this listed item'
+    : 'From the gallery — not a listed product';
+
+  // The server receives this as one short string; it is escaped into the email
+  // like every other field.
+  hidden.value = (kind === 'product' ? 'Product: ' : 'Gallery: ') + label
+    + (image ? ' (' + image + ')' : '');
+  box.hidden = false;
+
+  // Nudge the description so the box isn't the only hint about what to write.
+  const desc = document.getElementById('desc');
+  if (desc && !desc.value.trim()) {
+    desc.placeholder = kind === 'product'
+      ? 'What would you like changed? Colour, size, material, quantity…'
+      : "Tell me what you'd like — size, colour, material, how many…";
+  }
+
+  closeLightbox?.();
+  document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setTimeout(() => document.getElementById('name')?.focus(), 600);
+}
+
+document.getElementById('quoteRefClear')?.addEventListener('click', () => {
+  document.getElementById('quoteRef').hidden = true;
+  document.getElementById('refItem').value = '';
+});
+
+// The lightbox already tracks which image is open via `current`.
+document.getElementById('lightboxQuote')?.addEventListener('click', () => {
+  const img = items[current]?.querySelector('img');
+  if (!img) return;
+  const alt = img.getAttribute('alt') || '';
+  // The 18 unnamed photos all share this alt text, so there's no useful name to
+  // show — say so rather than printing "3D print sample" back at them.
+  const generic = /^3D print sample$/i.test(alt.trim());
+  startQuoteFor({
+    name: generic ? 'This gallery piece' : alt,
+    image: img.getAttribute('src') || '',
+    kind: 'gallery',
+  });
+});
+
+// Caption in the lightbox, so a named piece is identifiable before asking.
+function updateLightboxCaption() {
+  const cap = document.getElementById('lightboxCaption');
+  if (!cap) return;
+  const alt = (items[current]?.querySelector('img')?.getAttribute('alt') || '').trim();
+  cap.textContent = /^3D print sample$/i.test(alt) ? '' : alt;
+}
 
 /* ===== ACCOUNT: SIGN IN, MENU, ORDERS ===== */
 /* All inline on this page — there is no /login or /account route. The dashboard

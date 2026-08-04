@@ -203,6 +203,30 @@ ok("space", !isEmail("a b@c.com"));
 ok("empty", !isEmail(""));
 ok("null", !isEmail(null));
 
+
+// ── quote reference (gallery / product) ───────────────────────────
+// A request about one of the 18 unnamed gallery photos is useless unless the
+// owner email says WHICH photo, so the reference has to survive into the mail.
+section("quote ref_item");
+{
+  const withRef = { ...evil, name: "Asker", desc: "Please quote this in blue",
+    ref_item: "Gallery: This gallery piece (assets/images/IMG20260413120817.jpg)" };
+  const owner = quoteOwnerEmail(ENV, withRef);
+  ok("owner mail shows the reference", owner.includes("IMG20260413120817.jpg"));
+  ok("owner mail labels it", owner.includes("About"));
+  const cust = quoteCustomerEmail(ENV, withRef);
+  ok("customer mail echoes it back", cust.includes("IMG20260413120817.jpg"));
+
+  // Absent for an ordinary request — no empty row.
+  const plain = quoteOwnerEmail(ENV, { ...evil, ref_item: "" });
+  ok("no About row without a reference", !plain.includes(">About<"));
+
+  // It's customer-controlled text, so it must be escaped like everything else.
+  const nasty = quoteOwnerEmail(ENV, { ...evil, ref_item: '<img src=x onerror="alert(1)">' });
+  ok("reference is escaped", !nasty.includes("<img src=x"));
+  ok("no live attribute from the reference", !/onerror\s*=\s*"/.test(nasty));
+}
+
 // ── summary ───────────────────────────────────────────────────────
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

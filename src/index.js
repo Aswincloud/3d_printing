@@ -164,7 +164,7 @@ async function api(request, env, url, ctx) {
 // workflow that sent the mail. Anyone who viewed source could extract that
 // token and trigger workflows. Now the secret is server-side only.
 
-const MAX = { name: 100, email: 160, phone: 30, type: 60, desc: 3000, file: 300 };
+const MAX = { name: 100, email: 160, phone: 30, type: 60, desc: 3000, file: 300, ref: 300 };
 const clip = (v, n) => String(v ?? "").trim().slice(0, n);
 
 // Mirrors the client-side validation in public/assets/js/main.js. The client
@@ -180,6 +180,10 @@ function validateQuote(b) {
     desc: clip(b.desc, MAX.desc),
     file_url: clip(b.file_url, MAX.file),
     file_name: clip(b.file_name, MAX.file),
+    // Set when the request came from a gallery image or a product card. Free
+    // text from the client, so it's clipped and escaped like any other field —
+    // it is never used as a URL or a lookup key.
+    ref_item: clip(b.ref_item, MAX.ref),
   };
 
   if (q.name.length < 2) errors.push("Please enter your name.");
@@ -216,7 +220,9 @@ async function quote(request, env, ctx, body) {
     subject: `New Quote Request — ${q.name}`,
     html: quoteOwnerEmail(env, q),
     text: `New quote request from ${q.name} <${q.email}>\n`
-      + `Phone: ${q.phone || "not provided"}\nType: ${q.type}\nQty: ${q.qty}\n\n${q.desc}\n`
+      + `Phone: ${q.phone || "not provided"}\nType: ${q.type}\nQty: ${q.qty}\n`
+      + (q.ref_item ? `About: ${q.ref_item}\n` : "")
+      + `\n${q.desc}\n`
       + (q.file_url ? `\nFile: ${q.file_name} — ${q.file_url}\n` : ""),
   });
 

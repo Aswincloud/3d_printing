@@ -1841,3 +1841,85 @@ footer {
   height: 1px;
   background: var(--dark-4);
 }
+
+/* ===== QUOTE FROM AN IMAGE OR PRODUCT ===== */
+/* The lightbox is a flex column already; these sit under the image. */
+.lightbox-actions {
+  position: absolute;
+  bottom: 4%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 90vw;
+}
+
+.lightbox-caption {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+}
+
+.lightbox-quote { font-size: 0.85rem; padding: 0.6rem 1.2rem; }
+
+/* Per-card link, for a variation of something already listed. */
+.product-ask {
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.76rem;
+  text-align: left;
+  padding: 0.6rem 0 0;
+  margin-top: 0.6rem;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.product-ask:hover { color: var(--orange-light); text-decoration: underline; }
+
+/* The "asking about" block on the quote form. */
+.quote-ref-box {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  background: var(--dark-4);
+  border: 1px solid rgba(255,107,0,0.28);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+}
+
+.quote-ref-box img {
+  width: 52px; height: 52px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--dark-3);
+}
+
+.quote-ref-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.quote-ref-text strong { font-size: 0.88rem; }
+.quote-ref-text span { font-size: 0.74rem; color: var(--text-muted); }
+
+.quote-ref-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  border-radius: 6px;
+  transition: color var(--transition);
+}
+
+.quote-ref-clear:hover { color: var(--red); }
+
+@media (max-width: 600px) {
+  .lightbox-actions { bottom: 2%; gap: 0.6rem; }
+  .lightbox-caption { font-size: 0.8rem; }
+}

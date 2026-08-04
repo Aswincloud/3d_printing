@@ -136,6 +136,21 @@ then sends two emails through Resend:
 The customer copy is sent via `ctx.waitUntil()`, so a slow send never delays
 the response.
 
+### Asking about something that isn't listed
+
+53 photos are in the gallery but only 31 are products — 18 are unnamed pieces
+with no price, and they can't be listed without knowing what they are.
+
+Rather than guess, every gallery photo has **"Request a quote for this"** in its
+lightbox, and every product card has **"Different colour or size?"**. Both
+scroll to the existing quote form with a visible reference attached (thumbnail,
+name, and whether it's a listed item), which travels as `ref_item` and appears
+as an "About" row in the owner email. Without that, a request about one of the
+18 would arrive with no way to tell which photo it meant.
+
+`ref_item` is customer-controlled text, so it's clipped and escaped like every
+other field — never used as a URL or a lookup key.
+
 ### Shop and cart
 
 `GET /api/products` returns the visible catalogue from D1 plus the shipping
