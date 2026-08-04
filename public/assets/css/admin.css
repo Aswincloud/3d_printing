@@ -1,0 +1,388 @@
+/* Dashboard styles. Loaded on top of style.css so the design tokens
+   (--orange, --dark-*, --radius) are shared with the public site. */
+
+.admin-body {
+  background: var(--dark);
+  min-height: 100vh;
+}
+
+/* The public site's nav is fixed and 68px tall; this one scrolls with the page,
+   so the body doesn't need the offset that index.html has. */
+.admin-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 clamp(1rem, 4vw, 2.5rem);
+  height: 64px;
+  background: var(--dark-2);
+  border-bottom: 1px solid var(--dark-4);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.admin-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.85rem;
+}
+
+.admin-who { color: var(--text-muted); font-size: 0.82rem; }
+.admin-link { color: var(--text-muted); font-size: 0.85rem; }
+.admin-link:hover { color: var(--orange); }
+
+.admin-btn-ghost {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.admin-btn-ghost:hover { border-color: var(--orange); color: var(--orange); }
+
+/* ── sign-in ───────────────────────────────────────────────────── */
+.admin-signin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 64px);
+  padding: 2rem 1rem;
+}
+
+.signin-card {
+  background: var(--dark-2);
+  border: 1px solid var(--dark-4);
+  border-radius: var(--radius);
+  padding: 2.5rem 2rem;
+  width: min(400px, 100%);
+  text-align: center;
+}
+
+.signin-card h1 { font-size: 1.5rem; font-weight: 800; margin-bottom: 0.5rem; }
+.signin-sub { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.75rem; }
+
+.signin-providers { display: flex; flex-direction: column; gap: 0.6rem; }
+
+.provider-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  background: var(--dark-3);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.provider-btn:hover { border-color: var(--orange); background: var(--dark-4); }
+
+/* ── layout ────────────────────────────────────────────────────── */
+/* style.css applies `section { padding: 100px 5% }` for the marketing page.
+   The dashboard's <section>s are layout containers, not page sections, so
+   reset it rather than inheriting 100px of dead space. */
+.admin-signin,
+.admin-panel { padding: 0; }
+
+.admin-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem clamp(1rem, 4vw, 2.5rem) 4rem;
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: var(--dark-2);
+  border: 1px solid var(--dark-4);
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+}
+
+.stat-card .stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.stat-card .stat-value { font-size: 1.5rem; font-weight: 800; }
+.stat-card.accent .stat-value { color: var(--orange); }
+
+.admin-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--dark-4);
+  margin-bottom: 1.5rem;
+}
+
+.admin-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.admin-tab:hover { color: var(--text); }
+.admin-tab.active { color: var(--orange); border-bottom-color: var(--orange); }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.panel-head h2 { font-size: 1.15rem; font-weight: 700; }
+
+.admin-select {
+  background: var(--dark-3);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+
+.admin-muted { color: var(--text-muted); font-size: 0.88rem; }
+
+.admin-alert[hidden] { display: none; }
+
+.admin-alert {
+  border-radius: 10px;
+  font-size: 0.88rem;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.admin-alert-err {
+  background: var(--red-glow);
+  border: 1px solid rgba(248,113,113,0.3);
+  color: var(--red);
+}
+
+.admin-alert-ok {
+  background: rgba(255,107,0,0.1);
+  border: 1px solid rgba(255,107,0,0.28);
+  color: var(--orange-light);
+}
+
+/* ── orders ────────────────────────────────────────────────────── */
+.orders-list { display: flex; flex-direction: column; gap: 1rem; }
+
+.order-card {
+  background: var(--dark-2);
+  border: 1px solid var(--dark-4);
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+}
+
+.order-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.order-ref { font-weight: 800; font-size: 1rem; }
+.order-ref .order-date { color: var(--text-muted); font-weight: 400; font-size: 0.8rem; margin-left: 0.5rem; }
+.order-amount { font-size: 1.1rem; font-weight: 800; color: var(--orange); }
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  vertical-align: middle;
+  margin-left: 0.5rem;
+}
+
+.badge-paid      { background: rgba(74,222,128,0.15); color: #4ade80; }
+.badge-pending   { background: rgba(250,204,21,0.15);  color: #facc15; }
+.badge-shipped   { background: rgba(96,165,250,0.15);  color: #60a5fa; }
+.badge-refunded  { background: rgba(167,139,250,0.15); color: #a78bfa; }
+.badge-cancelled { background: rgba(148,163,184,0.15); color: #94a3b8; }
+.badge-failed    { background: var(--red-glow);        color: var(--red); }
+
+.order-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.9rem 1.5rem;
+  font-size: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--dark-4);
+}
+
+/* Each label/value pair is wrapped in a div. A bare <dl> would flow dt and dd
+   as separate grid items, so a label could end up in a different column from
+   its own value. */
+.order-pair { min-width: 0; }
+
+.order-grid dt {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 0.2rem;
+}
+
+.order-grid dd { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+
+.order-items { list-style: none; font-size: 0.85rem; }
+.order-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.25rem 0;
+  color: var(--text-muted);
+}
+.order-items li strong { color: var(--text); font-weight: 600; }
+
+.order-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.85rem;
+  margin-top: 0.35rem;
+  border-top: 1px solid var(--dark-4);
+}
+
+.admin-btn {
+  background: rgba(255,107,0,0.12);
+  border: 1px solid rgba(255,107,0,0.3);
+  border-radius: 8px;
+  color: var(--orange-light);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.admin-btn:hover:not(:disabled) { background: var(--orange); border-color: var(--orange); color: var(--white); }
+.admin-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.admin-btn-danger {
+  background: var(--red-glow);
+  border-color: rgba(248,113,113,0.3);
+  color: var(--red);
+}
+.admin-btn-danger:hover:not(:disabled) { background: var(--red); border-color: var(--red); color: var(--white); }
+
+/* ── products ──────────────────────────────────────────────────── */
+.products-list { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.product-row {
+  display: grid;
+  grid-template-columns: 56px minmax(140px, 1fr) 110px 90px auto;
+  align-items: center;
+  gap: 1rem;
+  background: var(--dark-2);
+  border: 1px solid var(--dark-4);
+  border-radius: 12px;
+  padding: 0.8rem 1rem;
+}
+
+.product-row.is-hidden { opacity: 0.55; }
+
+.product-row img {
+  width: 56px; height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--dark-4);
+}
+
+.product-row .pr-name { font-size: 0.92rem; font-weight: 600; line-height: 1.35; }
+.product-row .pr-slug { font-size: 0.74rem; color: var(--text-muted); }
+
+.price-input {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 0 0.5rem;
+}
+
+.price-input span { color: var(--text-muted); font-size: 0.85rem; }
+
+.price-input input {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.45rem 0;
+  width: 100%;
+  outline: none;
+}
+
+.price-input.dirty { border-color: var(--orange); }
+
+.pr-actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle input { accent-color: var(--orange); width: 15px; height: 15px; cursor: pointer; }
+
+@media (max-width: 720px) {
+  .product-row {
+    grid-template-columns: 48px 1fr;
+    grid-template-areas:
+      "img name"
+      "price price"
+      "vis vis"
+      "act act";
+    row-gap: 0.7rem;
+  }
+  .product-row img { grid-area: img; width: 48px; height: 48px; }
+  .product-row .pr-info { grid-area: name; }
+  .product-row .price-input { grid-area: price; }
+  .product-row .pr-visible { grid-area: vis; }
+  .product-row .pr-actions { grid-area: act; justify-content: flex-start; }
+}

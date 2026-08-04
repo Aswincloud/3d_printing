@@ -90,6 +90,7 @@ through to the Worker, so `/api/*` is handled in `src/`.
 3d_printing/
 ├── public/                      # Static site (served via [assets])
 │   ├── index.html               # Main website (all sections)
+│   ├── shop.html                # Owner dashboard (orders, products, refunds)
 │   └── assets/
 │       ├── css/style.css        # All styling
 │       ├── js/main.js           # Lightbox, animations, quote form, shop + cart
@@ -100,6 +101,8 @@ through to the Worker, so `/api/*` is handled in `src/`.
 │   ├── shop.js                  # Catalogue reads + cart pricing (server-side)
 │   ├── razorpay.js              # REST client + signature verification
 │   ├── orders.js                # Order create/verify/receipt + webhook
+│   ├── auth.js                  # Owner sign-in via the auth.aswincloud.com broker
+│   ├── admin.js                 # Owner-only: product CRUD, orders, refunds
 │   └── emails.js                # Email HTML templates
 ├── migrations/                  # D1 schema (forward-only)
 │   ├── 0001_init.sql            # products, orders, order_items, webhook_events
@@ -199,6 +202,30 @@ the admin dashboard before live keys are enabled.
 > nothing sensitive reaches the browser.
 
 ---
+
+### Dashboard
+
+`/shop.html` — orders (with status controls and refunds) and products (price and
+visibility editing). Sign-in goes through the central broker at
+`auth.aswincloud.com`: it authenticates with Google/GitHub/Microsoft and relays
+the verified email back, signed with this site's `RELAY_SECRET`. There are no
+local user or session tables — the session is a signed token in a cookie, and
+the email is re-checked against `OWNER_EMAIL` on **every** request, so removing
+an address revokes access immediately rather than whenever the cookie lapses.
+
+Two deliberate restrictions:
+
+- **`OWNER_EMAIL` must be non-empty.** `@aswincloud/auth`'s `isOwner()` treats
+  an empty allowlist as "allow any authenticated user" — fine for a public site,
+  catastrophic for a page showing customer addresses and payment ids. `auth.js`
+  therefore checks the allowlist is non-empty *first* and denies everyone if it
+  isn't. `test/admin.mjs` asserts this in five ways.
+- **The dashboard cannot mark an order paid.** Only the Razorpay webhook does.
+  Similarly, `refunded` is only reachable through the refund action, so the
+  status can't claim money moved when it didn't.
+
+Deleting a product that appears in any order **hides** it instead, because
+`order_items` snapshots the name and price and order history must survive.
 
 ## 📬 Get a Quote
 

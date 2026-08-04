@@ -10,6 +10,15 @@ import { listProducts } from "./shop.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
 } from "./orders.js";
+import {
+  providersResponse, loginStart, loginCallback, logout, whoami, currentOwner,
+} from "./auth.js";
+import {
+  listProducts as adminListProducts, createProduct as adminCreateProduct,
+  updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
+  listOrders as adminListOrders, updateOrder as adminUpdateOrder,
+  refundOrder as adminRefundOrder, stats as adminStats,
+} from "./admin.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -54,6 +63,45 @@ async function api(request, env, url, ctx) {
 
   if (p === "/api/quote" && m === "POST") return quote(request, env, ctx, body);
   if (p === "/api/health" && m === "GET") return json({ ok: true, app: env.APP_NAME });
+
+  // ── auth (public: these are how you sign in) ────────────────────
+  if (p === "/api/auth/providers" && m === "GET") return providersResponse(env);
+  if (p === "/api/auth/me" && m === "GET") return whoami(request, env);
+  if (p === "/api/auth/logout" && m === "POST") return logout();
+
+  const loginMatch = p.match(/^\/api\/auth\/login\/([a-z]+)$/);
+  if (loginMatch && m === "GET") return loginStart(env, loginMatch[1]);
+
+  const cbMatch = p.match(/^\/api\/auth\/callback\/([a-z]+)$/);
+  if (cbMatch && m === "GET") return loginCallback(env, cbMatch[1], request);
+
+  // ── admin ──────────────────────────────────────────────────────
+  // POSITIONAL GATE. Everything below this line is owner-only, and it works by
+  // position: any /api/admin/* route added ABOVE it would be public. Keep new
+  // admin routes below.
+  if (p.startsWith("/api/admin/")) {
+    const owner = await currentOwner(request, env);
+    if (!owner) return bad("unauthorized", 401);
+
+    if (p === "/api/admin/stats" && m === "GET") return adminStats(env);
+
+    if (p === "/api/admin/products" && m === "GET") return adminListProducts(env);
+    if (p === "/api/admin/products" && m === "POST") return adminCreateProduct(env, body);
+
+    const prod = p.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/);
+    if (prod && m === "PATCH") return adminUpdateProduct(env, prod[1], body);
+    if (prod && m === "DELETE") return adminDeleteProduct(env, prod[1]);
+
+    if (p === "/api/admin/orders" && m === "GET") return adminListOrders(env, url);
+
+    const ord = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})$/);
+    if (ord && m === "PATCH") return adminUpdateOrder(env, ord[1], body);
+
+    const refund = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/refund$/);
+    if (refund && m === "POST") return adminRefundOrder(env, refund[1], body);
+
+    return bad("not found", 404);
+  }
 
   return bad("not found", 404);
 }

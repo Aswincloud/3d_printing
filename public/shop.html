@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- Owner-only dashboard. Nothing here is secret by obscurity: every /api/admin/*
+     call is gated server-side, so loading this page while signed out shows only
+     the sign-in panel. -->
+<meta name="robots" content="noindex, nofollow" />
+<title>Dashboard — AswinPrints</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/style.css" />
+<link rel="stylesheet" href="assets/css/admin.css" />
+</head>
+<body class="admin-body">
+
+<header class="admin-nav">
+  <a href="/" class="nav-logo">
+    <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" width="28" height="28">
+      <rect width="32" height="32" rx="8" fill="url(#ng)"/>
+      <path d="M8 22V14l8-6 8 6v8M13 22v-5h6v5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <defs><linearGradient id="ng" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c38"/>
+      </linearGradient></defs>
+    </svg>
+    <span>AswinPrints</span>
+  </a>
+  <div class="admin-nav-right">
+    <span class="admin-who" id="adminWho" hidden></span>
+    <a href="/" class="admin-link">View site ↗</a>
+    <button class="admin-btn-ghost" id="signOutBtn" type="button" hidden>Sign out</button>
+  </div>
+</header>
+
+<!-- Sign-in ------------------------------------------------------- -->
+<section class="admin-signin" id="signinPanel" hidden>
+  <div class="signin-card">
+    <h1>Dashboard</h1>
+    <p class="signin-sub">Sign in with an owner account to manage products and orders.</p>
+    <div class="signin-providers" id="signinProviders"></div>
+    <div class="admin-alert admin-alert-err" id="signinError" hidden></div>
+  </div>
+</section>
+
+<!-- Dashboard ----------------------------------------------------- -->
+<main class="admin-main" id="adminMain" hidden>
+
+  <div class="stat-row" id="statRow"></div>
+
+  <div class="admin-tabs" role="tablist">
+    <button class="admin-tab active" id="tabOrders" role="tab" type="button" aria-selected="true">Orders</button>
+    <button class="admin-tab" id="tabProducts" role="tab" type="button" aria-selected="false">Products</button>
+  </div>
+
+  <div class="admin-alert admin-alert-err" id="adminError" hidden></div>
+  <div class="admin-alert admin-alert-ok" id="adminOk" hidden></div>
+
+  <!-- Orders -->
+  <section class="admin-panel" id="ordersPanel">
+    <div class="panel-head">
+      <h2>Orders</h2>
+      <select id="orderFilter" class="admin-select" aria-label="Filter orders by status">
+        <option value="">All statuses</option>
+        <option value="paid">Paid</option>
+        <option value="pending">Pending</option>
+        <option value="shipped">Shipped</option>
+        <option value="refunded">Refunded</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </div>
+    <div id="ordersList" class="orders-list"><p class="admin-muted">Loading…</p></div>
+  </section>
+
+  <!-- Products -->
+  <section class="admin-panel" id="productsPanel" hidden>
+    <div class="panel-head">
+      <h2>Products</h2>
+      <span class="admin-muted" id="productHint">Prices are in rupees. Seeded values are placeholders.</span>
+    </div>
+    <div id="productsList" class="products-list"><p class="admin-muted">Loading…</p></div>
+  </section>
+
+</main>
+
+<script src="assets/js/admin.js"></script>
+</body>
+</html>

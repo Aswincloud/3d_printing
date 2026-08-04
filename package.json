@@ -9,7 +9,7 @@
     "db:migrate:local": "wrangler d1 migrations apply 3dprints-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply 3dprints-db --remote",
     "deploy": "wrangler deploy",
-    "test": "node test/run.mjs && node test/shop.mjs && node test/payments.mjs && node test/orders.mjs"
+    "test": "node test/run.mjs && node test/shop.mjs && node test/payments.mjs && node test/orders.mjs && node test/admin.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.118.0"
@@ -17,5 +17,8 @@
   "allowScripts": {
     "esbuild@0.28.1": true,
     "workerd@1.20260730.1": true
+  },
+  "dependencies": {
+    "@aswincloud/auth": "^0.5.0"
   }
 }
