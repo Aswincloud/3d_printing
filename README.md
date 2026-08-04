@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/images/IMG20260403160453.jpg" alt="AswinPrints Banner" width="100%" style="border-radius:12px;max-height:320px;object-fit:cover;" />
+<img src="public/assets/images/IMG20260403160453.jpg" alt="AswinPrints Banner" width="100%" style="border-radius:12px;max-height:320px;object-fit:cover;" />
 
 <br /><br />
 
@@ -9,7 +9,7 @@
 ### Your Ideas, Printed in 3D — Pondicherry, India
 
 [![Live Site](https://img.shields.io/badge/🌐_Live_Site-3d--prints.aswincloud.com-ff6b00?style=for-the-badge)](https://3d-prints.aswincloud.com/)
-[![Deploy](https://img.shields.io/github/actions/workflow/status/Aswincloud/3d_printing/deploy.yml?style=for-the-badge&label=Deploy&color=22c55e)](https://github.com/Aswincloud/3d_printing/actions/workflows/deploy.yml)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers_+_D1-f38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com)
 [![Printer](https://img.shields.io/badge/Printer-Bambu_Lab_A1-ff6b00?style=for-the-badge)](https://bambulab.com)
 [![Instagram](https://img.shields.io/badge/📸_@3dprinthub.offl-E4405F?style=for-the-badge)](https://www.instagram.com/3dprinthub.offl)
 [![Location](https://img.shields.io/badge/📍_Location-Pondicherry,_India-3b82f6?style=for-the-badge)](#)
@@ -32,8 +32,8 @@
 
 | | | |
 |---|---|---|
-| <img src="assets/images/IMG20260725_toothless_collection.jpg" width="220" /> | <img src="assets/images/IMG20260531_laughing_buddha.jpg" width="220" /> | <img src="assets/images/IMG20260725_robot_articulated.jpg" width="220" /> |
-| <img src="assets/images/IMG20260725_elephant.jpg" width="220" /> | <img src="assets/images/IMG20260521_vases_temple.jpg" width="220" /> | <img src="assets/images/IMG20260725_dahlias.jpg" width="220" /> |
+| <img src="public/assets/images/IMG20260725_toothless_collection.jpg" width="220" /> | <img src="public/assets/images/IMG20260531_laughing_buddha.jpg" width="220" /> | <img src="public/assets/images/IMG20260725_robot_articulated.jpg" width="220" /> |
+| <img src="public/assets/images/IMG20260725_elephant.jpg" width="220" /> | <img src="public/assets/images/IMG20260521_vases_temple.jpg" width="220" /> | <img src="public/assets/images/IMG20260725_dahlias.jpg" width="220" /> |
 
 *[View full gallery →](https://3d-prints.aswincloud.com/#gallery)*
 
@@ -72,47 +72,64 @@
 | **Printer** | Bambu Lab A1 |
 | **Materials** | PLA · PETG · TPU — with custom colour matching |
 | **File Formats** | STL · OBJ · 3MF |
-| **Website** | Pure HTML / CSS / JS — no build tools, no dependencies |
-| **Hosting** | GitHub Pages (custom domain via `CNAME`) |
-| **CI/CD** | GitHub Actions (auto-deploy on push to `main`) |
-| **Quote Emails** | GitHub Actions + [Resend](https://resend.com) |
+| **Frontend** | Pure HTML / CSS / JS — no framework, no build step |
+| **Backend** | Cloudflare Worker (`src/`) — static assets + `/api/*` |
+| **Database** | Cloudflare D1 (SQLite) — products and orders |
+| **Payments** | [Razorpay](https://razorpay.com) Standard Checkout |
+| **Email** | [Resend](https://resend.com), sent from the Worker |
 
 ---
 
 ## 🚀 How the Site Works
 
-The website is a static single-page app — no frameworks, no dependencies.
+A single Cloudflare Worker serves the static site and the API. Paths matching a
+file in `public/` are served by the assets binding; everything else falls
+through to the Worker, so `/api/*` is handled in `src/`.
 
 ```
 3d_printing/
-├── index.html                   # Main website (all sections)
-├── CNAME                        # Custom domain: 3d-prints.aswincloud.com
-├── assets/
-│   ├── css/style.css            # All styling
-│   ├── js/main.js               # Lightbox, animations, quote form
-│   └── images/                  # 60 sample print photos
-└── .github/
-    └── workflows/
-        ├── deploy.yml           # Auto-deploy to GitHub Pages
-        ├── send-quote.yml       # Emails quote requests via Resend
-        └── auto-approve.yml     # Dependabot auto-approval
+├── public/                      # Static site (served via [assets])
+│   ├── index.html               # Main website (all sections)
+│   └── assets/
+│       ├── css/style.css        # All styling
+│       ├── js/main.js           # Lightbox, animations, quote form
+│       └── images/              # 60 sample print photos
+├── src/                         # Worker
+│   ├── index.js                 # Router: /api/* → api(), else ASSETS.fetch
+│   ├── lib.js                   # JSON/HMAC/cookies/escaping/Resend helpers
+│   └── emails.js                # Email HTML templates
+├── migrations/                  # D1 schema (forward-only)
+├── test/run.mjs                 # Offline unit tests (`npm test`)
+├── wrangler.toml                # Worker + D1 config; vars only, no secrets
+└── .github/workflows/
+    └── auto-approve.yml         # Dependabot auto-approval
 ```
 
-Every push to `main` triggers the deploy workflow, which publishes to:
+### Local development
 
-> **https://3d-prints.aswincloud.com/**
+```bash
+npm install
+cp .dev.vars.example .dev.vars    # fill in; gitignored, never committed
+npm run db:migrate:local
+npm run dev                       # http://localhost:8787
+npm test                          # offline unit tests, no network
+```
 
 ### Quote form pipeline
 
-The quote form has no backend. Submitting it fires a `repository_dispatch` event of
-type `quote_request` at this repo, which triggers `send-quote.yml`. That workflow sends
-two emails through Resend:
+The form posts JSON to `POST /api/quote`. The Worker validates it server-side,
+then sends two emails through Resend:
 
-1. **To me** — the full request, with a download link for any attached model file.
-2. **To the customer** — an acknowledgement with a summary of what they submitted.
+1. **To me** — the full request, with `reply_to` set to the customer.
+2. **To the customer** — an acknowledgement summarising what they submitted.
 
-The dispatch token is injected into `main.js` at deploy time from the
-`DISPATCH_TOKEN` secret, so it never lives in the repo.
+The customer copy is sent via `ctx.waitUntil()`, so a slow send never delays
+the response.
+
+> **Note:** this previously ran on GitHub Actions via `repository_dispatch`,
+> which required a GitHub PAT injected into `main.js` at deploy time — readable
+> by anyone who viewed source. Now the only credential is a Worker secret and
+> nothing sensitive reaches the browser.
 
 ---
 

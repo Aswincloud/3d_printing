@@ -1,0 +1,21 @@
+{
+  "name": "3d-prints",
+  "version": "0.1.0",
+  "description": "AswinPrints — 3D printing portfolio and online shop. Cloudflare Worker + D1.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply 3dprints-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply 3dprints-db --remote",
+    "deploy": "wrangler deploy",
+    "test": "node test/run.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.118.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260730.1": true
+  }
+}

@@ -1,0 +1,16 @@
+# Copy to `.dev.vars` (gitignored) and fill in. Never commit real values.
+
+# Resend — transactional email
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
+
+# Razorpay — test mode. KEY_SECRET and WEBHOOK_SECRET are DIFFERENT secrets:
+# the checkout callback is signed with KEY_SECRET, webhooks with WEBHOOK_SECRET.
+# Conflating them is the most common Razorpay integration bug.
+RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxx
+RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+RAZORPAY_WEBHOOK_SECRET=whatever_you_set_in_the_dashboard
+
+# Admin auth via the auth.aswincloud.com broker (phase 4 — not needed before)
+AUTH_BROKER_URL=https://auth.aswincloud.com
+RELAY_SECRET=
+SESSION_SECRET=

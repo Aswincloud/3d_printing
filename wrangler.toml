@@ -1,0 +1,27 @@
+name = "3d-prints"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+# Static site served from ./public; Worker handles /api/* (non-asset paths).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "3dprints-db"
+database_id = "PLACEHOLDER_SET_AFTER_D1_CREATE"
+
+[vars]
+APP_NAME = "AswinPrints"
+APP_BASE_URL = "https://3d-prints.aswincloud.com"
+RESEND_FROM_EMAIL = "noreply@aswincloud.com"
+OWNER_EMAIL = "aswin@aswincloud.com"
+ACCESS_MODE = "owners"
+FLAT_SHIP_PAISE = "9900"
+FREE_SHIP_THRESHOLD_PAISE = "150000"
+
+# Secrets (NOT here — set via `wrangler secret put`, never committed):
+#   RESEND_API_KEY
+#   RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET
+#   SESSION_SECRET, RELAY_SECRET, AUTH_BROKER_URL

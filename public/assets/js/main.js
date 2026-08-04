@@ -133,9 +133,8 @@ async function uploadFile(file) {
 }
 
 /* ===== QUOTE FORM ===== */
-// Fine-grained PAT: Actions write only on this repo (see README for setup)
-const DISPATCH_TOKEN = 'REPLACE_WITH_DISPATCH_TOKEN';
-
+// Posts to our own Worker, which sends the mail server-side. No credential
+// ships to the browser (this used to hold a GitHub PAT injected at deploy time).
 const form = document.getElementById('quoteForm');
 const formContent = document.getElementById('formContent');
 const formSuccess = document.getElementById('formSuccess');
@@ -313,27 +312,25 @@ form?.addEventListener('submit', async (e) => {
   btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Sending…';
 
   try {
-    const res = await fetch('https://api.github.com/repos/Aswincloud/3d_printing/dispatches', {
+    const res = await fetch('/api/quote', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${DISPATCH_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ event_type: 'quote_request', client_payload: payload }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
 
-    if (res.status === 204) {
+    if (res.ok) {
       formContent.style.display = 'none';
       formSuccess.classList.add('show');
     } else {
-      throw new Error(`Status ${res.status}`);
+      // The Worker returns { error } with a message meant for the customer.
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Status ${res.status}`);
     }
   } catch (err) {
-    showFormError('Something went wrong sending your request. Please try again, or email aswin@aswincloud.com.');
+    showFormError(err?.message || 'Something went wrong sending your request. Please try again, or email aswin@aswincloud.com.');
     btn.innerHTML = SUBMIT_LABEL;
     btn.disabled = false;
-    console.error('Dispatch error:', err);
+    console.error('Quote submit error:', err);
   }
 });
 
