@@ -19,7 +19,7 @@
 import {
   verifyRelay, signToken, verifyToken, emailAllowed, parseAccessMode, parseAllowlist,
 } from "@aswincloud/auth";
-import { json, randToken, cookie, parseCookies } from "./lib.js";
+import { json, randToken, cookie, parseCookies, uid, now } from "./lib.js";
 // Safe: customers.js does not import this module, so there is no cycle.
 import { currentCustomer } from "./customers.js";
 
@@ -182,16 +182,110 @@ export async function loginCallback(env, provider, request) {
   if (!expected || expected !== claims.nonce) return fail("state");
 
   const email = String(claims.email || "").trim().toLowerCase();
-  if (!ownerAllowed(env, email)) {
-    console.warn("admin sign-in denied for", email);
-    return fail("denied");
+  if (!email) return fail("denied");
+
+  // EVERYONE who gets this far is signed in as a customer. This used to reject
+  // any non-owner, which made the OAuth path admin-only; now the three provider
+  // buttons in the sign-in modal work for customers too.
+  //
+  // A provider-verified email is treated as equivalent proof to an emailed
+  // code — same account per email, and the same guest-order claiming. That's a
+  // deliberate decision: Google and GitHub both verify the address, and doing
+  // otherwise would mean a customer signs in with Google and their own past
+  // order isn't there, but appears if they use a code instead.
+  const user = await upsertOAuthCustomer(env, {
+    email,
+    provider: claims.provider || provider,
+    providerUserId: claims.providerUserId || null,
+  });
+  if (!user) return fail("state");
+
+  const h = new Headers({ Location: "/?auth=ok" });
+  h.append("Set-Cookie", clearNonce);
+
+  // Customer session, exactly as the OTP path issues.
+  const userSession = await signToken(
+    env.SESSION_SECRET, user.id, "customer_session", 30 * 24 * 60 * 60,
+  );
+  h.append("Set-Cookie", [
+    `ap_user=${encodeURIComponent(userSession)}`,
+    "Path=/", "HttpOnly", "Secure", "SameSite=Lax",
+    `Max-Age=${30 * 24 * 60 * 60}`,
+  ].join("; "));
+
+  // AND an admin session if this email is on the owner allowlist. Same
+  // ownerAllowed() check as everywhere else — being a customer never implies
+  // being an admin, and only a Worker var changes the allowlist.
+  if (ownerAllowed(env, email)) {
+    const adminSession = await signToken(
+      env.SESSION_SECRET, email, SESSION_PURPOSE, SESSION_TTL_SECONDS,
+    );
+    h.append("Set-Cookie", cookie(SESSION_COOKIE, adminSession, { maxAge: SESSION_TTL_SECONDS }));
+    h.set("Location", "/shop?auth=ok");
   }
 
-  const session = await signToken(env.SESSION_SECRET, email, SESSION_PURPOSE, SESSION_TTL_SECONDS);
-  const h = new Headers({ Location: "/shop?auth=ok" });
-  h.append("Set-Cookie", cookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS }));
-  h.append("Set-Cookie", clearNonce);
   return new Response(null, { status: 302, headers: h });
+}
+
+// Find or create the customer behind an OAuth identity, then claim any guest
+// orders placed with that email.
+//
+// Lookup order matters, and each step exists for a specific failure:
+//
+//   1. by (provider, provider_user_id) — the stable key. Survives the customer
+//      changing their Google address, which an email lookup would not.
+//   2. by email — the collision case. Someone who signed in by code as
+//      bob@x.com, then via Google as bob@x.com, is one person; users.email is
+//      UNIQUE so a blind insert would fail anyway.
+//   3. create.
+async function upsertOAuthCustomer(env, { email, provider, providerUserId }) {
+  // Fall back to the email as the identity key when the broker doesn't send a
+  // provider id. Weaker (an email change then orphans the link) but better than
+  // refusing the sign-in.
+  const identityKey = providerUserId || email;
+
+  let user = null;
+
+  const linked = await env.DB.prepare(
+    `SELECT u.id, u.email, u.name FROM oauth_identities oi
+       JOIN users u ON u.id = oi.user_id
+      WHERE oi.provider = ? AND oi.provider_user_id = ?`
+  ).bind(provider, identityKey).first();
+  if (linked) user = linked;
+
+  if (!user) {
+    user = await env.DB.prepare(
+      `SELECT id, email, name FROM users WHERE email = ?`
+    ).bind(email).first();
+  }
+
+  if (!user) {
+    const id = uid();
+    await env.DB.prepare(
+      `INSERT INTO users (id, email, created_at, last_seen) VALUES (?,?,?,?)`
+    ).bind(id, email, now(), now()).run();
+    user = { id, email, name: null };
+  } else {
+    await env.DB.prepare(`UPDATE users SET last_seen = ? WHERE id = ?`)
+      .bind(now(), user.id).run();
+  }
+
+  // Record/refresh the link. ON CONFLICT keeps one row per provider identity.
+  await env.DB.prepare(
+    `INSERT INTO oauth_identities (provider, provider_user_id, user_id, email, created_at)
+     VALUES (?,?,?,?,?)
+     ON CONFLICT(provider, provider_user_id)
+       DO UPDATE SET user_id = excluded.user_id, email = excluded.email`
+  ).bind(provider, identityKey, user.id, email, now()).run();
+
+  // Same claiming rule as the OTP path: only rows with user_id IS NULL, so an
+  // order already attached to another account can never be taken.
+  await env.DB.prepare(
+    `UPDATE orders SET user_id = ?
+      WHERE user_id IS NULL AND lower(cust_email) = ?`
+  ).bind(user.id, email).run();
+
+  return user;
 }
 
 // Clears BOTH sessions. The dashboard's sign-out button hits this endpoint, and

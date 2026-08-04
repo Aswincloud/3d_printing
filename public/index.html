@@ -439,9 +439,17 @@
   </div>
 
   <div class="checkout-form">
+    <!-- Providers, populated from /api/auth/providers. Hidden entirely if the
+         broker returns none, so this never shows dead buttons. -->
+    <div id="siProviders" hidden>
+      <p class="si-lead">Track your orders and keep your cart across devices.</p>
+      <div class="si-provider-list" id="siProviderList"></div>
+      <div class="si-divider"><span>or use your email</span></div>
+    </div>
+
     <!-- Step 1 -->
     <form id="siEmailForm" novalidate>
-      <p class="si-lead">Track your orders and keep your cart across devices.
+      <p class="si-lead" id="siEmailLead">Track your orders and keep your cart across devices.
         We'll email you a 6-digit code — no password needed.</p>
       <div class="co-field">
         <label for="siEmail">Email address</label>

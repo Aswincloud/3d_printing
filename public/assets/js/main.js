@@ -1429,4 +1429,74 @@ function prefillCheckout() {
   if (name && !name.value) name.value = currentUser.name || '';
 }
 
+/* ── provider buttons ──────────────────────────────────────────── */
+/* Rendered from /api/auth/providers, so a provider appearing or disappearing on
+   the broker needs no change here. Hidden entirely when the list is empty —
+   better no buttons than dead ones. */
+
+// Brand marks, inline so there's no extra request and nothing to 404.
+const PROVIDER_ICONS = {
+  google: '<svg width="17" height="17" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.65l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a11 11 0 0 0 0 9.9l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1a11 11 0 0 0-9.82 6.05l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>',
+  github: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 5 18.3 5.3 18.3 5.3c.7 1.6.3 2.8.1 3.2.8.8 1.3 1.9 1.3 3.1 0 4.7-2.8 5.7-5.5 6 .4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3z"/></svg>',
+  microsoft: '<svg width="17" height="17" viewBox="0 0 23 23"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>',
+};
+
+async function loadProviders() {
+  const wrap = document.getElementById('siProviders');
+  const list = document.getElementById('siProviderList');
+  if (!wrap || !list) return;
+
+  let providers = [];
+  try {
+    providers = (await (await fetch('/api/auth/providers')).json()).providers || [];
+  } catch {
+    return;                       // leave the section hidden
+  }
+  if (!providers.length) return;
+
+  list.innerHTML = '';
+  for (const prov of providers) {
+    const id = String(prov.id || '');
+    // The id goes straight into a URL path, so only accept a plain word.
+    if (!/^[a-z]+$/.test(id)) continue;
+
+    const a = document.createElement('a');
+    a.className = 'si-provider';
+    a.href = '/api/auth/login/' + id;
+    // The icon is a trusted constant; the NAME comes from the broker, so it is
+    // set as text rather than interpolated into markup.
+    if (PROVIDER_ICONS[id]) {
+      const span = document.createElement('span');
+      span.innerHTML = PROVIDER_ICONS[id];
+      a.appendChild(span);
+    }
+    a.appendChild(document.createTextNode('Continue with ' + (prov.name || id)));
+    list.appendChild(a);
+  }
+
+  if (list.children.length) {
+    wrap.hidden = false;
+    // The providers block carries the explanatory line now, so the email form's
+    // copy shrinks to avoid saying the same thing twice.
+    const lead = document.getElementById('siEmailLead');
+    if (lead) lead.textContent = "We'll email you a 6-digit code — no password needed.";
+  }
+}
+
+/* An OAuth sign-in leaves the page, so no JS of ours runs during the round
+   trip and the guest cart can't be handed over mid-flight. The broker sends
+   them back with ?auth=ok, which loadSession picks up — adoptServerCart then
+   merges whatever is still in localStorage. Nothing extra needed here beyond
+   stripping the query so a refresh doesn't re-trigger anything. */
+(function stripAuthFlag() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('auth')) {
+    params.delete('auth');
+    const qs = params.toString();
+    history.replaceState({}, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+  }
+})();
+
+loadProviders();
+
 loadSession();

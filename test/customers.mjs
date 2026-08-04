@@ -15,7 +15,7 @@
 import {
   currentCustomer, requestCode, verifyCode, resendCode, myOrders, whoami, updateMe,
 } from "../src/customers.js";
-import { currentOwner, currentAdmin } from "../src/auth.js";
+import { currentOwner, currentAdmin, loginCallback } from "../src/auth.js";
 import { signToken } from "@aswincloud/auth";
 import { generateOtp, hashOtp, OTP_MAX_ATTEMPTS } from "@aswincloud/auth/d1";
 
@@ -46,6 +46,7 @@ function makeDB(seed = {}) {
     otp_requests: copy(seed.otp_requests),
     orders: copy(seed.orders),
     order_items: copy(seed.order_items),
+    oauth_identities: copy(seed.oauth_identities),
     products: copy(seed.products),
     cart_items: copy(seed.cart_items),
   };
@@ -116,6 +117,24 @@ function makeDB(seed = {}) {
       const r = db.otp_requests.find((x) => lc(x.email) === lc(a[0]));
       if (r) r.count += 1;
       return { meta: { changes: r ? 1 : 0 } };
+    }
+
+    // oauth_identities
+    if (s.startsWith("SELECT u.id, u.email, u.name FROM oauth_identities oi")) {
+      const link = (db.oauth_identities || []).find(
+        (x) => x.provider === a[0] && x.provider_user_id === a[1]);
+      if (!link) return { first: null };
+      const u = db.users.find((x) => x.id === link.user_id);
+      return { first: u ? project(u, ["id", "email", "name"]) : null };
+    }
+    if (s.startsWith("INSERT INTO oauth_identities")) {
+      db.oauth_identities = db.oauth_identities || [];
+      const [provider, pid, userId, email, created] = a;
+      const e = db.oauth_identities.find(
+        (x) => x.provider === provider && x.provider_user_id === pid);
+      if (e) { e.user_id = userId; e.email = email; }
+      else db.oauth_identities.push({ provider, provider_user_id: pid, user_id: userId, email, created_at: created });
+      return { meta: { changes: 1 } };
     }
 
     // orders
@@ -547,6 +566,153 @@ section("the is_admin flag on /api/me is display-only");
   // It's a hint: the gate re-checks independently, so a faked value grants
   // nothing. Asserted by the currentAdmin tests above, which never consult it.
   ok("whoami never consults the allowlist itself", plain.email === USER_A.email);
+}
+
+
+// ══ OAUTH CUSTOMER SIGN-IN ═══════════════════════════════════════
+// The callback used to reject every non-owner, making OAuth admin-only. Now it
+// signs in customers too, and issues an ADDITIONAL admin cookie when the email
+// is on the allowlist. These cover the linking rules and the escalation
+// boundary.
+section("OAuth callback — customers");
+{
+  const { signRelay } = await import("@aswincloud/auth");
+  const RELAY = "test_relay_secret";
+
+  // Build a callback Request the way the broker would, with a matching nonce
+  // cookie — otherwise every attempt fails the replay guard.
+  const oauthReq = async (nonce, claims) => {
+    const relay = await signRelay(RELAY, { nonce, ...claims });
+    const nonceTok = await signToken(SESSION_SECRET, nonce, "broker_nonce", 600);
+    return new Request(`http://x/api/auth/callback/google?relay=${encodeURIComponent(relay)}`, {
+      headers: { cookie: `ap_oauth_nonce=${nonceTok}` },
+    });
+  };
+  const cookiesOf = (res) => res.headers.getSetCookie
+    ? res.headers.getSetCookie().join(" || ")
+    : (res.headers.get("set-cookie") || "");
+
+  // A brand-new customer.
+  {
+    const env = ENV();
+    const res = await loginCallback(env, "google",
+      await oauthReq("n1", { email: "New.Person@Example.com", provider: "google", providerUserId: "g-111" }));
+    ok("302 back to the site", res.status === 302);
+    ok("lands on the main page, not /shop", res.headers.get("location") === "/?auth=ok",
+       res.headers.get("location"));
+    ok("user row created", env.DB._db.users.length === 1);
+    ok("email stored lowercased", env.DB._db.users[0].email === "new.person@example.com");
+    ok("identity linked", env.DB._db.oauth_identities.length === 1);
+    ok("linked on the provider id, not the email",
+       env.DB._db.oauth_identities[0].provider_user_id === "g-111");
+
+    const ck = cookiesOf(res);
+    ok("sets a customer cookie", ck.includes("ap_user="));
+    ok("does NOT set an admin cookie for a stranger", !ck.includes("ap_session="));
+    ok("cookie is HttpOnly", /ap_user=[^;]*;[^|]*HttpOnly/i.test(ck));
+  }
+
+  // THE collision case: signed in by code first, then via Google.
+  {
+    const existing = { id: "u-existing", email: "bob@example.com", name: "Bob", created_at: 1, last_seen: 1 };
+    const env = ENV({ users: [existing] });
+    await loginCallback(env, "google",
+      await oauthReq("n2", { email: "bob@example.com", provider: "google", providerUserId: "g-bob" }));
+    ok("no duplicate account created", env.DB._db.users.length === 1, String(env.DB._db.users.length));
+    ok("linked to the EXISTING account", env.DB._db.oauth_identities[0].user_id === "u-existing");
+    ok("name preserved", env.DB._db.users[0].name === "Bob");
+  }
+
+  // Provider email change: the identity key still finds them.
+  {
+    const u = { id: "u-moved", email: "old@example.com", name: null, created_at: 1, last_seen: 1 };
+    const env = ENV({
+      users: [u],
+      oauth_identities: [{ provider: "google", provider_user_id: "g-moved", user_id: "u-moved", email: "old@example.com", created_at: 1 }],
+    });
+    await loginCallback(env, "google",
+      await oauthReq("n3", { email: "new@example.com", provider: "google", providerUserId: "g-moved" }));
+    ok("no new account after an email change", env.DB._db.users.length === 1);
+    ok("same account reused", env.DB._db.oauth_identities[0].user_id === "u-moved");
+    ok("identity row records the new email", env.DB._db.oauth_identities[0].email === "new@example.com");
+  }
+
+  // Guest orders are claimed, with the same never-steal rule as the OTP path.
+  {
+    const env = ENV({
+      orders: [
+        { id: "g1", user_id: null, receipt: "AP-oauth001", cust_email: "Claim@Example.com", status: "paid", subtotal_paise: 100, shipping_paise: 0, total_paise: 100, delivery: "pickup", notes: "", created_at: 1, paid_at: 2, shipped_at: null },
+        { id: "g2", user_id: "someone-else", receipt: "AP-taken002", cust_email: "claim@example.com", status: "paid", subtotal_paise: 100, shipping_paise: 0, total_paise: 100, delivery: "pickup", notes: "", created_at: 1, paid_at: 2, shipped_at: null },
+      ],
+    });
+    await loginCallback(env, "google",
+      await oauthReq("n4", { email: "claim@example.com", provider: "google", providerUserId: "g-claim" }));
+    const g = (r) => env.DB._db.orders.find((o) => o.receipt === r);
+    ok("guest order claimed via OAuth", g("AP-oauth001").user_id !== null);
+    ok("another account's order NOT stolen", g("AP-taken002").user_id === "someone-else");
+  }
+
+  // The owner gets BOTH cookies and lands on the dashboard.
+  {
+    const env = ENV();
+    const res = await loginCallback(env, "google",
+      await oauthReq("n5", { email: OWNER, provider: "google", providerUserId: "g-owner" }));
+    const ck = cookiesOf(res);
+    ok("owner gets a customer cookie", ck.includes("ap_user="));
+    ok("owner ALSO gets an admin cookie", ck.includes("ap_session="));
+    ok("owner is sent to the dashboard", res.headers.get("location") === "/shop?auth=ok",
+       res.headers.get("location"));
+  }
+
+  // Fail-closed: an empty allowlist must not hand out an admin cookie.
+  {
+    const env = { ...ENV(), OWNER_EMAIL: "" };
+    const res = await loginCallback(env, "google",
+      await oauthReq("n6", { email: OWNER, provider: "google", providerUserId: "g-owner2" }));
+    const ck = cookiesOf(res);
+    ok("signs in as a customer", ck.includes("ap_user="));
+    ok("no admin cookie when OWNER_EMAIL is empty", !ck.includes("ap_session="));
+  }
+
+  // Replay protection is unchanged by any of this.
+  {
+    const env = ENV();
+    const relay = await signRelay(RELAY, { nonce: "n7", email: "x@example.com", provider: "google", providerUserId: "g-x" });
+    // No nonce cookie at all.
+    const bare = new Request(`http://x/api/auth/callback/google?relay=${encodeURIComponent(relay)}`);
+    const res = await loginCallback(env, "google", bare);
+    ok("missing nonce cookie → denied", res.headers.get("location").includes("auth=state"));
+    ok("no account created", env.DB._db.users.length === 0);
+
+    // Mismatched nonce.
+    const wrongTok = await signToken(SESSION_SECRET, "different", "broker_nonce", 600);
+    const res2 = await loginCallback(env, "google",
+      new Request(`http://x/api/auth/callback/google?relay=${encodeURIComponent(relay)}`,
+        { headers: { cookie: `ap_oauth_nonce=${wrongTok}` } }));
+    ok("mismatched nonce → denied", res2.headers.get("location").includes("auth=state"));
+
+    // Relay signed with the wrong secret.
+    const forged = await signRelay("not_the_relay_secret", { nonce: "n8", email: "y@example.com", provider: "google" });
+    const nonceTok = await signToken(SESSION_SECRET, "n8", "broker_nonce", 600);
+    const res3 = await loginCallback(env, "google",
+      new Request(`http://x/api/auth/callback/google?relay=${encodeURIComponent(forged)}`,
+        { headers: { cookie: `ap_oauth_nonce=${nonceTok}` } }));
+    ok("forged relay → denied", res3.headers.get("location").includes("auth=state"));
+    ok("still no account created", env.DB._db.users.length === 0);
+  }
+
+  // An empty email from the provider must not create a blank account.
+  {
+    const env = ENV();
+    const res = await loginCallback(env, "google", await oauthReq("n9", { email: "", provider: "google" }));
+    // The package's verifyRelay refuses to decode claims with an empty email, so
+    // this fails at the relay check (auth=state) before our own empty-email
+    // guard is reached. Either rejection is fine; assert it's refused at all,
+    // and that the guard in loginCallback still exists as a second line.
+    ok("empty email refused", /auth=(state|denied)/.test(res.headers.get("location")),
+       res.headers.get("location"));
+    ok("no account created", env.DB._db.users.length === 0);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

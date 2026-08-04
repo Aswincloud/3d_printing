@@ -208,7 +208,7 @@ the admin dashboard before live keys are enabled.
 ### Customer accounts
 
 Customers sign in **on the main page** — an inline modal, no separate route —
-with a **6-digit code emailed to them** — no
+with **Google, GitHub or Microsoft**, or a **6-digit code emailed to them** — no
 password to set, forget, or leak. Built on `@aswincloud/auth`'s OTP primitives
 (`generateOtp`/`hashOtp`/`otpHashEquals` and the `otp_codes` table), so codes are
 stored peppered-and-hashed with an attempt counter, never in plaintext. Its
@@ -237,6 +237,17 @@ against a seeded second account with `?user_id=`, `?email=`, `?receipt=` and
 
 **The server cart still carries no price.** Rows are `(user_id, product_id, qty)`.
 `priceCart()` remains the only thing that decides an amount.
+
+**OAuth is treated as equivalent proof to an emailed code.** Google and GitHub
+verify the address, so one account per email regardless of which route was used,
+and guest orders are claimed either way. Identities link on
+`(provider, provider_user_id)` rather than email — the provider's id is stable
+and an email is not, so linking on email would orphan a customer from their own
+order history the day they change their Google address.
+
+The callback signs everyone in as a customer, and issues an **additional** admin
+cookie when the email is on the `OWNER_EMAIL` allowlist. Being a customer never
+implies being an admin.
 
 **Guest orders are claimed on first sign-in** — `UPDATE orders SET user_id …
 WHERE user_id IS NULL AND lower(cust_email) = ?`. The code proves control of the
