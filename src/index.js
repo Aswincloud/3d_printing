@@ -7,6 +7,9 @@
 import { json, bad, isEmail, sendEmail } from "./lib.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
 import { listProducts } from "./shop.js";
+import {
+  createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
+} from "./orders.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -32,14 +35,23 @@ async function api(request, env, url, ctx) {
 
   // Routes needing the RAW body must be dispatched before anything parses it.
   // Razorpay's webhook HMAC is computed over the exact bytes sent, so
-  // re-serialising a parsed object breaks verification. (Phase 3.)
-  // if (p === "/api/webhook/razorpay" && m === "POST") return razorpayWebhook(request, env, ctx);
+  // re-serialising a parsed object breaks verification.
+  if (p === "/api/webhook/razorpay" && m === "POST") return razorpayWebhook(request, env, ctx);
 
   const body = (m === "POST" || m === "PUT" || m === "PATCH")
     ? await request.json().catch(() => ({}))
     : {};
 
   if (p === "/api/products" && m === "GET") return listProducts(env);
+
+  // Orders. `/api/orders` takes {items:[{product_id,qty}], customer, delivery}
+  // — never an amount; prices are read from D1 in priceCart().
+  if (p === "/api/orders" && m === "POST") return createOrderHandler(request, env, body);
+  if (p === "/api/orders/verify" && m === "POST") return verifyOrderHandler(request, env, body);
+
+  const receiptMatch = p.match(/^\/api\/orders\/(AP-[0-9a-f]{8})$/);
+  if (receiptMatch && m === "GET") return getOrderHandler(env, receiptMatch[1]);
+
   if (p === "/api/quote" && m === "POST") return quote(request, env, ctx, body);
   if (p === "/api/health" && m === "GET") return json({ ok: true, app: env.APP_NAME });
 

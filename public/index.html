@@ -393,13 +393,112 @@
     <div class="cart-row"><span id="cartShipLabel">Shipping</span><strong id="cartShipping">₹0</strong></div>
     <div class="cart-row cart-total"><span>Total</span><strong id="cartTotal">₹0</strong></div>
     <p class="cart-ship-hint" id="cartShipHint"></p>
-    <!-- Checkout arrives in phase 3; nothing here can take money yet. -->
-    <button class="btn-primary cart-checkout" id="cartCheckout" type="button" disabled>
-      Checkout — coming soon
+    <button class="btn-primary cart-checkout" id="cartCheckout" type="button">
+      Checkout
     </button>
     <p class="cart-fineprint">Final price is confirmed by the server at checkout.</p>
   </div>
 </aside>
+
+<!-- ===== CHECKOUT ===== -->
+<!-- Collects delivery details, then hands off to Razorpay. The amount shown
+     here is only ever a preview — POST /api/orders recomputes it from D1 and
+     that figure is what Razorpay charges. -->
+<div class="checkout-overlay" id="checkoutOverlay" hidden></div>
+<div class="checkout-modal" id="checkoutModal" role="dialog" aria-modal="true"
+     aria-labelledby="checkoutTitle" aria-hidden="true" hidden>
+  <div class="checkout-head">
+    <h3 id="checkoutTitle">Checkout</h3>
+    <button class="cart-close" id="checkoutClose" type="button" aria-label="Close checkout">✕</button>
+  </div>
+
+  <form class="checkout-form" id="checkoutForm" novalidate>
+    <div class="co-summary" id="coSummary"></div>
+
+    <div class="co-field">
+      <label for="coName">Name <span aria-hidden="true">*</span></label>
+      <input type="text" id="coName" name="co_name" autocomplete="name" required />
+      <span class="field-error" id="co_nameError"></span>
+    </div>
+
+    <div class="co-row">
+      <div class="co-field">
+        <label for="coEmail">Email <span aria-hidden="true">*</span></label>
+        <input type="email" id="coEmail" name="co_email" autocomplete="email" required />
+        <span class="field-error" id="co_emailError"></span>
+      </div>
+      <div class="co-field">
+        <label for="coPhone">Phone <span aria-hidden="true">*</span></label>
+        <input type="tel" id="coPhone" name="co_phone" autocomplete="tel" required />
+        <span class="field-error" id="co_phoneError"></span>
+      </div>
+    </div>
+
+    <fieldset class="co-delivery">
+      <legend>Delivery</legend>
+      <label class="co-radio">
+        <input type="radio" name="delivery" value="ship" checked />
+        <span>Ship to me</span>
+      </label>
+      <label class="co-radio">
+        <input type="radio" name="delivery" value="pickup" />
+        <span>Pick up in Pondicherry (free)</span>
+      </label>
+    </fieldset>
+
+    <div id="coAddress">
+      <div class="co-field">
+        <label for="coLine">Address <span aria-hidden="true">*</span></label>
+        <input type="text" id="coLine" name="co_line" autocomplete="street-address" />
+        <span class="field-error" id="co_lineError"></span>
+      </div>
+      <div class="co-row">
+        <div class="co-field">
+          <label for="coCity">City <span aria-hidden="true">*</span></label>
+          <input type="text" id="coCity" name="co_city" autocomplete="address-level2" />
+          <span class="field-error" id="co_cityError"></span>
+        </div>
+        <div class="co-field">
+          <label for="coState">State <span aria-hidden="true">*</span></label>
+          <input type="text" id="coState" name="co_state" autocomplete="address-level1" />
+          <span class="field-error" id="co_stateError"></span>
+        </div>
+      </div>
+      <div class="co-field">
+        <label for="coPin">PIN code <span aria-hidden="true">*</span></label>
+        <input type="text" id="coPin" name="co_pin" inputmode="numeric" maxlength="6" autocomplete="postal-code" />
+        <span class="field-error" id="co_pinError"></span>
+      </div>
+    </div>
+
+    <div class="co-field">
+      <label for="coNotes">Notes <span class="co-optional">(optional)</span></label>
+      <textarea id="coNotes" name="co_notes" rows="2" placeholder="Colour preference, deadline, anything else"></textarea>
+    </div>
+
+    <div class="co-error" id="coError" hidden></div>
+
+    <button type="submit" class="btn-primary co-submit" id="coSubmit">
+      <span id="coSubmitLabel">Pay securely</span>
+    </button>
+    <p class="cart-fineprint">Payments handled by Razorpay. Cards, UPI and net banking accepted.</p>
+  </form>
+</div>
+
+<!-- ===== ORDER RECEIPT ===== -->
+<div class="checkout-overlay" id="receiptOverlay" hidden></div>
+<div class="checkout-modal receipt-modal" id="receiptModal" role="dialog" aria-modal="true"
+     aria-labelledby="receiptTitle" aria-hidden="true" hidden>
+  <div class="receipt-body">
+    <div class="receipt-tick" aria-hidden="true">✓</div>
+    <h3 id="receiptTitle">Payment received</h3>
+    <p class="receipt-sub" id="receiptSub"></p>
+    <div class="receipt-ref">Order reference<strong id="receiptRef"></strong></div>
+    <div class="co-summary" id="receiptSummary"></div>
+    <p class="receipt-note">A confirmation email is on its way. I'll be in touch when your piece is ready.</p>
+    <button class="btn-primary" id="receiptClose" type="button">Done</button>
+  </div>
+</div>
 
 <!-- ===== LIGHTBOX ===== -->
 <div class="lightbox" id="lightbox">
@@ -625,6 +724,9 @@
   </div>
 </footer>
 
+<!-- Razorpay Standard Checkout. Must be loaded from their CDN — self-hosting
+     this file is unsupported and there is no v2. -->
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script src="assets/js/main.js"></script>
 </body>
 </html>

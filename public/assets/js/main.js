@@ -683,3 +683,333 @@ window.addEventListener('storage', (e) => {
 
 renderCart();      // paint the badge from localStorage before the fetch lands
 loadProducts();
+
+/* ===== CHECKOUT ===== */
+/* Flow:
+     1. POST /api/orders with {items:[{product_id,qty}], customer, delivery}
+        — no amount. The server prices the cart from D1.
+     2. Open Razorpay Checkout with the order id and key id it returns.
+     3. On success, POST the three razorpay_* fields to /api/orders/verify.
+        That only proves the callback is genuine so we can show a receipt —
+        the order is marked paid by the webhook, which is Razorpay's word and
+        arrives even if this tab is closed. */
+
+const checkoutModal = document.getElementById('checkoutModal');
+const checkoutOverlay = document.getElementById('checkoutOverlay');
+const checkoutForm = document.getElementById('checkoutForm');
+const coError = document.getElementById('coError');
+const coSubmit = document.getElementById('coSubmit');
+const coSubmitLabel = document.getElementById('coSubmitLabel');
+const coAddress = document.getElementById('coAddress');
+
+const SHIP_FIELDS = ['co_line', 'co_city', 'co_state', 'co_pin'];
+
+function deliveryMode() {
+  const el = checkoutForm?.querySelector('input[name="delivery"]:checked');
+  return el?.value === 'pickup' ? 'pickup' : 'ship';
+}
+
+/* ── field validation ──────────────────────────────────────────── */
+/* Same shape as the quote form's helpers. These are UX only — the Worker
+   re-validates everything in validateCustomer(). */
+function coSetError(name, message) {
+  const field = checkoutForm.querySelector('[name="' + name + '"]');
+  const slot = document.getElementById(name + 'Error');
+  if (field) { field.classList.add('invalid'); field.setAttribute('aria-invalid', 'true'); }
+  if (slot) { slot.textContent = message; slot.classList.add('show'); }
+}
+
+function coClearError(name) {
+  const field = checkoutForm.querySelector('[name="' + name + '"]');
+  const slot = document.getElementById(name + 'Error');
+  if (field) { field.classList.remove('invalid'); field.removeAttribute('aria-invalid'); }
+  if (slot) { slot.textContent = ''; slot.classList.remove('show'); }
+}
+
+function coClearAll() {
+  ['co_name', 'co_email', 'co_phone', ...SHIP_FIELDS].forEach(coClearError);
+  if (coError) { coError.hidden = true; coError.textContent = ''; }
+}
+
+function showCoError(message) {
+  if (!coError) return;
+  coError.textContent = message;
+  coError.hidden = false;
+  coError.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function validateCheckout() {
+  coClearAll();
+  const v = (n) => (checkoutForm.querySelector('[name="' + n + '"]')?.value || '').trim();
+  let firstBad = null;
+  const bad = (n, msg) => { coSetError(n, msg); if (!firstBad) firstBad = n; };
+
+  if (v('co_name').length < 2) bad('co_name', 'Please enter your name.');
+  if (!EMAIL_RE.test(v('co_email'))) bad('co_email', 'Please enter a valid email address.');
+  if (v('co_phone').replace(/\D/g, '').length < 10) bad('co_phone', 'Please enter a valid phone number.');
+
+  if (deliveryMode() === 'ship') {
+    if (v('co_line').length < 5) bad('co_line', 'Please enter your street address.');
+    if (!v('co_city')) bad('co_city', 'Please enter your city.');
+    if (!v('co_state')) bad('co_state', 'Please enter your state.');
+    if (!/^\d{6}$/.test(v('co_pin'))) bad('co_pin', 'Please enter a valid 6-digit PIN code.');
+  }
+
+  if (firstBad) checkoutForm.querySelector('[name="' + firstBad + '"]')?.focus();
+  return !firstBad;
+}
+
+/* ── summary ───────────────────────────────────────────────────── */
+function renderCoSummary() {
+  const el = document.getElementById('coSummary');
+  if (!el) return;
+  const lines = readCart()
+    .map((it) => ({ it, p: catalogue.find((c) => c.id === it.id) }))
+    .filter((r) => r.p);
+
+  let subtotal = 0;
+  el.innerHTML = '';
+  for (const { it, p } of lines) {
+    subtotal += p.price_paise * it.qty;
+    const row = document.createElement('div');
+    row.className = 'co-line';
+    const l = document.createElement('span');
+    l.textContent = p.name + ' × ' + it.qty;
+    const r = document.createElement('strong');
+    r.textContent = rupees(p.price_paise * it.qty);
+    row.append(l, r);
+    el.appendChild(row);
+  }
+
+  const shipping = deliveryMode() === 'pickup' ? 0 : shippingForDisplay(subtotal);
+  const addRow = (label, value, cls) => {
+    const row = document.createElement('div');
+    row.className = 'co-line' + (cls ? ' ' + cls : '');
+    const l = document.createElement('span');
+    l.textContent = label;
+    const r = document.createElement('strong');
+    r.textContent = value;
+    row.append(l, r);
+    el.appendChild(row);
+  };
+  addRow('Subtotal', rupees(subtotal));
+  addRow(shipping === 0 ? 'Shipping (free)' : 'Shipping', rupees(shipping));
+  addRow('Total', rupees(subtotal + shipping), 'co-line-total');
+}
+
+/* ── open / close ──────────────────────────────────────────────── */
+function openCheckout() {
+  if (!checkoutModal) return;
+  if (!readCart().length) return;
+  coClearAll();
+  renderCoSummary();
+  syncAddressVisibility();
+  checkoutModal.hidden = false;
+  checkoutOverlay.hidden = false;
+  checkoutModal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('coName')?.focus();
+}
+
+function closeCheckout() {
+  if (!checkoutModal) return;
+  checkoutModal.hidden = true;
+  checkoutOverlay.hidden = true;
+  checkoutModal.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+}
+
+function syncAddressVisibility() {
+  const ship = deliveryMode() === 'ship';
+  if (coAddress) coAddress.hidden = !ship;
+  // A hidden field must not keep a stale error that blocks submit.
+  if (!ship) SHIP_FIELDS.forEach(coClearError);
+  renderCoSummary();
+}
+
+document.getElementById('cartCheckout')?.addEventListener('click', () => {
+  closeCart();
+  openCheckout();
+});
+document.getElementById('checkoutClose')?.addEventListener('click', closeCheckout);
+checkoutOverlay?.addEventListener('click', closeCheckout);
+checkoutForm?.querySelectorAll('input[name="delivery"]').forEach((r) =>
+  r.addEventListener('change', syncAddressVisibility));
+
+// Clear a field's error as soon as it's corrected.
+checkoutForm?.querySelectorAll('input, textarea').forEach((el) => {
+  el.addEventListener('input', () => { if (el.name) coClearError(el.name); });
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && checkoutModal && !checkoutModal.hidden) closeCheckout();
+});
+
+/* ── submit → Razorpay ─────────────────────────────────────────── */
+let checkoutBusy = false;
+
+checkoutForm?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (checkoutBusy) return;
+  if (!validateCheckout()) return;
+
+  if (typeof window.Razorpay !== 'function') {
+    showCoError("Payment couldn't load. Check your connection and try again, or use the quote form.");
+    return;
+  }
+
+  const v = (n) => (checkoutForm.querySelector('[name="' + n + '"]')?.value || '').trim();
+  const delivery = deliveryMode();
+
+  setCheckoutBusy(true, 'Starting payment…');
+
+  let data;
+  try {
+    // Only ids and quantities. The server prices it.
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: readCart().map((it) => ({ product_id: it.id, qty: it.qty })),
+        delivery,
+        customer: {
+          name: v('co_name'),
+          email: v('co_email'),
+          phone: v('co_phone'),
+          addr_line: v('co_line'),
+          addr_city: v('co_city'),
+          addr_state: v('co_state'),
+          addr_pin: v('co_pin'),
+          notes: v('co_notes'),
+        },
+      }),
+    });
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Status ' + res.status);
+  } catch (err) {
+    setCheckoutBusy(false);
+    showCoError(err.message || "We couldn't start the payment. Please try again.");
+    return;
+  }
+
+  setCheckoutBusy(true, 'Opening payment…');
+  openRazorpay(data, v('co_name'), v('co_email'), v('co_phone'));
+});
+
+function setCheckoutBusy(busy, label) {
+  checkoutBusy = busy;
+  if (coSubmit) coSubmit.disabled = busy;
+  if (coSubmitLabel) coSubmitLabel.textContent = busy ? (label || 'Working…') : 'Pay securely';
+}
+
+function openRazorpay(data, name, email, phone) {
+  const rzp = new window.Razorpay({
+    key: data.key_id,           // public key id only — the secret never leaves the Worker
+    order_id: data.rzp_order_id,
+    amount: data.amount,        // server-computed; shown by the modal
+    currency: data.currency || 'INR',
+    name: 'AswinPrints',
+    description: 'Order ' + data.receipt,
+    prefill: { name, email, contact: phone },
+    notes: { receipt: data.receipt },
+    theme: { color: '#ff6b00' },
+    modal: {
+      // User closed the modal without paying. The order stays 'pending' —
+      // they can retry, and nothing was charged.
+      ondismiss() {
+        setCheckoutBusy(false);
+        showCoError('Payment cancelled. Your cart is still here whenever you\'re ready.');
+      },
+    },
+    handler(response) { verifyPayment(response, data); },
+  });
+
+  rzp.on('payment.failed', (resp) => {
+    setCheckoutBusy(false);
+    const d = resp?.error?.description || 'The payment did not go through.';
+    showCoError(d + ' You can try again — nothing has been charged.');
+  });
+
+  rzp.open();
+}
+
+async function verifyPayment(response, orderData) {
+  setCheckoutBusy(true, 'Confirming…');
+  try {
+    const res = await fetch('/api/orders/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        razorpay_payment_id: response.razorpay_payment_id,
+        razorpay_order_id: response.razorpay_order_id,
+        razorpay_signature: response.razorpay_signature,
+      }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !out.ok) throw new Error(out.error || 'Verification failed');
+
+    // Paid — the cart has served its purpose.
+    writeCart([]);
+    setCheckoutBusy(false);
+    closeCheckout();
+    showReceipt(out.receipt, orderData);
+  } catch (err) {
+    setCheckoutBusy(false);
+    // The money may well have left their account, so never imply it didn't.
+    showCoError(
+      'Your payment went through but we couldn\'t confirm it here. ' +
+      'Payment reference ' + (response.razorpay_payment_id || '—') +
+      '. Please email aswin@aswincloud.com with that reference and I\'ll sort it out.'
+    );
+  }
+}
+
+/* ── receipt ───────────────────────────────────────────────────── */
+function showReceipt(receipt, orderData) {
+  const modal = document.getElementById('receiptModal');
+  const overlay = document.getElementById('receiptOverlay');
+  if (!modal) return;
+
+  const ref = document.getElementById('receiptRef');
+  if (ref) ref.textContent = receipt || '—';
+
+  const sub = document.getElementById('receiptSub');
+  if (sub && orderData) sub.textContent = 'Thank you — ' + rupees(orderData.total_paise) + ' paid.';
+
+  const sum = document.getElementById('receiptSummary');
+  if (sum && orderData) {
+    sum.innerHTML = '';
+    const addRow = (label, value, cls) => {
+      const row = document.createElement('div');
+      row.className = 'co-line' + (cls ? ' ' + cls : '');
+      const l = document.createElement('span');
+      l.textContent = label;
+      const r = document.createElement('strong');
+      r.textContent = value;
+      row.append(l, r);
+      sum.appendChild(row);
+    };
+    addRow('Subtotal', rupees(orderData.subtotal_paise));
+    addRow(orderData.shipping_paise === 0 ? 'Shipping (free)' : 'Shipping', rupees(orderData.shipping_paise));
+    addRow('Total paid', rupees(orderData.total_paise), 'co-line-total');
+  }
+
+  modal.hidden = false;
+  overlay.hidden = false;
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('receiptClose')?.focus();
+}
+
+function closeReceipt() {
+  const modal = document.getElementById('receiptModal');
+  const overlay = document.getElementById('receiptOverlay');
+  if (!modal) return;
+  modal.hidden = true;
+  overlay.hidden = true;
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+}
+
+document.getElementById('receiptClose')?.addEventListener('click', closeReceipt);
+document.getElementById('receiptOverlay')?.addEventListener('click', closeReceipt);

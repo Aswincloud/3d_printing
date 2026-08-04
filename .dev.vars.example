@@ -8,6 +8,9 @@ RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
 # Conflating them is the most common Razorpay integration bug.
 RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxx
 RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+# RAZORPAY_WEBHOOK_SECRET is a string YOU choose when creating the webhook in
+# the Razorpay dashboard (Settings → Webhooks). It is not issued to you, and it
+# is not the same as KEY_SECRET.
 RAZORPAY_WEBHOOK_SECRET=whatever_you_set_in_the_dashboard
 
 # Admin auth via the auth.aswincloud.com broker (phase 4 — not needed before)

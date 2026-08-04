@@ -98,6 +98,8 @@ through to the Worker, so `/api/*` is handled in `src/`.
 │   ├── index.js                 # Router: /api/* → api(), else ASSETS.fetch
 │   ├── lib.js                   # JSON/HMAC/cookies/escaping/Resend helpers
 │   ├── shop.js                  # Catalogue reads + cart pricing (server-side)
+│   ├── razorpay.js              # REST client + signature verification
+│   ├── orders.js                # Order create/verify/receipt + webhook
 │   └── emails.js                # Email HTML templates
 ├── migrations/                  # D1 schema (forward-only)
 │   ├── 0001_init.sql            # products, orders, order_items, webhook_events
@@ -142,6 +144,42 @@ hand-edited cart can change what you *see* but never what you *pay*.
 
 Money is stored as **integer paise** (`34900` = ₹349), matching Razorpay's API
 and avoiding float rounding when summing line items.
+
+### Payments
+
+Razorpay Standard Checkout, called through the REST API with `fetch` and signed
+with WebCrypto. The `razorpay` npm SDK is deliberately **not** used: it does
+`require("crypto")` and bundles axios's Node HTTP adapter, so it can't build for
+a Worker without `nodejs_compat` (`wrangler deploy --dry-run` fails with
+`Could not resolve "crypto"`).
+
+```
+browser  POST /api/orders  {items:[{product_id,qty}], customer, delivery}
+                           ↑ no amount — the server prices it
+worker   priceCart() → Razorpay Orders API → insert order (pending)
+browser  Razorpay Checkout modal
+   ├── success  → POST /api/orders/verify   (shows a receipt; does NOT mark paid)
+   ├── dismiss  → order stays pending, nothing charged
+   └── failed   → error shown, order stays pending
+razorpay POST /api/webhook/razorpay          ← the source of truth
+                           marks paid, sends both emails
+```
+
+Two things worth knowing before touching this code:
+
+**Two different secrets.** `KEY_SECRET` signs the checkout callback
+(`HMAC(order_id|payment_id)`); `WEBHOOK_SECRET` signs webhooks (`HMAC(raw
+body)`). `WEBHOOK_SECRET` is a string you choose in the dashboard. Conflating
+them is the most common Razorpay bug, so `test/payments.mjs` asserts each is
+rejected in the other's place.
+
+**The webhook, not the browser, marks an order paid.** `/api/orders/verify`
+only proves the callback is genuine so the customer sees a receipt. If the
+browser could set `paid`, anyone could POST a fabricated callback; if only the
+browser could, a closed tab would lose the order. The webhook route is also
+dispatched *before* the router's shared `request.json()`, because its HMAC
+covers the exact bytes received — re-serialising parsed JSON breaks
+verification.
 
 Five products depicting licensed characters are seeded `visible = 0` — they
 stay in the portfolio gallery but aren't listed for sale. Prices in
