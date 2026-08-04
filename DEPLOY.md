@@ -16,6 +16,41 @@ served anywhere, but it was public for weeks and is still valid.
 
 ---
 
+## Broker SSO — provisioned, with one deliberate exception
+
+`site=3d-printing` is registered with google/github/microsoft, and
+`AUTH_BROKER_URL` / `RELAY_SECRET` / `SESSION_SECRET` are set. Signing in to
+`/shop` with Google works.
+
+Two things to know if this is ever re-run:
+
+**`secret:ACCESS_MODE` failed, and that failure is desirable.** Cloudflare
+refuses to shadow an existing binding name, and `ACCESS_MODE = "owners"` is a
+plain-text var in `wrangler.toml`. Had the write succeeded it would have set
+`ACCESS_MODE = "public"` (the provisioner's "Anyone" option) — and on this site
+that var is the ADMIN gate, read by `ownerAllowed()`. `mode: "public"` never
+consults the owner allowlist, so any Google account would have become an admin
+able to issue refunds and read every customer's address. If a future run offers
+to fix this "error", decline it.
+
+The broker's own "Anyone" setting is the right choice and is unaffected: it
+governs who may complete sign-in, not who is an admin. Our callback rejects any
+non-allowlisted email at `src/auth.js` regardless.
+
+**The auto-generated SESSION_SECRET was exposed and has been rotated.** It signs
+both admin and customer session cookies; anyone holding it can forge a session
+for any email, including the owner's — admin access without touching the inbox.
+If a session secret is ever pasted into a chat, a ticket, or a screenshot, rotate
+it immediately:
+
+```bash
+node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64url"))' \
+  | npx wrangler secret put SESSION_SECRET --name 3d-printing
+```
+
+Cost of rotating: everyone signed in is signed out, and pending OTP codes stop
+working (it is also the OTP pepper). Nothing is lost permanently.
+
 ## 0. Revoke the leaked GitHub token — do this first
 
 The last Pages build has a real PAT baked into its JavaScript:
