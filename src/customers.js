@@ -267,11 +267,15 @@ export async function resendCode(request, env, ctx, body) {
 }
 
 // ── GET /api/me ───────────────────────────────────────────────────
-export function whoami(user) {
+// `is_admin` is a DISPLAY hint so the account page can offer a dashboard link.
+// It grants nothing: /api/admin/* calls currentAdmin() and re-checks the
+// allowlist itself, so a client that fakes this flag still gets 401.
+export function whoami(user, isAdmin = false) {
   return json({
     signedIn: true,
     email: user.email,
     name: user.name || null,
+    is_admin: Boolean(isAdmin),
   });
 }
 

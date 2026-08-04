@@ -119,7 +119,13 @@ async function loadProviders() {
   } catch { /* leave empty */ }
 
   if (!list.length) {
-    box.appendChild(el('p', 'admin-muted', 'No sign-in providers are available.'));
+    // The broker has no registration for this site yet, so there are no OAuth
+    // buttons. Signing in by emailed code reaches the same allowlist check.
+    box.appendChild(el('p', 'admin-muted',
+      'OAuth sign-in is not configured for this site yet.'));
+    const a = el('a', 'provider-btn', 'Sign in with an email code');
+    a.href = '/login?next=/shop';
+    box.appendChild(a);
     return;
   }
   for (const prov of list) {

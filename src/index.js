@@ -14,7 +14,7 @@ import {
 // logout/whoami — two separate auth schemes, and the names must not blur.
 import {
   providersResponse, loginStart, loginCallback,
-  logout as ownerLogout, whoami as ownerWhoami, currentOwner,
+  logout as ownerLogout, whoami as ownerWhoami, currentAdmin,
 } from "./auth.js";
 import {
   requestCode, verifyCode, resendCode, currentCustomer,
@@ -100,7 +100,10 @@ async function api(request, env, url, ctx) {
     const user = await currentCustomer(request, env);
     if (!user) return bad("unauthorized", 401);
 
-    if (p === "/api/me" && m === "GET") return customerWhoami(user);
+    if (p === "/api/me" && m === "GET") {
+      // Display hint only — see the note on whoami().
+      return customerWhoami(user, Boolean(await currentAdmin(request, env)));
+    }
     if (p === "/api/me" && m === "PATCH") return updateMe(env, user, body);
     if (p === "/api/me/logout" && m === "POST") return customerLogout();
     if (p === "/api/me/orders" && m === "GET") return myOrders(env, user);
@@ -123,7 +126,9 @@ async function api(request, env, url, ctx) {
   // position: any /api/admin/* route added ABOVE it would be public. Keep new
   // admin routes below.
   if (p.startsWith("/api/admin/")) {
-    const owner = await currentOwner(request, env);
+    // Either transport: a broker session, or an OTP-verified email that is on
+    // the OWNER_EMAIL allowlist. Same allowlist check either way.
+    const owner = await currentAdmin(request, env);
     if (!owner) return bad("unauthorized", 401);
 
     if (p === "/api/admin/stats" && m === "GET") return adminStats(env);

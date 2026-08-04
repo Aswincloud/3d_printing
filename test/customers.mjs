@@ -15,7 +15,7 @@
 import {
   currentCustomer, requestCode, verifyCode, resendCode, myOrders, whoami, updateMe,
 } from "../src/customers.js";
-import { currentOwner } from "../src/auth.js";
+import { currentOwner, currentAdmin } from "../src/auth.js";
 import { signToken } from "@aswincloud/auth";
 import { generateOtp, hashOtp, OTP_MAX_ATTEMPTS } from "@aswincloud/auth/d1";
 
@@ -480,6 +480,73 @@ section("GET /api/me and PATCH /api/me");
   // A long name must be clipped, not rejected or stored whole.
   await updateMe(env, USER_A, { name: "z".repeat(200) });
   ok("long name clipped to 80", env.DB._db.users[0].name.length === 80);
+}
+
+
+// ══ ADMIN VIA OTP ════════════════════════════════════════════════
+// The broker has no registration for site=3dprints, so admin access also
+// accepts an OTP-verified email that is on the OWNER_EMAIL allowlist. Both
+// transports must end at the SAME allowlist check — a second way in, not a
+// second policy. These are the tests that keep it that way.
+section("currentAdmin() — two transports, one allowlist");
+{
+  const ownerUser = { id: "owner-uuid", email: OWNER, name: "Aswin", created_at: 1, last_seen: 1 };
+  const env = ENV({ users: [ownerUser, USER_A] });
+
+  const ownerCustomerTok = await signToken(SESSION_SECRET, ownerUser.id, "customer_session", 3600);
+  const strangerTok = await signToken(SESSION_SECRET, USER_A.id, "customer_session", 3600);
+  const brokerTok = await signToken(SESSION_SECRET, OWNER, "owner_session", 3600);
+
+  // Transport 1: the broker session still works.
+  ok("broker session grants admin",
+     (await currentAdmin(req(`ap_session=${brokerTok}`), env)) === OWNER);
+
+  // Transport 2: an OTP session for the allowlisted email.
+  ok("OTP session for the owner email grants admin",
+     (await currentAdmin(req(`ap_user=${ownerCustomerTok}`), env)) === OWNER);
+
+  // THE important one: any other customer must NOT become admin.
+  ok("OTP session for a non-owner does NOT grant admin",
+     (await currentAdmin(req(`ap_user=${strangerTok}`), env)) === null);
+
+  // No session at all.
+  ok("no cookie → no admin", (await currentAdmin(req(""), env)) === null);
+  ok("garbage cookie → no admin", (await currentAdmin(req("ap_user=nonsense"), env)) === null);
+
+  // Fail closed: an unset OWNER_EMAIL must deny even the owner's own session,
+  // by BOTH routes. This is invariant 6 extended to the new transport.
+  const noOwner = { ...ENV({ users: [ownerUser] }), OWNER_EMAIL: "" };
+  ok("empty OWNER_EMAIL denies the OTP route",
+     (await currentAdmin(req(`ap_user=${ownerCustomerTok}`), noOwner)) === null);
+  ok("empty OWNER_EMAIL denies the broker route",
+     (await currentAdmin(req(`ap_session=${brokerTok}`), noOwner)) === null);
+
+  // An expired customer session must not linger as admin.
+  const expired = await signToken(SESSION_SECRET, ownerUser.id, "customer_session", -10);
+  ok("expired OTP session → no admin",
+     (await currentAdmin(req(`ap_user=${expired}`), env)) === null);
+
+  // Case-insensitivity: the allowlist lowercases, and so does sign-in.
+  const upper = { ...ownerUser, id: "upper-uuid", email: "ASWIN@AswinCloud.com" };
+  const upperEnv = ENV({ users: [upper] });
+  const upperTok = await signToken(SESSION_SECRET, upper.id, "customer_session", 3600);
+  ok("mixed-case owner email still grants admin",
+     Boolean(await currentAdmin(req(`ap_user=${upperTok}`), upperEnv)));
+
+  // A customer session for an account that was deleted grants nothing.
+  ok("deleted owner account → no admin",
+     (await currentAdmin(req(`ap_user=${ownerCustomerTok}`), ENV({ users: [] }))) === null);
+}
+
+section("the is_admin flag on /api/me is display-only");
+{
+  const [, plain] = await read(whoami(USER_A));
+  ok("defaults to false", plain.is_admin === false);
+  const [, flagged] = await read(whoami(USER_A, true));
+  ok("can be set true for the UI", flagged.is_admin === true);
+  // It's a hint: the gate re-checks independently, so a faked value grants
+  // nothing. Asserted by the currentAdmin tests above, which never consult it.
+  ok("whoami never consults the allowlist itself", plain.email === USER_A.email);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

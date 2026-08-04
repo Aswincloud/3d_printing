@@ -1,12 +1,14 @@
 // Owner sign-in via the central broker at auth.aswincloud.com.
 //
 // Ported from ~/projects/invoicer/src/oauth-routes.js, with one substantive
-// simplification: invoicer is multi-user, so it keeps users / sessions /
-// oauth_identities tables in D1 and mints a D1-backed session. This site has
-// exactly one privileged user — Aswin — and no customer accounts at all
-// (receipts are reached by an unguessable token). So there is nothing to look
-// up: the session is a signed token in a cookie carrying the verified email,
-// and every request re-checks that email against the allowlist. No new tables.
+// simplification: invoicer mints a D1-backed session keyed to a users row. Here
+// there is exactly one PRIVILEGED user, so the admin session needs no lookup —
+// it's a signed token carrying the verified email, re-checked against the
+// allowlist on every request.
+//
+// Customers are a separate thing entirely (src/customers.js, ap_user cookie,
+// its own token purpose). The only place the two meet is currentAdmin() below,
+// which will accept a customer session IF its email is on the owner allowlist.
 //
 //   GET /api/auth/providers                → broker's provider list for this site
 //   GET /api/auth/login/:provider          → nonce cookie + 302 to the broker
@@ -18,6 +20,8 @@ import {
   verifyRelay, signToken, verifyToken, emailAllowed, parseAccessMode, parseAllowlist,
 } from "@aswincloud/auth";
 import { json, randToken, cookie, parseCookies } from "./lib.js";
+// Safe: customers.js does not import this module, so there is no cycle.
+import { currentCustomer } from "./customers.js";
 
 const SESSION_COOKIE = "ap_session";
 const SESSION_PURPOSE = "owner_session";
@@ -70,6 +74,37 @@ export async function currentOwner(request, env) {
   // Re-check the policy on every request: removing an email from OWNER_EMAIL
   // must revoke access immediately, not whenever the cookie happens to expire.
   return ownerAllowed(env, email) ? email : null;
+}
+
+// Admin identity from EITHER transport:
+//
+//   1. a broker session (ap_session / "owner_session") — Google/GitHub/Microsoft
+//   2. a customer session (ap_user / "customer_session") whose verified email is
+//      on the OWNER_EMAIL allowlist
+//
+// The second exists because the broker has no registration for site=3dprints,
+// which left the dashboard unreachable. Both routes end at the SAME
+// `ownerAllowed()` check, so the allowlist stays the single source of who is an
+// admin — a second transport, not a second policy.
+//
+// The security trade is worth stating plainly: route 2 makes admin access
+// email-strength. Whoever can read aswin@aswincloud.com can issue refunds and
+// read customer addresses. Route 1 is stronger and should be preferred once the
+// broker knows this site; nothing here blocks that.
+//
+// What this is NOT: a way for a customer to self-promote. The email must already
+// be on the allowlist, which only a Worker var can change.
+export async function currentAdmin(request, env) {
+  // Prefer the broker session when present.
+  const viaBroker = await currentOwner(request, env);
+  if (viaBroker) return viaBroker;
+
+  const user = await currentCustomer(request, env);
+  if (!user?.email) return null;
+
+  // Same fail-closed allowlist check. An unset OWNER_EMAIL denies everyone,
+  // including here — see the note on ownerAllowed().
+  return ownerAllowed(env, user.email) ? user.email : null;
 }
 
 // ── routes ────────────────────────────────────────────────────────
@@ -154,12 +189,22 @@ export async function loginCallback(env, provider, request) {
   return new Response(null, { status: 302, headers: h });
 }
 
+// Clears BOTH sessions. The dashboard's sign-out button hits this endpoint, and
+// an admin who arrived via the OTP route holds an ap_user cookie — clearing only
+// ap_session would leave them apparently signed out while still authenticated.
 export function logout() {
-  return json({ ok: true }, 200, { "Set-Cookie": cookie(SESSION_COOKIE, "", { del: true }) });
+  const h = new Headers({ "content-type": "application/json" });
+  h.append("Set-Cookie", cookie(SESSION_COOKIE, "", { del: true }));
+  h.append("Set-Cookie", cookie("ap_user", "", { del: true }));
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers: h });
 }
 
+// Backs the dashboard's sign-in probe, so it must agree with the /api/admin/*
+// gate. Using currentOwner() here instead of currentAdmin() would leave an
+// OTP-authenticated owner able to call the API while the UI insisted they were
+// signed out.
 export async function whoami(request, env) {
-  const email = await currentOwner(request, env);
+  const email = await currentAdmin(request, env);
   return json({
     signedIn: Boolean(email),
     email: email || null,

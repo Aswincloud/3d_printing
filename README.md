@@ -249,6 +249,24 @@ tool and needs a dashboard change.
 
 ### Dashboard
 
+Reachable two ways, both ending at the same `OWNER_EMAIL` allowlist check:
+
+1. **Broker OAuth** (`ap_session`) — preferred, but needs `site=3dprints`
+   registered at `provision.aswincloud.com`.
+2. **An emailed code** (`ap_user`) — sign in at `/login` with an address on the
+   allowlist. This exists because the broker has no registration for this site
+   yet, which left the dashboard unreachable and the placeholder prices
+   uneditable.
+
+`currentAdmin()` in `src/auth.js` tries the broker session first, then falls back
+to a customer session whose verified email passes `ownerAllowed()`. It is a
+second *transport*, not a second policy — a customer cannot self-promote, because
+the allowlist only changes via a Worker var.
+
+The trade is worth stating: route 2 makes admin access **email-strength**.
+Whoever can read the owner's inbox can issue refunds and read customer addresses.
+Prefer route 1 once the broker knows this site.
+
 `/shop.html` — orders (with status controls and refunds) and products (price and
 visibility editing). Sign-in goes through the central broker at
 `auth.aswincloud.com`: it authenticates with Google/GitHub/Microsoft and relays

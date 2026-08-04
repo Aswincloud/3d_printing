@@ -71,6 +71,14 @@ async function boot() {
   $('profileEmail').value = me.email;
   $('profileName').value = me.name || '';
 
+  // Owner? Offer the dashboard. This only shows a link — /api/admin/* re-checks
+  // the allowlist itself, so the flag can't grant anything.
+  if (me.is_admin) {
+    const link = el('a', 'admin-btn', 'Dashboard →');
+    link.href = '/shop';
+    $('accountWho').insertAdjacentElement('beforebegin', link);
+  }
+
   // If a merge failed during sign-in, localStorage still holds a guest cart.
   // Reconcile it now rather than leaving it stranded.
   await reconcileGuestCart();
