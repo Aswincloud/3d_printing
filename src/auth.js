@@ -29,7 +29,12 @@ const SESSION_TTL_SECONDS = 14 * 24 * 60 * 60;      // 14 days
 const NONCE_COOKIE = "ap_oauth_nonce";
 const NONCE_PURPOSE = "broker_nonce";
 const NONCE_TTL_SECONDS = 10 * 60;
-const SITE_ID = "3dprints";                          // registration id with the broker
+// MUST equal the Worker name, because the provisioner registers a site under
+// the Worker's name (invoicer: worker "invoicer", SITE_ID "invoicer", broker
+// entry "invoicer" — all three identical, which is why its SSO works). This was
+// "3dprints" while the Worker is "3d-printing", so every broker lookup would
+// have come back unknown_site even after provisioning.
+const SITE_ID = "3d-printing";
 const KNOWN_PROVIDERS = ["google", "github", "microsoft"];
 
 export const ssoConfigured = (env) =>
