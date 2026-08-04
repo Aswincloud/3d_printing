@@ -173,6 +173,13 @@ body)`). `WEBHOOK_SECRET` is a string you choose in the dashboard. Conflating
 them is the most common Razorpay bug, so `test/payments.mjs` asserts each is
 rejected in the other's place.
 
+**Testing with cards.** Use a **domestic** test card — `5267 3181 8797 5449`
+(Mastercard), CVV `123`, any future expiry, OTP `1111` (4+ digits succeeds,
+fewer fails). The card most tutorials give, `4111 1111 1111 1111`, is classed as
+*international* by Razorpay and fails on a stock test account with
+`international_transaction_not_allowed`. The checkout modal also rejects some
+obviously-fake mobile numbers (`9876543210` among them); `9000090000` works.
+
 **The webhook, not the browser, marks an order paid.** `/api/orders/verify`
 only proves the callback is genuine so the customer sees a receipt. If the
 browser could set `paid`, anyone could POST a fabricated callback; if only the
