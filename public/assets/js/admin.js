@@ -119,12 +119,14 @@ async function loadProviders() {
   } catch { /* leave empty */ }
 
   if (!list.length) {
-    // The broker has no registration for this site yet, so there are no OAuth
-    // buttons. Signing in by emailed code reaches the same allowlist check.
+    // Shouldn't happen now the broker knows this site, but if it ever returns an
+    // empty list the email-code route on the main page reaches the same
+    // allowlist check. There is no /login page any more — sign-in is a modal
+    // there, so just send them home.
     box.appendChild(el('p', 'admin-muted',
-      'OAuth sign-in is not configured for this site yet.'));
-    const a = el('a', 'provider-btn', 'Sign in with an email code');
-    a.href = '/login?next=/shop';
+      'OAuth sign-in is unavailable. Sign in from the main page instead.'));
+    const a = el('a', 'provider-btn', 'Go to the shop');
+    a.href = '/';
     box.appendChild(a);
     return;
   }

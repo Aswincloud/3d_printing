@@ -1018,38 +1018,378 @@ function closeReceipt() {
 document.getElementById('receiptClose')?.addEventListener('click', closeReceipt);
 document.getElementById('receiptOverlay')?.addEventListener('click', closeReceipt);
 
-/* ===== SIGNED-IN STATE ===== */
-/* The shop works identically for guests; this only adds convenience for a
-   signed-in customer: the account icon points at their account rather than the
-   login page, the checkout form prefills, and the cart is the server's copy
-   rather than localStorage. */
+
+/* ===== ACCOUNT: SIGN IN, MENU, ORDERS ===== */
+/* All inline on this page — there is no /login or /account route. The dashboard
+   at /shop is the one remaining separate page, and the ONLY way to reach it is
+   the menu entry added below when /api/me reports is_admin. */
 
 let currentUser = null;
 
+const accountBtn = document.getElementById('accountBtn');
+const accountMenu = document.getElementById('accountMenu');
+const signinModal = document.getElementById('signinModal');
+const signinOverlay = document.getElementById('signinOverlay');
+const siError = document.getElementById('siError');
+
+/* ── session ────────────────────────────────────────────────────── */
 async function loadSession() {
   try {
     const me = await (await fetch('/api/me')).json();
-    if (!me.signedIn) return;
+    if (!me.signedIn) return applyGuestState();
     currentUser = me;
-
-    const btn = document.getElementById('accountBtn');
-    if (btn) {
-      btn.href = '/account';
-      btn.setAttribute('aria-label', 'My account (' + me.email + ')');
-      btn.title = me.name || me.email;
-    }
-
-    // The account cart is authoritative once signed in. Pull it and mirror it
-    // into localStorage so every existing renderer keeps working unchanged.
+    applySignedInState(me);
     await adoptServerCart();
   } catch {
-    // Not signed in, or /api/me unreachable — the guest path is unaffected.
+    applyGuestState();       // offline or 401 — the shop works either way
   }
 }
 
+function applyGuestState() {
+  currentUser = null;
+  accountBtn?.setAttribute('aria-label', 'Sign in');
+  accountBtn?.setAttribute('title', 'Sign in');
+  const dot = document.getElementById('accountDot');
+  if (dot) dot.hidden = true;
+  if (accountMenu) accountMenu.hidden = true;
+  const tabs = document.getElementById('drawerTabs');
+  if (tabs) tabs.hidden = true;
+}
+
+function applySignedInState(me) {
+  accountBtn?.setAttribute('aria-label', 'Account menu (' + me.email + ')');
+  accountBtn?.setAttribute('title', me.name || me.email);
+  const dot = document.getElementById('accountDot');
+  if (dot) dot.hidden = false;
+
+  const who = document.getElementById('accountMenuWho');
+  if (who) who.textContent = me.name ? `${me.name} · ${me.email}` : me.email;
+
+  // Dashboard entry, admins only. This is a DISPLAY decision — /api/admin/*
+  // re-checks the allowlist server-side, so a faked is_admin shows a link that
+  // leads to a 401.
+  if (me.is_admin && !document.getElementById('menuDashboard')) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.id = 'menuDashboard';
+    item.className = 'account-menu-item is-admin';
+    item.setAttribute('role', 'menuitem');
+    item.textContent = 'Dashboard';
+    item.addEventListener('click', () => { location.href = '/shop'; });
+    accountMenu.insertBefore(item, document.getElementById('menuOrders'));
+  }
+
+  // Orders tab in the drawer becomes available.
+  const tabs = document.getElementById('drawerTabs');
+  if (tabs) tabs.hidden = false;
+}
+
+/* ── account button: sign in, or open the menu ─────────────────── */
+accountBtn?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!currentUser) return openSignin();
+  const open = !accountMenu.hidden;
+  accountMenu.hidden = open;
+  accountBtn.setAttribute('aria-expanded', String(!open));
+});
+
+document.addEventListener('click', (e) => {
+  if (accountMenu && !accountMenu.hidden && !e.target.closest('.nav-account')) {
+    accountMenu.hidden = true;
+    accountBtn?.setAttribute('aria-expanded', 'false');
+  }
+});
+
+document.getElementById('menuSignOut')?.addEventListener('click', async () => {
+  try { await fetch('/api/me/logout', { method: 'POST' }); } catch { /* ignore */ }
+  // Clear the mirrored cart so the next visitor on this browser starts clean.
+  try { localStorage.removeItem(CART_KEY); } catch { /* ignore */ }
+  location.reload();
+});
+
+document.getElementById('menuOrders')?.addEventListener('click', () => {
+  accountMenu.hidden = true;
+  openCart();
+  selectDrawerTab('orders');
+});
+
+/* ── sign-in modal ─────────────────────────────────────────────── */
+function openSignin() {
+  if (!signinModal) return;
+  siBanner('');
+  siClear('si_email'); siClear('si_code');
+  document.getElementById('siCodeForm').hidden = true;
+  document.getElementById('siEmailForm').hidden = false;
+  signinModal.hidden = false;
+  signinOverlay.hidden = false;
+  signinModal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('siEmail')?.focus();
+}
+
+function closeSignin() {
+  if (!signinModal) return;
+  clearInterval(siCooldownTimer);
+  signinModal.hidden = true;
+  signinOverlay.hidden = true;
+  signinModal.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+}
+
+document.getElementById('signinClose')?.addEventListener('click', closeSignin);
+signinOverlay?.addEventListener('click', closeSignin);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && signinModal && !signinModal.hidden) closeSignin();
+});
+
+function siBanner(message) {
+  if (!siError) return;
+  siError.textContent = message || '';
+  siError.hidden = !message;
+}
+
+function siSetErr(name, message) {
+  const f = document.querySelector('[name="' + name + '"]');
+  const slot = document.getElementById(name + 'Error');
+  if (f) { f.classList.add('invalid'); f.setAttribute('aria-invalid', 'true'); }
+  if (slot) { slot.textContent = message; slot.classList.add('show'); }
+}
+
+function siClear(name) {
+  const f = document.querySelector('[name="' + name + '"]');
+  const slot = document.getElementById(name + 'Error');
+  if (f) { f.classList.remove('invalid'); f.removeAttribute('aria-invalid'); }
+  if (slot) slot.classList.remove('show');
+}
+
+['siEmail', 'siCode'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('input', (e) => {
+    siClear(e.target.name);
+    siBanner('');
+  });
+});
+
+let siPendingEmail = '';
+let siCooldownTimer = null;
+
+document.getElementById('siEmailForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  siClear('si_email'); siBanner('');
+  const email = document.getElementById('siEmail').value.trim();
+  if (!EMAIL_RE.test(email)) return siSetErr('si_email', 'Please enter a valid email address.');
+
+  const btn = document.getElementById('siSendBtn');
+  const label = document.getElementById('siSendLabel');
+  btn.disabled = true; label.textContent = 'Sending…';
+  try {
+    const res = await fetch('/api/auth/code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not send the code.');
+
+    siPendingEmail = email;
+    document.getElementById('siSentTo').textContent = email;
+    if (data.ttl_minutes) document.getElementById('siTtl').textContent = String(data.ttl_minutes);
+    document.getElementById('siEmailForm').hidden = true;
+    document.getElementById('siCodeForm').hidden = false;
+    document.getElementById('siCode').focus();
+    siStartCooldown(60);
+  } catch (err) {
+    siBanner(err.message);
+  } finally {
+    btn.disabled = false; label.textContent = 'Email me a code';
+  }
+});
+
+document.getElementById('siCodeForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  siClear('si_code'); siBanner('');
+  const code = document.getElementById('siCode').value.replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(code)) return siSetErr('si_code', 'Enter the 6-digit code from the email.');
+
+  const btn = document.getElementById('siVerifyBtn');
+  const label = document.getElementById('siVerifyLabel');
+  btn.disabled = true; label.textContent = 'Signing in…';
+  try {
+    const res = await fetch('/api/auth/code/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: siPendingEmail, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'That code did not work.');
+
+    closeSignin();
+    // Reload rather than patching state in place: the cart, the badge, the menu
+    // and the checkout prefill all depend on the session, and a reload gets
+    // every one of them right without a second code path.
+    location.reload();
+  } catch (err) {
+    siBanner(err.message);
+    btn.disabled = false; label.textContent = 'Sign in';
+  }
+});
+
+function siStartCooldown(seconds) {
+  clearInterval(siCooldownTimer);
+  const btn = document.getElementById('siResendBtn');
+  if (!btn) return;
+  let left = seconds;
+  const tick = () => {
+    if (left <= 0) {
+      clearInterval(siCooldownTimer);
+      btn.disabled = false;
+      btn.textContent = 'Resend code';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = `Resend in ${left}s`;
+    left -= 1;
+  };
+  tick();
+  siCooldownTimer = setInterval(tick, 1000);
+}
+
+document.getElementById('siResendBtn')?.addEventListener('click', async () => {
+  siBanner('');
+  try {
+    const res = await fetch('/api/auth/code/resend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: siPendingEmail }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not resend.');
+    siStartCooldown(data.cooldown_seconds || 60);
+    if (data.cooldown_seconds) siBanner(`Please wait ${data.cooldown_seconds}s for another code.`);
+  } catch (err) {
+    siBanner(err.message);
+  }
+});
+
+document.getElementById('siBackBtn')?.addEventListener('click', () => {
+  clearInterval(siCooldownTimer);
+  siBanner(''); siClear('si_code');
+  document.getElementById('siCode').value = '';
+  document.getElementById('siCodeForm').hidden = true;
+  document.getElementById('siEmailForm').hidden = false;
+  document.getElementById('siEmail').focus();
+});
+
+/* ── drawer tabs: cart / orders ────────────────────────────────── */
+function selectDrawerTab(which) {
+  const isCart = which === 'cart';
+  document.getElementById('tabCart')?.classList.toggle('active', isCart);
+  document.getElementById('tabOrders')?.classList.toggle('active', !isCart);
+  document.getElementById('tabCart')?.setAttribute('aria-selected', String(isCart));
+  document.getElementById('tabOrders')?.setAttribute('aria-selected', String(!isCart));
+  document.getElementById('cartBody').hidden = !isCart;
+  document.getElementById('ordersBody').hidden = isCart;
+  const foot = document.getElementById('cartFoot');
+  // The checkout footer belongs to the cart, not to the order list.
+  if (foot) foot.style.display = isCart ? '' : 'none';
+  const title = document.getElementById('drawerTitle');
+  if (title) title.textContent = isCart ? 'Your Cart' : 'My Orders';
+  if (!isCart) loadMyOrders();
+}
+
+document.getElementById('tabCart')?.addEventListener('click', () => selectDrawerTab('cart'));
+document.getElementById('tabOrders')?.addEventListener('click', () => selectDrawerTab('orders'));
+
+async function loadMyOrders() {
+  const box = document.getElementById('ordersBody');
+  if (!box) return;
+  box.innerHTML = '';
+  const p = document.createElement('p');
+  p.className = 'cart-empty';
+  p.textContent = 'Loading…';
+  box.appendChild(p);
+
+  try {
+    const res = await fetch('/api/me/orders');
+    if (!res.ok) throw new Error('Please sign in again.');
+    const { orders } = await res.json();
+    box.innerHTML = '';
+    if (!orders.length) {
+      const empty = document.createElement('p');
+      empty.className = 'cart-empty';
+      empty.textContent = "You haven't placed any orders yet.";
+      box.appendChild(empty);
+      return;
+    }
+    for (const o of orders) box.appendChild(myOrderRow(o));
+  } catch (err) {
+    box.innerHTML = '';
+    const e = document.createElement('p');
+    e.className = 'cart-empty';
+    e.textContent = err.message;
+    box.appendChild(e);
+  }
+}
+
+// textContent throughout: order notes are admin-editable, so interpolating them
+// into innerHTML would be a stored-XSS path.
+function myOrderRow(o) {
+  const wrap = document.createElement('div');
+  wrap.className = 'my-order';
+
+  const top = document.createElement('div');
+  top.className = 'my-order-top';
+
+  const left = document.createElement('div');
+  const ref = document.createElement('div');
+  ref.className = 'my-order-ref';
+  ref.textContent = o.receipt;
+  const badge = document.createElement('span');
+  badge.className = 'my-order-status st-' + o.status;
+  badge.textContent = o.status;
+  ref.appendChild(badge);
+  const date = document.createElement('div');
+  date.className = 'my-order-date';
+  date.textContent = new Date(Number(o.created_at)).toLocaleDateString('en-IN',
+    { day: 'numeric', month: 'short', year: 'numeric' });
+  left.append(ref, date);
+
+  const total = document.createElement('div');
+  total.className = 'my-order-total';
+  total.textContent = rupees(o.total_paise);
+
+  top.append(left, total);
+  wrap.appendChild(top);
+
+  const ul = document.createElement('ul');
+  ul.className = 'my-order-items';
+  for (const it of o.items || []) {
+    const li = document.createElement('li');
+    const n = document.createElement('span');
+    n.textContent = `${it.name} × ${it.qty}`;
+    const v = document.createElement('span');
+    v.textContent = rupees(it.price_paise * it.qty);
+    li.append(n, v);
+    ul.appendChild(li);
+  }
+  wrap.appendChild(ul);
+
+  if (o.delivery === 'pickup' || o.shipped_at || o.notes) {
+    const meta = document.createElement('div');
+    meta.className = 'my-order-date';
+    const bits = [];
+    if (o.delivery === 'pickup') bits.push('Local pickup');
+    if (o.shipped_at) bits.push('Shipped');
+    if (o.notes) bits.push(o.notes);
+    meta.textContent = bits.join(' · ');
+    wrap.appendChild(meta);
+  }
+
+  return wrap;
+}
+
+/* ── server cart for a signed-in customer ──────────────────────── */
 async function adoptServerCart() {
   try {
-    // Hand over anything still sitting in localStorage from before sign-in.
     const local = readCart();
     if (local.length) {
       await fetch('/api/me/cart/merge', {
@@ -1061,28 +1401,26 @@ async function adoptServerCart() {
     const res = await fetch('/api/me/cart');
     if (!res.ok) return;
     const { items } = await res.json();
-    // Write through the normal path so the badge and drawer re-render.
-    localStorage.setItem(CART_KEY, JSON.stringify(
-      items.map((it) => ({ id: it.product_id, qty: it.qty })),
-    ));
+    // setItem directly, NOT writeCart — writeCart triggers syncCartUp, which
+    // would push straight back to the server in a loop.
+    localStorage.setItem(CART_KEY, JSON.stringify(items.map((it) => ({ id: it.product_id, qty: it.qty }))));
     renderCart();
-  } catch { /* leave the local cart alone */ }
+  } catch { /* keep the local cart */ }
 }
 
-// Push the local cart to the account after any change, so it survives a device
-// switch. Fire-and-forget: a failed sync must never block adding to a cart.
+// Called from writeCart on every cart mutation. Fire-and-forget: a failed sync
+// must never block adding to a cart.
 function syncCartUp() {
   if (!currentUser) return;
-  const items = readCart().map((it) => ({ product_id: it.id, qty: it.qty }));
   fetch('/api/me/cart', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items: readCart().map((it) => ({ product_id: it.id, qty: it.qty })) }),
   }).catch(() => {});
 }
 
 // Prefill checkout for a signed-in customer. The server still validates
-// everything and still reads user_id from the cookie, not from these fields.
+// everything, and still reads user_id from the cookie rather than these fields.
 function prefillCheckout() {
   if (!currentUser) return;
   const email = document.getElementById('coEmail');

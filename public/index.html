@@ -45,11 +45,23 @@
       <span class="cart-badge" id="cartBadge" hidden>0</span>
     </button>
     <!-- Also outside .nav-links: that list is display:none under 768px, so an
-         account link inside it would be unreachable on a phone without opening
+         account button inside it would be unreachable on a phone without opening
          the hamburger first. Same reason the cart button lives here. -->
-    <a href="/login" class="nav-cart" id="accountBtn" aria-label="My account" title="My account">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-    </a>
+    <div class="nav-account">
+      <button class="nav-cart" id="accountBtn" type="button"
+              aria-label="Sign in" aria-haspopup="true" aria-expanded="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span class="account-dot" id="accountDot" hidden></span>
+      </button>
+      <!-- Shown only when signed in. The Dashboard entry is added by main.js
+           when /api/me reports is_admin, and is the ONLY way to reach the
+           dashboard — it isn't linked anywhere else. -->
+      <div class="account-menu" id="accountMenu" hidden role="menu">
+        <div class="account-menu-who" id="accountMenuWho"></div>
+        <button type="button" class="account-menu-item" id="menuOrders" role="menuitem">My orders</button>
+        <button type="button" class="account-menu-item" id="menuSignOut" role="menuitem">Sign out</button>
+      </div>
+    </div>
     <div class="nav-hamburger" aria-label="Menu">
       <span></span><span></span><span></span>
     </div>
@@ -388,11 +400,19 @@
 <div class="cart-overlay" id="cartOverlay" hidden></div>
 <aside class="cart-drawer" id="cartDrawer" aria-label="Shopping cart" aria-hidden="true">
   <div class="cart-head">
-    <h3>Your Cart</h3>
+    <h3 id="drawerTitle">Your Cart</h3>
     <button class="cart-close" id="cartClose" type="button" aria-label="Close cart">✕</button>
   </div>
 
+  <!-- Orders live here rather than in a page of their own: the drawer is where
+       someone already looks for their own things. Only shown when signed in. -->
+  <div class="drawer-tabs" id="drawerTabs" hidden role="tablist">
+    <button class="drawer-tab active" id="tabCart" type="button" role="tab" aria-selected="true">Cart</button>
+    <button class="drawer-tab" id="tabOrders" type="button" role="tab" aria-selected="false">My orders</button>
+  </div>
+
   <div class="cart-body" id="cartBody"></div>
+  <div class="cart-body" id="ordersBody" hidden></div>
 
   <div class="cart-foot" id="cartFoot" hidden>
     <div class="cart-row"><span>Subtotal</span><strong id="cartSubtotal">₹0</strong></div>
@@ -405,6 +425,58 @@
     <p class="cart-fineprint">Final price is confirmed by the server at checkout.</p>
   </div>
 </aside>
+
+<!-- ===== SIGN IN ===== -->
+<!-- Inline on the main page rather than a /login route. Two steps in one modal:
+     email, then the 6-digit code we email. Reuses .checkout-modal so there's one
+     modal style on the page. -->
+<div class="checkout-overlay" id="signinOverlay" hidden></div>
+<div class="checkout-modal" id="signinModal" role="dialog" aria-modal="true"
+     aria-labelledby="signinTitle" aria-hidden="true" hidden>
+  <div class="checkout-head">
+    <h3 id="signinTitle">Sign in</h3>
+    <button class="cart-close" id="signinClose" type="button" aria-label="Close">✕</button>
+  </div>
+
+  <div class="checkout-form">
+    <!-- Step 1 -->
+    <form id="siEmailForm" novalidate>
+      <p class="si-lead">Track your orders and keep your cart across devices.
+        We'll email you a 6-digit code — no password needed.</p>
+      <div class="co-field">
+        <label for="siEmail">Email address</label>
+        <input type="email" id="siEmail" name="si_email" autocomplete="email"
+               inputmode="email" placeholder="you@example.com" required />
+        <span class="field-error" id="si_emailError"></span>
+      </div>
+      <button type="submit" class="btn-primary co-submit" id="siSendBtn">
+        <span id="siSendLabel">Email me a code</span>
+      </button>
+    </form>
+
+    <!-- Step 2 -->
+    <form id="siCodeForm" novalidate hidden>
+      <p class="si-lead">Code sent to <strong id="siSentTo"></strong>.
+        It expires in <span id="siTtl">10</span> minutes.</p>
+      <div class="co-field">
+        <label for="siCode">6-digit code</label>
+        <input type="text" id="siCode" name="si_code" inputmode="numeric"
+               autocomplete="one-time-code" maxlength="6" placeholder="123456"
+               class="si-code-input" required />
+        <span class="field-error" id="si_codeError"></span>
+      </div>
+      <button type="submit" class="btn-primary co-submit" id="siVerifyBtn">
+        <span id="siVerifyLabel">Sign in</span>
+      </button>
+      <div class="si-actions">
+        <button type="button" class="admin-btn-ghost" id="siResendBtn">Resend code</button>
+        <button type="button" class="admin-btn-ghost" id="siBackBtn">Use another email</button>
+      </div>
+    </form>
+
+    <div class="co-error" id="siError" hidden></div>
+  </div>
+</div>
 
 <!-- ===== CHECKOUT ===== -->
 <!-- Collects delivery details, then hands off to Razorpay. The amount shown

@@ -89,9 +89,7 @@ through to the Worker, so `/api/*` is handled in `src/`.
 ```
 3d_printing/
 ├── public/                      # Static site (served via [assets])
-│   ├── index.html               # Main website (all sections)
-│   ├── login.html               # Customer sign-in (emailed 6-digit code)
-│   ├── account.html             # Customer orders + saved cart
+│   ├── index.html               # Main website — shop, cart, sign-in, account menu
 │   ├── shop.html                # Owner dashboard (orders, products, refunds)
 │   └── assets/
 │       ├── css/style.css        # All styling
@@ -209,15 +207,21 @@ the admin dashboard before live keys are enabled.
 
 ### Customer accounts
 
-Customers sign in at `/login` with a **6-digit code emailed to them** — no
+Customers sign in **on the main page** — an inline modal, no separate route —
+with a **6-digit code emailed to them** — no
 password to set, forget, or leak. Built on `@aswincloud/auth`'s OTP primitives
 (`generateOtp`/`hashOtp`/`otpHashEquals` and the `otp_codes` table), so codes are
 stored peppered-and-hashed with an attempt counter, never in plaintext. Its
 higher-level `signup()`/`verifyOtp()` flows are deliberately unused: both require
 a password.
 
-Signing in gives them `/account` — order history, a cart that follows them
-between devices, and a display name.
+Signing in changes the account button into a menu: **My orders** (a second tab
+in the cart drawer), **Sign out**, and — only when `/api/me` reports `is_admin` —
+**Dashboard**. That menu entry is the only route to `/shop`; nothing else links
+it. The flag is a display hint, so a client faking it just gets a link that 401s.
+
+`/shop` is the one page that remains separate, because a 31-row product editor
+and an order table need the room.
 
 **Two auth schemes, kept apart.** Admin uses `ap_session` with token purpose
 `owner_session`; customers use `ap_user` with purpose `customer_session`. The
