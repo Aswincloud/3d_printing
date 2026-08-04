@@ -1,19 +1,18 @@
 # Go-live runbook
 
-State: code is on `main`, `3dprints-db` exists and is migrated, and the Worker
-**is deployed and serving** at
+**LIVE at https://3d-prints.aswincloud.com** (also reachable at
+https://3d-printing.aswincloud.workers.dev).
 
-    https://3d-printing.aswincloud.workers.dev
+Cutover completed: all four secrets set, the Pages CNAME replaced with a Worker
+custom domain, and GitHub Pages disabled. Verified on the live domain — 26
+products from D1, admin routes 401, no credential in any client asset, and a
+real Razorpay order created with an injected `price_paise: 1` correctly ignored.
 
-Note the deployed name is **`3d-printing`** (Workers Builds took it from the
-repo), not the `3d-prints` in `wrangler.toml`. The deployed name wins — use
-`--name 3d-printing` for every wrangler command below.
+The Worker is named **`3d-printing`** (Workers Builds took it from the repo);
+`wrangler.toml` now matches, so a plain `wrangler deploy` updates the live one.
 
-`3d-prints.aswincloud.com` is still served by the last GitHub Pages build, so
-the leaked token is still exposed until step 5.
-
-Steps 1–3 are yours (dashboard + account actions). Everything after is
-verification, and can be re-run any time.
+**Still outstanding: revoke the leaked GitHub PAT (step 0).** It is no longer
+served anywhere, but it was public for weeks and is still valid.
 
 ---
 
@@ -44,9 +43,14 @@ Deployed as `3d-printing` in the AswinCloud account
 vars bound. Verified serving. Every push to `main` now deploys; don't run
 `wrangler deploy` by hand.
 
-## 2. Set the Worker secrets
+## 2. Set the Worker secrets — DONE
 
-None are set yet (`wrangler secret list --name 3d-printing` → `[]`).
+All four are set: `RESEND_API_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
+`RAZORPAY_WEBHOOK_SECRET`. Verified live: checkout creates real Razorpay orders,
+the webhook rejects a bad signature with 400 (not 503), and the quote form sends
+through Resend.
+
+To rotate any of them:
 
 ```bash
 export CLOUDFLARE_API_TOKEN="$CF_TOKEN"
@@ -124,31 +128,24 @@ curl -s $W/assets/js/main.js | grep -c 'rzp_\|re_\|_secret'   # 0
 Then click through it: gallery lightbox, add to cart, cart persists on reload,
 checkout validation, and the Razorpay modal opening with the right amount.
 
-## 5. Move the domain
+## 5. Move the domain — DONE
 
-Only after step 4 passes.
+The Pages CNAME (`3d-prints` → `aswincloud.github.io`) was deleted and replaced
+with a Worker custom domain; Cloudflare refuses to attach one while an
+externally-managed record exists, so the delete has to come first. GitHub Pages
+is now disabled, which removed the build containing the token.
 
-1. Cloudflare → Workers & Pages → `3d-printing` → Settings → Domains & Routes →
-   **Add custom domain** → `3d-prints.aswincloud.com`
-2. GitHub → repo Settings → Pages → set Source to **None** (disables Pages)
+**Rollback** (now slower, since Pages is disabled): re-enable Pages on `main`,
+restore `.github/workflows/deploy.yml` from
+`git show 83cd615:.github/workflows/deploy.yml`, re-add a `CNAME` file, then
+recreate the DNS record — `CNAME 3d-prints.aswincloud.com → aswincloud.github.io`,
+unproxied, TTL auto. Note the rebuilt Pages site would contain the leaked token
+again unless it's been revoked.
 
-DNS is already Cloudflare-managed, so propagation is quick. `CNAME` is already
-deleted from the repo, and the Pages workflow is gone, so nothing will
-re-deploy the old build.
+## 6. Post-cutover — the ₹1 test is still to do
 
-**Rollback:** re-add a `CNAME` file containing `3d-prints.aswincloud.com`,
-restore `.github/workflows/deploy.yml` from `git show 83cd615:.github/workflows/deploy.yml`,
-and re-enable Pages. Worth knowing the old build *contains the leaked token*, so
-rolling back re-exposes it — revoke it (step 0) and rollback stays safe.
-
-## 6. Post-cutover
-
-```bash
-curl -s https://3d-prints.aswincloud.com/api/health
-curl -s https://3d-prints.aswincloud.com/assets/js/main.js | grep -c ghp_   # must be 0
-```
-
-Then a real ₹1 test order:
+Health and the token check both pass. What remains is the one thing that can't
+be verified without a public URL and a real payment:
 
 1. Temporarily set one product to ₹1 in the dashboard
 2. Buy it with a **domestic** test card — `5267 3181 8797 5449`, CVV `123`,
