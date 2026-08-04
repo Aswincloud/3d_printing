@@ -1,8 +1,16 @@
 # Go-live runbook
 
-State at the time of writing: all code is on `main` (`d2b8798`), `3dprints-db`
-exists and is migrated, and **nothing is deployed yet**. `3d-prints.aswincloud.com`
-is still served by the last GitHub Pages build.
+State: code is on `main`, `3dprints-db` exists and is migrated, and the Worker
+**is deployed and serving** at
+
+    https://3d-printing.aswincloud.workers.dev
+
+Note the deployed name is **`3d-printing`** (Workers Builds took it from the
+repo), not the `3d-prints` in `wrangler.toml`. The deployed name wins — use
+`--name 3d-printing` for every wrangler command below.
+
+`3d-prints.aswincloud.com` is still served by the last GitHub Pages build, so
+the leaked token is still exposed until step 5.
 
 Steps 1–3 are yours (dashboard + account actions). Everything after is
 verification, and can be re-run any time.
@@ -29,50 +37,48 @@ Then check for misuse across *all* public repos, not just this one:
 gh api /users/Aswinmcw/events --jq '.[] | "\(.created_at) \(.type) \(.repo.name)"' | head -40
 ```
 
-## 1. Connect Workers Builds
+## 1. Connect Workers Builds — DONE
 
-The `3d-prints` Worker does not exist yet, so there is no build pipeline for a
-push to trigger. Create it once, in the dashboard:
-
-**Workers & Pages → Create → Import a repository → `Aswincloud/3d_printing`**
-
-- Worker name: `3d-prints` (must match `name` in `wrangler.toml`)
-- Branch: `main`
-- Build command: *(none — no build step)*
-- Deploy command: `npx wrangler deploy`
-
-Account: **AswinCloud** (`e38978124c8fdb38dc80c04cda318ab3`). It must be this
-account, because cross-account D1 bindings do not work and `3dprints-db` lives
-here.
-
-From then on every push to `main` deploys. Do not run `wrangler deploy` by hand.
+Deployed as `3d-printing` in the AswinCloud account
+(`e38978124c8fdb38dc80c04cda318ab3`), with `DB` → `3dprints-db` and all nine
+vars bound. Verified serving. Every push to `main` now deploys; don't run
+`wrangler deploy` by hand.
 
 ## 2. Set the Worker secrets
 
-Deploy first (step 1 creates the Worker), then:
+None are set yet (`wrangler secret list --name 3d-printing` → `[]`).
 
 ```bash
 export CLOUDFLARE_API_TOKEN="$CF_TOKEN"
 export CLOUDFLARE_ACCOUNT_ID=e38978124c8fdb38dc80c04cda318ab3
+N="--name 3d-printing"
 
-npx wrangler secret put RESEND_API_KEY            # re_…
-npx wrangler secret put RAZORPAY_KEY_ID           # rzp_test_…
-npx wrangler secret put RAZORPAY_KEY_SECRET
-npx wrangler secret put RAZORPAY_WEBHOOK_SECRET   # you invent this — see below
+npx wrangler secret put RESEND_API_KEY          $N   # re_…
+npx wrangler secret put RAZORPAY_KEY_ID         $N   # rzp_test_…
+npx wrangler secret put RAZORPAY_KEY_SECRET     $N   # the 24-char one
+npx wrangler secret put RAZORPAY_WEBHOOK_SECRET $N   # NOT the above — see below
 ```
+
+### The three Razorpay values are three different things
+
+| Value | Where it comes from | What it's for |
+|---|---|---|
+| `RAZORPAY_KEY_ID` | Razorpay issues it | Public. Ships to the browser. |
+| `RAZORPAY_KEY_SECRET` | Razorpay issues it | API password; signs the checkout callback. |
+| `RAZORPAY_WEBHOOK_SECRET` | **You invent it** | Signs webhooks. Typed into the dashboard's "Secret" field when creating the webhook. |
+
+The third is not the second. Razorpay never issues it. Setting them to the same
+string makes every webhook fail signature verification, which means paid orders
+never leave `pending`.
 
 Until they are set the Worker still serves: the site, gallery and catalogue all
 work, and the quote form / checkout / webhook each return a 503 with a clear
 message rather than a 500. So a missed secret is visible, not silent.
 
-**`RAZORPAY_WEBHOOK_SECRET` is not issued to you.** You choose a string when
-creating the webhook in the Razorpay dashboard, and put the same string here.
-It is *not* `RAZORPAY_KEY_SECRET` — conflating them is the classic bug, and it
-would make every webhook fail signature verification.
-
-Without it, **paid orders never leave `pending`**: no fulfilment, no emails. The
-customer is charged and sees a receipt, and you never find out. This is the one
-secret whose absence is genuinely damaging.
+Without `RAZORPAY_WEBHOOK_SECRET`, **paid orders never leave `pending`**: no
+fulfilment, no emails. The customer is charged and sees a receipt, and you never
+find out. It's the one secret whose absence is damaging rather than merely
+obvious.
 
 Phase 4 sign-in also needs `SESSION_SECRET` and `RELAY_SECRET` from
 `provision.aswincloud.com` for `site=3dprints`. Without them the dashboard shows
@@ -82,7 +88,8 @@ Phase 4 sign-in also needs `SESSION_SECRET` and `RELAY_SECRET` from
 
 Razorpay dashboard → Settings → Webhooks → Add:
 
-- URL: `https://3d-prints.aswincloud.com/api/webhook/razorpay`
+- URL: `https://3d-printing.aswincloud.workers.dev/api/webhook/razorpay`
+  (switch to `https://3d-prints.aswincloud.com/api/webhook/razorpay` after step 5)
 - Secret: the same string you set as `RAZORPAY_WEBHOOK_SECRET`
 - Events: `order.paid` and `payment.failed`
 
@@ -92,13 +99,18 @@ subscribe to it.)
 
 ## 4. Verify on `*.workers.dev` before moving the domain
 
+Already run once and passing: 26 products from remote D1, all three admin
+routes 401, quote/checkout/webhook each 503 (no secrets yet), no credential of
+any kind in the served JS, dashboard and the new poster both 200. Re-run after
+setting secrets — the 503s should become real responses.
+
 ```bash
-W=https://3d-prints.<your-subdomain>.workers.dev
+W=https://3d-printing.aswincloud.workers.dev
 
 curl -s $W/api/health                       # {"ok":true,...}
 curl -s $W/api/products | head -c 200       # 26 products
 curl -s -o /dev/null -w '%{http_code}\n' $W/            # 200, the site itself
-curl -s -o /dev/null -w '%{http_code}\n' $W/shop.html   # 200, sign-in panel
+curl -sL -o /dev/null -w '%{http_code}\n' $W/shop     # 200, sign-in panel
 
 # every admin route must refuse an unauthenticated caller
 for p in stats products orders; do
@@ -116,7 +128,7 @@ checkout validation, and the Razorpay modal opening with the right amount.
 
 Only after step 4 passes.
 
-1. Cloudflare → Workers & Pages → `3d-prints` → Settings → Domains & Routes →
+1. Cloudflare → Workers & Pages → `3d-printing` → Settings → Domains & Routes →
    **Add custom domain** → `3d-prints.aswincloud.com`
 2. GitHub → repo Settings → Pages → set Source to **None** (disables Pages)
 

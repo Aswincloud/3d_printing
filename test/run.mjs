@@ -109,7 +109,7 @@ ok("customer mail shows grand total ₹997", cust.includes("₹997"));
 ok("customer mail shows shipping ₹99", cust.includes("₹99"));
 ok("owner mail shows payment id", own.includes("pay_TEST123"));
 ok("owner mail shows phone", own.includes("+91 90000 00000"));
-ok("owner mail links dashboard", own.includes("/shop.html"));
+ok("owner mail links dashboard", own.includes("/shop"));
 
 // free shipping renders the "(free)" label
 const freeOrder = { ...order, shipping_paise: 0, subtotal_paise: 160000, total_paise: 160000 };

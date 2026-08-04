@@ -99,7 +99,7 @@ export async function loginStart(env, provider) {
     return new Response(null, { status: 302, headers: h });
   };
 
-  if (!ssoConfigured(env)) return redirect("/shop.html?auth=config");
+  if (!ssoConfigured(env)) return redirect("/shop?auth=config");
 
   const prov = KNOWN_PROVIDERS.includes(provider) ? provider : "google";
 
@@ -119,7 +119,7 @@ export async function loginStart(env, provider) {
 export async function loginCallback(env, provider, request) {
   const clearNonce = cookie(NONCE_COOKIE, "", { del: true });
   const fail = (why) => {
-    const h = new Headers({ Location: `/shop.html?auth=${why}` });
+    const h = new Headers({ Location: `/shop?auth=${why}` });
     h.append("Set-Cookie", clearNonce);
     return new Response(null, { status: 302, headers: h });
   };
@@ -148,7 +148,7 @@ export async function loginCallback(env, provider, request) {
   }
 
   const session = await signToken(env.SESSION_SECRET, email, SESSION_PURPOSE, SESSION_TTL_SECONDS);
-  const h = new Headers({ Location: "/shop.html?auth=ok" });
+  const h = new Headers({ Location: "/shop?auth=ok" });
   h.append("Set-Cookie", cookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS }));
   h.append("Set-Cookie", clearNonce);
   return new Response(null, { status: 302, headers: h });

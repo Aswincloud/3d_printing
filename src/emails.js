@@ -171,7 +171,7 @@ export function orderOwnerEmail(env, order, items) {
       ["Total", `<span style="color:${ORANGE}">${rupees(order.total_paise)}</span>`],
       order.notes ? ["Notes", esc(order.notes)] : null,
     ]) +
-    button(base + "/shop.html", "Open Dashboard") +
+    button(base + "/shop", "Open Dashboard") +
     `<div style="height:32px"></div></div>`
   );
 }

@@ -1,4 +1,7 @@
-name = "3d-prints"
+# Must match the Worker that Workers Builds created, which took its name from
+# the repo (3d_printing → 3d-printing). A mismatch here would deploy a SECOND
+# Worker rather than updating the live one.
+name = "3d-printing"
 main = "src/index.js"
 compatibility_date = "2026-07-01"
 
