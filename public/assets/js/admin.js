@@ -327,10 +327,50 @@ async function loadProducts() {
     return;
   }
   for (const p of data.products) box.appendChild(productRow(p));
+
+  // A re-render builds new row elements, so any still-pending edit loses its
+  // marker while pendingEdits still holds it — the bar would then claim unsaved
+  // changes with nothing highlighted. Re-apply, and drop entries whose product
+  // has since disappeared.
+  for (const id of [...pendingEdits.keys()]) {
+    const row = [...box.querySelectorAll('.product-row')]
+      .find((r) => r.dataset.productId === id);
+    if (row) row.classList.add('dirty-row');
+    else pendingEdits.delete(id);
+  }
+  refreshBulkBar();
+}
+
+/* Rows with unsaved edits. Keyed by product id so re-rendering the list can't
+   duplicate an entry, and so the bulk save sends each product once. */
+const pendingEdits = new Map();
+
+function refreshBulkBar() {
+  const bar = $('bulkBar');
+  const count = $('bulkCount');
+  if (!bar) return;
+  const n = pendingEdits.size;
+  bar.hidden = n === 0;
+  if (count) {
+    count.textContent = n === 1 ? '1 unsaved change' : `${n} unsaved changes`;
+  }
+}
+
+function markDirty(id, patch, rowEl) {
+  pendingEdits.set(id, { ...(pendingEdits.get(id) || {}), ...patch });
+  rowEl?.classList.add('dirty-row');
+  refreshBulkBar();
+}
+
+function clearDirty(id, rowEl) {
+  pendingEdits.delete(id);
+  rowEl?.classList.remove('dirty-row');
+  refreshBulkBar();
 }
 
 function productRow(p) {
   const row = el('div', 'product-row' + (p.visible ? '' : ' is-hidden'));
+  row.dataset.productId = p.id;
 
   const img = document.createElement('img');
   img.src = p.image;
@@ -353,7 +393,22 @@ function productRow(p) {
   input.value = String(p.price_paise / 100);
   input.setAttribute('aria-label', 'Price for ' + p.name);
   const initial = input.value;
-  input.addEventListener('input', () => wrap.classList.toggle('dirty', input.value !== initial));
+  const onEdit = () => {
+    const changed = input.value !== initial || vis.checked !== Boolean(p.visible);
+    wrap.classList.toggle('dirty', input.value !== initial);
+    if (changed) {
+      // Send rupees -> paise here so the bar holds exactly what will be saved.
+      const rupeeVal = Number(input.value.trim());
+      markDirty(p.id, {
+        id: p.id,
+        price_paise: Number.isFinite(rupeeVal) && rupeeVal >= 0 ? Math.round(rupeeVal * 100) : NaN,
+        visible: vis.checked,
+      }, row);
+    } else {
+      clearDirty(p.id, row);
+    }
+  };
+  input.addEventListener('input', onEdit);
   wrap.appendChild(input);
   row.appendChild(wrap);
 
@@ -361,6 +416,7 @@ function productRow(p) {
   const vis = document.createElement('input');
   vis.type = 'checkbox';
   vis.checked = Boolean(p.visible);
+  vis.addEventListener('change', () => onEdit());
   visWrap.append(vis, el('span', null, 'Listed'));
   row.appendChild(visWrap);
 
@@ -375,6 +431,7 @@ function productRow(p) {
       body: JSON.stringify({ price_paise: paise, visible: vis.checked }),
     });
     wrap.classList.remove('dirty');
+    clearDirty(p.id, row);
     row.classList.toggle('is-hidden', !out.product.visible);
     flash(`${p.name} updated — ${rupees(out.product.price_paise)}${out.product.visible ? '' : ' (hidden)'}.`);
     loadStats();
@@ -391,6 +448,59 @@ function productRow(p) {
   row.appendChild(actions);
   return row;
 }
+
+
+/* ── bulk save ─────────────────────────────────────────────────── */
+$('bulkSave')?.addEventListener('click', async () => {
+  if (!pendingEdits.size) return;
+  const btn = $('bulkSave');
+
+  // Catch bad input here so one typo doesn't send 26 rows and get the whole
+  // batch rejected server-side with a less specific message.
+  const bad = [...pendingEdits.values()].filter((x) => !Number.isFinite(x.price_paise));
+  if (bad.length) {
+    flash(`${bad.length} price(s) aren't valid numbers. Fix them and try again.`, true);
+    return;
+  }
+
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = 'Saving…';
+  try {
+    const out = await api('/api/admin/products', {
+      method: 'PATCH',
+      body: JSON.stringify({ items: [...pendingEdits.values()] }),
+    });
+    pendingEdits.clear();
+    refreshBulkBar();
+    flash(`${out.updated} product${out.updated === 1 ? '' : 's'} updated.`);
+    // Re-read rather than patching each row: the server is authoritative about
+    // what actually landed, including any clamping.
+    await Promise.all([loadProducts(), loadStats()]);
+  } catch (e) {
+    // The write is all-or-nothing, so nothing changed — say so, or someone will
+    // wonder which half took.
+    flash(e.message + ' No changes were saved.', true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+
+$('bulkDiscard')?.addEventListener('click', async () => {
+  if (!pendingEdits.size) return;
+  if (!confirm(`Discard ${pendingEdits.size} unsaved change(s)?`)) return;
+  pendingEdits.clear();
+  refreshBulkBar();
+  await loadProducts();
+});
+
+/* Leaving with unsaved edits is almost always an accident. */
+window.addEventListener('beforeunload', (e) => {
+  if (!pendingEdits.size) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
 
 /* ── tabs ──────────────────────────────────────────────────────── */
 function selectTab(which) {

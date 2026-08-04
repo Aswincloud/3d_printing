@@ -26,6 +26,7 @@ import {
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
   listOrders as adminListOrders, updateOrder as adminUpdateOrder,
   refundOrder as adminRefundOrder, stats as adminStats,
+  bulkUpdateProducts as adminBulkUpdateProducts,
 } from "./admin.js";
 
 export default {
@@ -135,6 +136,9 @@ async function api(request, env, url, ctx) {
 
     if (p === "/api/admin/products" && m === "GET") return adminListProducts(env);
     if (p === "/api/admin/products" && m === "POST") return adminCreateProduct(env, body);
+    // Bulk price/visibility pass. Plural path, so it can't collide with the
+    // single-row /api/admin/products/:id below.
+    if (p === "/api/admin/products" && m === "PATCH") return adminBulkUpdateProducts(env, body);
 
     const prod = p.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/);
     if (prod && m === "PATCH") return adminUpdateProduct(env, prod[1], body);

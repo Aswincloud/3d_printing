@@ -282,6 +282,12 @@ The trade is worth stating: route 2 makes admin access **email-strength**.
 Whoever can read the owner's inbox can issue refunds and read customer addresses.
 Prefer route 1 once the broker knows this site.
 
+Products can be edited **in bulk**: change any number of prices or visibility
+toggles, then "Save all changes" sends one `PATCH /api/admin/products` instead of
+one request per row. The write is all-or-nothing — every row is validated before
+anything is written, because a partial write would leave you unable to tell which
+of 26 prices took. Per-row Save is still there for a single tweak.
+
 `/shop.html` — orders (with status controls and refunds) and products (price and
 visibility editing). Sign-in goes through the central broker at
 `auth.aswincloud.com`: it authenticates with Google/GitHub/Microsoft and relays

@@ -8,7 +8,7 @@
 import { ownerAllowed, ssoConfigured, currentOwner } from "../src/auth.js";
 import {
   listProducts, createProduct, updateProduct, deleteProduct,
-  listOrders, updateOrder, refundOrder, stats,
+  listOrders, updateOrder, refundOrder, stats, bulkUpdateProducts,
 } from "../src/admin.js";
 import { signToken } from "@aswincloud/auth";
 
@@ -134,6 +134,11 @@ section("currentOwner()");
 // ── fake D1 ───────────────────────────────────────────────────────
 // Deliberately dumb: pattern-matches only the statements admin.js issues, and
 // throws on anything else so a changed query can't silently no-op a test.
+// Real D1 returns only the selected columns; project so a test asserting a
+// column is absent can't pass for the wrong reason.
+const project = (row, cols) =>
+  Object.fromEntries(cols.filter((c) => c in row).map((c) => [c, row[c]]));
+
 // Apply a SET clause to a fake row. Not every assignment is a `?` — admin.js
 // issues `SET visible = 0, updated_at = ?`, and a parser that assumed one
 // placeholder per column silently wrote the wrong values into the wrong
@@ -169,6 +174,15 @@ function makeDB(seed = {}) {
     }
     if (s.startsWith("SELECT id FROM products WHERE slug = ?")) {
       return { first: db.products.find((p) => p.slug === a[0]) || null };
+    }
+    if (s.startsWith("SELECT id FROM products WHERE id IN (")) {
+      const want = new Set(a);
+      return { results: db.products.filter((p) => want.has(p.id)).map((p) => ({ id: p.id })) };
+    }
+    if (s.startsWith("SELECT id, slug, name, price_paise, visible FROM products WHERE id IN (")) {
+      const want = new Set(a);
+      return { results: db.products.filter((p) => want.has(p.id))
+        .map((p) => project(p, ["id", "slug", "name", "price_paise", "visible"])) };
     }
     if (s.startsWith("SELECT id FROM products WHERE id = ?")) {
       return { first: db.products.find((p) => p.id === a[0]) || null };
@@ -262,6 +276,20 @@ function makeDB(seed = {}) {
         async first() { return run(sql, this._a || []).first ?? null; },
         async run() { return run(sql, this._a || []); },
       };
+    },
+    // Real D1 batch() is a single transaction. Snapshot first so a throw
+    // mid-way rolls back, matching production rather than leaving the fake in a
+    // half-written state a real failure could never produce.
+    async batch(stmts) {
+      const snapshot = JSON.parse(JSON.stringify(db));
+      try {
+        const out = [];
+        for (const st of stmts) out.push(await st.run());
+        return out;
+      } catch (e) {
+        for (const k of Object.keys(snapshot)) db[k] = snapshot[k];
+        throw e;
+      }
     },
   };
 }
@@ -565,6 +593,108 @@ section("admin stats");
   ok("paid order count", s.paid_orders === 2);
   ok("pending count", s.pending_orders === 1);
   ok("product totals", s.products_total === 2 && s.products_visible === 1);
+}
+
+
+// ══ BULK UPDATE ══════════════════════════════════════════════════
+// Added because a pricing pass over 26 seeded placeholders meant 26 separate
+// requests. The property that matters is all-or-nothing: a partial write would
+// leave the owner unable to tell which prices took.
+section("bulk update — happy path");
+{
+  const env = envDB({ products: [
+    { ...PRODUCT, id: "p1", slug: "one", price_paise: 10000 },
+    { ...PRODUCT, id: "p2", slug: "two", price_paise: 20000 },
+    { ...PRODUCT, id: "p3", slug: "three", price_paise: 30000, visible: 0 },
+  ] });
+  const [status, out] = await read(await bulkUpdateProducts(env, { items: [
+    { id: "p1", price_paise: 15000 },
+    { id: "p2", price_paise: 25000, visible: false },
+    { id: "p3", visible: true },
+  ] }));
+  ok("200", status === 200, JSON.stringify(out));
+  ok("reports the count", out.updated === 3, String(out.updated));
+
+  const byId = Object.fromEntries(env.DB._db.products.map((p) => [p.id, p]));
+  ok("first price applied", byId.p1.price_paise === 15000);
+  ok("second price applied", byId.p2.price_paise === 25000);
+  ok("visibility applied", byId.p2.visible === 0);
+  ok("price-only row keeps its visibility", byId.p1.visible === 1);
+  ok("visibility-only row keeps its price", byId.p3.price_paise === 30000);
+  ok("visibility-only row became visible", byId.p3.visible === 1);
+  ok("updated_at bumped", byId.p1.updated_at !== 1);
+}
+
+section("bulk update — ALL-OR-NOTHING on a bad row");
+{
+  for (const [label, badPrice] of [
+    ["float", 149.5],
+    ["negative", -100],
+    ["NaN", "abc"],
+    ["empty string", ""],
+    ["null", null],
+  ]) {
+    const env = envDB({ products: [
+      { ...PRODUCT, id: "p1", slug: "one", price_paise: 10000 },
+      { ...PRODUCT, id: "p2", slug: "two", price_paise: 20000 },
+    ] });
+    const [status] = await read(await bulkUpdateProducts(env, { items: [
+      { id: "p1", price_paise: 15000 },     // valid
+      { id: "p2", price_paise: badPrice },  // not
+    ] }));
+    ok(`${label} rejects the batch`, status === 400);
+    // The critical assertion: the VALID row must not have been written either.
+    ok(`${label} leaves the valid row untouched`,
+       env.DB._db.products.find((p) => p.id === "p1").price_paise === 10000,
+       String(env.DB._db.products.find((p) => p.id === "p1").price_paise));
+  }
+}
+
+section("bulk update — unknown ids reject the batch");
+{
+  const env = envDB({ products: [{ ...PRODUCT, id: "p1", slug: "one", price_paise: 10000 }] });
+  const [status, out] = await read(await bulkUpdateProducts(env, { items: [
+    { id: "p1", price_paise: 15000 },
+    { id: "does-not-exist", price_paise: 20000 },
+  ] }));
+  ok("409", status === 409, String(status));
+  ok("says to reload", /reload/i.test(out.error), out.error);
+  // A typo'd id must not silently update nothing while reporting success.
+  ok("valid row untouched", env.DB._db.products[0].price_paise === 10000);
+}
+
+section("bulk update — malformed requests");
+{
+  const mk = () => envDB({ products: [{ ...PRODUCT, id: "p1", slug: "one" }] });
+  for (const [label, body] of [
+    ["no items", {}],
+    ["empty array", { items: [] }],
+    ["items not an array", { items: { id: "p1" } }],
+    ["null items", { items: null }],
+    ["item without an id", { items: [{ price_paise: 100 }] }],
+    ["item with an empty id", { items: [{ id: "", price_paise: 100 }] }],
+    ["item with nothing to change", { items: [{ id: "p1" }] }],
+  ]) {
+    ok(`${label} → 400`, (await read(await bulkUpdateProducts(mk(), body)))[0] === 400);
+  }
+  // The same product twice would make the outcome depend on statement order.
+  const [dupStatus, dupOut] = await read(await bulkUpdateProducts(mk(), { items: [
+    { id: "p1", price_paise: 100 },
+    { id: "p1", price_paise: 200 },
+  ] }));
+  ok("duplicate id → 400", dupStatus === 400);
+  ok("explains why", /twice/i.test(dupOut.error), dupOut.error);
+
+  const many = Array.from({ length: 250 }, (_, i) => ({ id: `p${i}`, price_paise: 100 }));
+  ok("more than 200 items → 400", (await read(await bulkUpdateProducts(mk(), { items: many })))[0] === 400);
+}
+
+section("bulk update — zero is a legitimate price");
+{
+  const env = envDB({ products: [{ ...PRODUCT, id: "p1", slug: "one", price_paise: 10000 }] });
+  const [status] = await read(await bulkUpdateProducts(env, { items: [{ id: "p1", price_paise: 0 }] }));
+  ok("accepted", status === 200);
+  ok("applied", env.DB._db.products[0].price_paise === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

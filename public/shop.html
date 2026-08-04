@@ -80,6 +80,16 @@
       <span class="admin-muted" id="productHint">Prices are in rupees. Seeded values are placeholders.</span>
     </div>
     <div id="productsList" class="products-list"><p class="admin-muted">Loading…</p></div>
+
+    <!-- Appears only when something is edited. Saves every changed row in one
+         request rather than one per row. -->
+    <div class="bulk-bar" id="bulkBar" hidden>
+      <span class="bulk-count" id="bulkCount"></span>
+      <div class="bulk-actions">
+        <button type="button" class="admin-btn-ghost" id="bulkDiscard">Discard</button>
+        <button type="button" class="admin-btn" id="bulkSave">Save all changes</button>
+      </div>
+    </div>
   </section>
 
 </main>

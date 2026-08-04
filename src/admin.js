@@ -120,6 +120,83 @@ export async function updateProduct(env, id, body) {
   return json({ ok: true, product: row });
 }
 
+// ── bulk update ───────────────────────────────────────────────────
+// PATCH /api/admin/products with [{id, price_paise?, visible?}].
+//
+// Exists because correcting the seeded placeholder prices meant 26 separate
+// round trips through the single-row endpoint. Same validation as
+// updateProduct(); only price and visibility are settable in bulk, since those
+// are the two things a pricing pass actually changes.
+//
+// ALL-OR-NOTHING on purpose: every row is validated before anything is written.
+// A partial write is the worst outcome here — you'd have no idea which of 26
+// prices took, and re-submitting would double-apply nothing but would still
+// leave you guessing. One bad row rejects the batch and names it.
+export async function bulkUpdateProducts(env, body) {
+  const items = body?.items;
+  if (!Array.isArray(items) || items.length === 0) {
+    return bad("Nothing to update.");
+  }
+  if (items.length > 200) return bad("Too many products in one request.");
+
+  // Pass 1: validate and resolve. Nothing is written in this pass.
+  const seen = new Set();
+  const planned = [];
+  for (const it of items) {
+    const id = clip(it?.id, 40);
+    if (!id) return bad("An item is missing its id.");
+    if (seen.has(id)) return bad("The same product appears twice in one request.");
+    seen.add(id);
+
+    const sets = [];
+    const args = [];
+
+    if ("price_paise" in (it || {})) {
+      const price = parsePaise(it.price_paise);
+      if (price === null) {
+        return bad(`Price for one item isn't a whole number of paise (got ${JSON.stringify(it.price_paise)}).`);
+      }
+      sets.push("price_paise = ?");
+      args.push(price);
+    }
+    if ("visible" in (it || {})) {
+      sets.push("visible = ?");
+      args.push(it.visible ? 1 : 0);
+    }
+    if (!sets.length) return bad("An item has nothing to update.");
+
+    planned.push({ id, sets, args });
+  }
+
+  // Confirm every id exists before touching anything — otherwise a typo'd id
+  // would silently update nothing while reporting success.
+  const ids = planned.map((p) => p.id);
+  const ph = ids.map(() => "?").join(",");
+  const { results } = await env.DB.prepare(
+    `SELECT id FROM products WHERE id IN (${ph})`
+  ).bind(...ids).all();
+  const found = new Set((results || []).map((r) => r.id));
+  const missing = ids.filter((i) => !found.has(i));
+  if (missing.length) {
+    return bad(`${missing.length} product(s) in this request no longer exist. Reload and try again.`, 409);
+  }
+
+  // Pass 2: write. batch() is a single D1 transaction, so a failure mid-way
+  // rolls the whole thing back rather than leaving half the prices changed.
+  const ts = now();
+  const stmts = planned.map((p) => env.DB.prepare(
+    `UPDATE products SET ${p.sets.join(", ")}, updated_at = ? WHERE id = ?`
+  ).bind(...p.args, ts, p.id));
+
+  await env.DB.batch(stmts);
+
+  const { results: rows } = await env.DB.prepare(
+    `SELECT id, slug, name, price_paise, visible FROM products WHERE id IN (${ph})`
+  ).bind(...ids).all();
+
+  return json({ ok: true, updated: planned.length, products: rows || [] });
+}
+
 // Deleting a product must never alter order history: order_items snapshots the
 // name and price, and its product_id is nullable precisely so this can happen.
 // It is NOT a cascade — the FK is on order_id, not product_id.

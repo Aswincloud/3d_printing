@@ -425,3 +425,33 @@
   #myCartList .product-row .cart-qty { grid-area: qty; }
   #myCartList .product-row .pr-actions { grid-area: act; justify-content: flex-start; }
 }
+
+/* ── bulk save bar ─────────────────────────────────────────────── */
+/* Sticks to the bottom while editing prices, so the save is reachable without
+   scrolling back up past 31 rows. */
+.bulk-bar {
+  position: sticky;
+  bottom: 1rem;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+  padding: 0.85rem 1.15rem;
+  background: var(--dark-2);
+  border: 1px solid rgba(255, 107, 0, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+}
+
+.bulk-count { font-size: 0.88rem; font-weight: 600; color: var(--orange-light); }
+
+.bulk-actions { display: flex; gap: 0.5rem; }
+
+/* A row with unsaved edits gets a left marker, so it's findable in a long list. */
+.product-row.dirty-row {
+  border-left: 3px solid var(--orange);
+  padding-left: calc(1rem - 3px);
+}
