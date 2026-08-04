@@ -427,6 +427,9 @@ function writeCart(cart) {
     // Private mode / quota. The in-memory cart still works for this session.
   }
   renderCart();
+  // Mirror to the account for a signed-in customer. Defined further down; the
+  // guard inside makes this a no-op for guests.
+  if (typeof syncCartUp === 'function') syncCartUp();
 }
 
 function cartCount(cart = readCart()) {
@@ -804,6 +807,7 @@ function openCheckout() {
   coClearAll();
   renderCoSummary();
   syncAddressVisibility();
+  if (typeof prefillCheckout === 'function') prefillCheckout();
   checkoutModal.hidden = false;
   checkoutOverlay.hidden = false;
   checkoutModal.setAttribute('aria-hidden', 'false');
@@ -1013,3 +1017,78 @@ function closeReceipt() {
 
 document.getElementById('receiptClose')?.addEventListener('click', closeReceipt);
 document.getElementById('receiptOverlay')?.addEventListener('click', closeReceipt);
+
+/* ===== SIGNED-IN STATE ===== */
+/* The shop works identically for guests; this only adds convenience for a
+   signed-in customer: the account icon points at their account rather than the
+   login page, the checkout form prefills, and the cart is the server's copy
+   rather than localStorage. */
+
+let currentUser = null;
+
+async function loadSession() {
+  try {
+    const me = await (await fetch('/api/me')).json();
+    if (!me.signedIn) return;
+    currentUser = me;
+
+    const btn = document.getElementById('accountBtn');
+    if (btn) {
+      btn.href = '/account';
+      btn.setAttribute('aria-label', 'My account (' + me.email + ')');
+      btn.title = me.name || me.email;
+    }
+
+    // The account cart is authoritative once signed in. Pull it and mirror it
+    // into localStorage so every existing renderer keeps working unchanged.
+    await adoptServerCart();
+  } catch {
+    // Not signed in, or /api/me unreachable — the guest path is unaffected.
+  }
+}
+
+async function adoptServerCart() {
+  try {
+    // Hand over anything still sitting in localStorage from before sign-in.
+    const local = readCart();
+    if (local.length) {
+      await fetch('/api/me/cart/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: local.map((it) => ({ product_id: it.id, qty: it.qty })) }),
+      });
+    }
+    const res = await fetch('/api/me/cart');
+    if (!res.ok) return;
+    const { items } = await res.json();
+    // Write through the normal path so the badge and drawer re-render.
+    localStorage.setItem(CART_KEY, JSON.stringify(
+      items.map((it) => ({ id: it.product_id, qty: it.qty })),
+    ));
+    renderCart();
+  } catch { /* leave the local cart alone */ }
+}
+
+// Push the local cart to the account after any change, so it survives a device
+// switch. Fire-and-forget: a failed sync must never block adding to a cart.
+function syncCartUp() {
+  if (!currentUser) return;
+  const items = readCart().map((it) => ({ product_id: it.id, qty: it.qty }));
+  fetch('/api/me/cart', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  }).catch(() => {});
+}
+
+// Prefill checkout for a signed-in customer. The server still validates
+// everything and still reads user_id from the cookie, not from these fields.
+function prefillCheckout() {
+  if (!currentUser) return;
+  const email = document.getElementById('coEmail');
+  const name = document.getElementById('coName');
+  if (email && !email.value) email.value = currentUser.email || '';
+  if (name && !name.value) name.value = currentUser.name || '';
+}
+
+loadSession();

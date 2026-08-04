@@ -69,7 +69,10 @@ const makeReceipt = () => "AP-" + randToken(4);
 //
 // Note what is NOT in that list: any amount. The client cannot send a price,
 // and if it does, priceCart() ignores it.
-export async function createOrderHandler(request, env, body) {
+// `sessionUserId` is resolved by the router from the customer session cookie, or
+// null for a guest. It is NOT read from the body: a request must not be able to
+// attach its order to an arbitrary account.
+export async function createOrderHandler(request, env, body, sessionUserId = null) {
   if (!paymentsConfigured(env)) {
     console.error("checkout attempted but Razorpay keys are unset");
     return bad("Online payment isn't set up yet. Please use the quote form.", 503);
@@ -106,14 +109,18 @@ export async function createOrderHandler(request, env, body) {
     env.DB.prepare(
       `INSERT INTO orders (id, receipt, rzp_order_id, status, subtotal_paise,
          shipping_paise, total_paise, currency, delivery, cust_name, cust_email,
-         cust_phone, addr_line, addr_city, addr_state, addr_pin, notes, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         cust_phone, addr_line, addr_city, addr_state, addr_pin, notes, created_at,
+         user_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       orderId, receipt, rzp.order.id, "pending",
       priced.subtotal_paise, priced.shipping_paise, priced.total_paise, "INR", delivery,
       customer.cust_name, customer.cust_email, customer.cust_phone,
       customer.addr_line, customer.addr_city, customer.addr_state, customer.addr_pin,
       customer.notes, ts,
+      // Null for a guest. Comes from the verified session, never from the body —
+      // a request can't claim to belong to someone else's account.
+      sessionUserId ?? null,
     ),
   ];
 

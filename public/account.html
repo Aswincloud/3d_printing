@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>My account — AswinPrints</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/style.css" />
+<link rel="stylesheet" href="assets/css/admin.css" />
+</head>
+<body class="admin-body">
+
+<header class="admin-nav">
+  <a href="/" class="nav-logo">
+    <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" width="28" height="28">
+      <rect width="32" height="32" rx="8" fill="url(#ng)"/>
+      <path d="M8 22V14l8-6 8 6v8M13 22v-5h6v5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <defs><linearGradient id="ng" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c38"/>
+      </linearGradient></defs>
+    </svg>
+    <span>AswinPrints</span>
+  </a>
+  <div class="admin-nav-right">
+    <span class="admin-who" id="accountWho" hidden></span>
+    <a href="/" class="admin-link">Shop ↗</a>
+    <button class="admin-btn-ghost" id="signOutBtn" type="button" hidden>Sign out</button>
+  </div>
+</header>
+
+<!-- Signed out ---------------------------------------------------- -->
+<section class="admin-signin" id="guestPanel" hidden>
+  <div class="signin-card">
+    <h1>My account</h1>
+    <p class="signin-sub">Sign in to see your orders and pick up your cart on any device.</p>
+    <a href="/login" class="btn-primary co-submit" style="display:flex">Sign in</a>
+  </div>
+</section>
+
+<!-- Signed in ----------------------------------------------------- -->
+<main class="admin-main" id="accountMain" hidden>
+
+  <div class="admin-tabs" role="tablist">
+    <button class="admin-tab active" id="tabMyOrders" role="tab" type="button" aria-selected="true">My orders</button>
+    <button class="admin-tab" id="tabMyCart" role="tab" type="button" aria-selected="false">My cart</button>
+    <button class="admin-tab" id="tabProfile" role="tab" type="button" aria-selected="false">Profile</button>
+  </div>
+
+  <div class="admin-alert admin-alert-err" id="accountError" hidden></div>
+  <div class="admin-alert admin-alert-ok" id="accountOk" hidden></div>
+
+  <section class="admin-panel" id="myOrdersPanel">
+    <div class="panel-head">
+      <h2>My orders</h2>
+      <span class="admin-muted">Orders placed with this email address.</span>
+    </div>
+    <div id="myOrdersList" class="orders-list"><p class="admin-muted">Loading…</p></div>
+  </section>
+
+  <section class="admin-panel" id="myCartPanel" hidden>
+    <div class="panel-head">
+      <h2>My cart</h2>
+      <span class="admin-muted">Saved to your account, so it follows you between devices.</span>
+    </div>
+    <div id="myCartList"><p class="admin-muted">Loading…</p></div>
+    <div id="myCartFoot" hidden style="margin-top:1.25rem">
+      <a href="/#shop" class="btn-primary" style="justify-content:center">Continue shopping</a>
+    </div>
+  </section>
+
+  <section class="admin-panel" id="profilePanel" hidden>
+    <div class="panel-head"><h2>Profile</h2></div>
+    <form id="profileForm" class="checkout-form" style="padding:0;max-width:420px">
+      <div class="co-field">
+        <label for="profileEmail">Email</label>
+        <input type="email" id="profileEmail" disabled />
+        <span class="admin-muted" style="font-size:0.78rem">
+          Your orders are linked to this address. Contact me if you need it changed.
+        </span>
+      </div>
+      <div class="co-field">
+        <label for="profileName">Name</label>
+        <input type="text" id="profileName" name="profile_name" autocomplete="name"
+               placeholder="How should I address you?" maxlength="80" />
+      </div>
+      <button type="submit" class="btn-primary co-submit" id="saveProfileBtn">Save</button>
+    </form>
+  </section>
+
+</main>
+
+<script src="assets/js/account.js"></script>
+</body>
+</html>

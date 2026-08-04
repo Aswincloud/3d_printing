@@ -10,9 +10,17 @@ import { listProducts } from "./shop.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
 } from "./orders.js";
+// Admin/owner auth. Aliased on import because customers.js exports its own
+// logout/whoami — two separate auth schemes, and the names must not blur.
 import {
-  providersResponse, loginStart, loginCallback, logout, whoami, currentOwner,
+  providersResponse, loginStart, loginCallback,
+  logout as ownerLogout, whoami as ownerWhoami, currentOwner,
 } from "./auth.js";
+import {
+  requestCode, verifyCode, resendCode, currentCustomer,
+  whoami as customerWhoami, logout as customerLogout, myOrders, updateMe,
+} from "./customers.js";
+import { getCart, putCart, mergeCart } from "./cart.js";
 import {
   listProducts as adminListProducts, createProduct as adminCreateProduct,
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
@@ -55,7 +63,13 @@ async function api(request, env, url, ctx) {
 
   // Orders. `/api/orders` takes {items:[{product_id,qty}], customer, delivery}
   // — never an amount; prices are read from D1 in priceCart().
-  if (p === "/api/orders" && m === "POST") return createOrderHandler(request, env, body);
+  // Checkout works signed-in or as a guest. When signed in the order is stamped
+  // with the session's user id so it appears in their history; the id comes from
+  // the verified cookie, never from the request body.
+  if (p === "/api/orders" && m === "POST") {
+    const buyer = await currentCustomer(request, env);
+    return createOrderHandler(request, env, body, buyer?.id || null);
+  }
   if (p === "/api/orders/verify" && m === "POST") return verifyOrderHandler(request, env, body);
 
   const receiptMatch = p.match(/^\/api\/orders\/(AP-[0-9a-f]{8})$/);
@@ -66,8 +80,37 @@ async function api(request, env, url, ctx) {
 
   // ── auth (public: these are how you sign in) ────────────────────
   if (p === "/api/auth/providers" && m === "GET") return providersResponse(env);
-  if (p === "/api/auth/me" && m === "GET") return whoami(request, env);
-  if (p === "/api/auth/logout" && m === "POST") return logout();
+  if (p === "/api/auth/me" && m === "GET") return ownerWhoami(request, env);
+  if (p === "/api/auth/logout" && m === "POST") return ownerLogout();
+
+  // ── customer sign-in (public: this is HOW you sign in) ──────────
+  // Must stay above the /api/admin/* and /api/me/* gates.
+  if (p === "/api/auth/code" && m === "POST") return requestCode(request, env, ctx, body);
+  if (p === "/api/auth/code/verify" && m === "POST") return verifyCode(request, env, body);
+  if (p === "/api/auth/code/resend" && m === "POST") return resendCode(request, env, ctx, body);
+
+  // ── customer account ───────────────────────────────────────────
+  // POSITIONAL GATE, same discipline as the admin block below: everything
+  // inside is customer-only, and a route added ABOVE this line would be public.
+  //
+  // Note the handlers below receive `user` and never `url` — invariant 8. There
+  // is no parameter by which one customer could ask for another's orders,
+  // because the functions have nowhere to put one.
+  if (p.startsWith("/api/me")) {
+    const user = await currentCustomer(request, env);
+    if (!user) return bad("unauthorized", 401);
+
+    if (p === "/api/me" && m === "GET") return customerWhoami(user);
+    if (p === "/api/me" && m === "PATCH") return updateMe(env, user, body);
+    if (p === "/api/me/logout" && m === "POST") return customerLogout();
+    if (p === "/api/me/orders" && m === "GET") return myOrders(env, user);
+
+    if (p === "/api/me/cart" && m === "GET") return getCart(env, user);
+    if (p === "/api/me/cart" && m === "PUT") return putCart(env, user, body);
+    if (p === "/api/me/cart/merge" && m === "POST") return mergeCart(env, user, body);
+
+    return bad("not found", 404);
+  }
 
   const loginMatch = p.match(/^\/api\/auth\/login\/([a-z]+)$/);
   if (loginMatch && m === "GET") return loginStart(env, loginMatch[1]);

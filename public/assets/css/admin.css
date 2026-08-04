@@ -386,3 +386,42 @@
   .product-row .pr-visible { grid-area: vis; }
   .product-row .pr-actions { grid-area: act; justify-content: flex-start; }
 }
+
+/* ── customer login ────────────────────────────────────────────── */
+/* .signin-card is shared with the admin dashboard, which has no form inside it,
+   so the form's own spacing has to come from here. */
+#emailForm, #codeForm {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+#emailForm .co-submit, #codeForm .co-submit { margin-top: 0.25rem; }
+
+.signin-card .cart-fineprint {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* The account page reuses .product-row from the admin product editor, whose
+   grid assumes a price input and a visibility toggle. The cart row has a
+   quantity stepper and a line total instead. */
+#myCartList .product-row {
+  grid-template-columns: 56px minmax(140px, 1fr) auto auto auto;
+  gap: 1.25rem;
+}
+
+@media (max-width: 720px) {
+  #myCartList .product-row {
+    grid-template-columns: 48px 1fr;
+    grid-template-areas: "img name" "qty total" "act act";
+    row-gap: 0.8rem;
+  }
+  #myCartList .product-row img { grid-area: img; }
+  #myCartList .product-row .pr-info:first-of-type { grid-area: name; }
+  #myCartList .product-row .cart-qty { grid-area: qty; }
+  #myCartList .product-row .pr-actions { grid-area: act; justify-content: flex-start; }
+}

@@ -90,6 +90,8 @@ through to the Worker, so `/api/*` is handled in `src/`.
 3d_printing/
 ├── public/                      # Static site (served via [assets])
 │   ├── index.html               # Main website (all sections)
+│   ├── login.html               # Customer sign-in (emailed 6-digit code)
+│   ├── account.html             # Customer orders + saved cart
 │   ├── shop.html                # Owner dashboard (orders, products, refunds)
 │   └── assets/
 │       ├── css/style.css        # All styling
@@ -102,6 +104,8 @@ through to the Worker, so `/api/*` is handled in `src/`.
 │   ├── razorpay.js              # REST client + signature verification
 │   ├── orders.js                # Order create/verify/receipt + webhook
 │   ├── auth.js                  # Owner sign-in via the auth.aswincloud.com broker
+│   ├── customers.js             # Customer sign-in (OTP) + /api/me
+│   ├── cart.js                  # Server-side cart + guest merge
 │   ├── admin.js                 # Owner-only: product CRUD, orders, refunds
 │   └── emails.js                # Email HTML templates
 ├── migrations/                  # D1 schema (forward-only)
@@ -202,6 +206,46 @@ the admin dashboard before live keys are enabled.
 > nothing sensitive reaches the browser.
 
 ---
+
+### Customer accounts
+
+Customers sign in at `/login` with a **6-digit code emailed to them** — no
+password to set, forget, or leak. Built on `@aswincloud/auth`'s OTP primitives
+(`generateOtp`/`hashOtp`/`otpHashEquals` and the `otp_codes` table), so codes are
+stored peppered-and-hashed with an attempt counter, never in plaintext. Its
+higher-level `signup()`/`verifyOtp()` flows are deliberately unused: both require
+a password.
+
+Signing in gives them `/account` — order history, a cart that follows them
+between devices, and a display name.
+
+**Two auth schemes, kept apart.** Admin uses `ap_session` with token purpose
+`owner_session`; customers use `ap_user` with purpose `customer_session`. The
+purpose is bound into the HMAC, so a customer cookie replayed at `/api/admin/*`
+fails signature verification rather than a string comparison someone could later
+refactor away. `test/customers.mjs` asserts this in both directions.
+
+**Order history is scoped by the session and nothing else.** `myOrders(env, user)`
+takes no url or query argument, so there is no parameter by which one customer
+could request another's orders — the function has nowhere to put one. Tested
+against a seeded second account with `?user_id=`, `?email=`, `?receipt=` and
+`?id=` all attempted.
+
+**The server cart still carries no price.** Rows are `(user_id, product_id, qty)`.
+`priceCart()` remains the only thing that decides an amount.
+
+**Guest orders are claimed on first sign-in** — `UPDATE orders SET user_id …
+WHERE user_id IS NULL AND lower(cust_email) = ?`. The code proves control of the
+mailbox the order was placed with. Worth being plain about: order history is
+therefore only as strong as the customer's email, and an order already attached
+to another account is never re-claimed.
+
+**Rate limiting.** `POST /api/auth/code` is unauthenticated and sends email, so:
+5 sends per address per hour, the package's 5-attempt cap per code, its 60s
+resend cooldown, and `{ok:true}` returned for unknown / throttled / failed-send
+alike so the endpoint can't be used to discover which addresses have accounts.
+There is no per-IP limit yet — Cloudflare's Rate Limiting binding is the right
+tool and needs a dashboard change.
 
 ### Dashboard
 
