@@ -92,14 +92,17 @@ through to the Worker, so `/api/*` is handled in `src/`.
 │   ├── index.html               # Main website (all sections)
 │   └── assets/
 │       ├── css/style.css        # All styling
-│       ├── js/main.js           # Lightbox, animations, quote form
+│       ├── js/main.js           # Lightbox, animations, quote form, shop + cart
 │       └── images/              # 60 sample print photos
 ├── src/                         # Worker
 │   ├── index.js                 # Router: /api/* → api(), else ASSETS.fetch
 │   ├── lib.js                   # JSON/HMAC/cookies/escaping/Resend helpers
+│   ├── shop.js                  # Catalogue reads + cart pricing (server-side)
 │   └── emails.js                # Email HTML templates
 ├── migrations/                  # D1 schema (forward-only)
-├── test/run.mjs                 # Offline unit tests (`npm test`)
+│   ├── 0001_init.sql            # products, orders, order_items, webhook_events
+│   └── 0002_seed_products.sql   # 31 products from the gallery
+├── test/                        # Offline unit tests (`npm test`)
 ├── wrangler.toml                # Worker + D1 config; vars only, no secrets
 └── .github/workflows/
     └── auto-approve.yml         # Dependabot auto-approval
@@ -126,7 +129,26 @@ then sends two emails through Resend:
 The customer copy is sent via `ctx.waitUntil()`, so a slow send never delays
 the response.
 
-> **Note:** this previously ran on GitHub Actions via `repository_dispatch`,
+### Shop and cart
+
+`GET /api/products` returns the visible catalogue from D1 plus the shipping
+config; `assets/js/main.js` renders the grid and the cart drawer from it.
+
+The cart in `localStorage` stores **only `{id, qty}`** — no prices, no names.
+Everything displayed is re-derived from the API on load, and when checkout
+lands the browser will post only those id/qty pairs. `priceCart()` in
+`src/shop.js` reads prices from D1 and computes the amount server-side, so a
+hand-edited cart can change what you *see* but never what you *pay*.
+
+Money is stored as **integer paise** (`34900` = ₹349), matching Razorpay's API
+and avoiding float rounding when summing line items.
+
+Five products depicting licensed characters are seeded `visible = 0` — they
+stay in the portfolio gallery but aren't listed for sale. Prices in
+`0002_seed_products.sql` are **placeholders** and are meant to be corrected in
+the admin dashboard before live keys are enabled.
+
+> **Note:** the quote form previously ran on GitHub Actions via `repository_dispatch`,
 > which required a GitHub PAT injected into `main.js` at deploy time — readable
 > by anyone who viewed source. Now the only credential is a Worker secret and
 > nothing sensitive reaches the browser.

@@ -9,7 +9,7 @@
     "db:migrate:local": "wrangler d1 migrations apply 3dprints-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply 3dprints-db --remote",
     "deploy": "wrangler deploy",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs && node test/shop.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.118.0"

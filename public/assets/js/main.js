@@ -371,3 +371,315 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
     if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 });
+
+/* ===== SHOP & CART ===== */
+/* The cart stores ONLY { id, qty } in localStorage. No prices, no names.
+   Everything shown is re-derived from /api/products on load, and the amount
+   actually charged is computed server-side at checkout — so a hand-edited
+   localStorage entry can change what you see, never what you pay. */
+
+const CART_KEY = 'ap_cart';
+const MAX_QTY = 100; // mirrors MAX_QTY in src/shop.js
+
+const productGrid = document.getElementById('productGrid');
+const cartBtn = document.getElementById('cartBtn');
+const cartBadge = document.getElementById('cartBadge');
+const cartDrawer = document.getElementById('cartDrawer');
+const cartOverlay = document.getElementById('cartOverlay');
+const cartBody = document.getElementById('cartBody');
+const cartFoot = document.getElementById('cartFoot');
+const shopShipNote = document.getElementById('shopShipNote');
+
+let catalogue = [];              // products from the API
+let shipCfg = { flat_paise: 0, free_threshold_paise: 0 };
+
+/* ── money ─────────────────────────────────────────────────────── */
+// Mirrors rupees() in src/lib.js so the drawer and the emails agree.
+function rupees(paise) {
+  return '₹' + (Math.round(Number(paise) || 0) / 100)
+    .toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+/* ── cart storage ──────────────────────────────────────────────── */
+// Anything unparseable is treated as an empty cart rather than thrown — a
+// corrupt localStorage value must not break the whole page.
+function readCart() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+    if (!Array.isArray(raw)) return [];
+    const seen = new Map();
+    for (const it of raw) {
+      const id = typeof it?.id === 'string' ? it.id : '';
+      const qty = parseInt(it?.qty, 10);
+      if (!id || !Number.isFinite(qty) || qty < 1) continue;
+      seen.set(id, Math.min(MAX_QTY, (seen.get(id) || 0) + qty));
+    }
+    return [...seen].map(([id, qty]) => ({ id, qty }));
+  } catch {
+    return [];
+  }
+}
+
+function writeCart(cart) {
+  try {
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  } catch {
+    // Private mode / quota. The in-memory cart still works for this session.
+  }
+  renderCart();
+}
+
+function cartCount(cart = readCart()) {
+  return cart.reduce((n, it) => n + it.qty, 0);
+}
+
+function addToCart(id) {
+  const cart = readCart();
+  const line = cart.find((it) => it.id === id);
+  if (line) {
+    if (line.qty >= MAX_QTY) return false;
+    line.qty += 1;
+  } else {
+    cart.push({ id, qty: 1 });
+  }
+  writeCart(cart);
+  return true;
+}
+
+function setQty(id, qty) {
+  let cart = readCart();
+  if (qty < 1) cart = cart.filter((it) => it.id !== id);
+  else {
+    const line = cart.find((it) => it.id === id);
+    if (line) line.qty = Math.min(MAX_QTY, qty);
+  }
+  writeCart(cart);
+}
+
+/* ── shipping (display only) ───────────────────────────────────── */
+// Same rule as shippingFor() in src/shop.js, duplicated here purely so the
+// drawer can show a total before the server is asked. The server's figure is
+// authoritative; this one is never sent anywhere.
+function shippingForDisplay(subtotal) {
+  if (subtotal <= 0) return 0;
+  return subtotal >= shipCfg.free_threshold_paise ? 0 : shipCfg.flat_paise;
+}
+
+/* ── catalogue ─────────────────────────────────────────────────── */
+async function loadProducts() {
+  if (!productGrid) return;
+  try {
+    const res = await fetch('/api/products');
+    if (!res.ok) throw new Error('Status ' + res.status);
+    const data = await res.json();
+    catalogue = Array.isArray(data.products) ? data.products : [];
+    if (data.shipping) shipCfg = data.shipping;
+    renderProducts();
+    renderShipNote();
+    renderCart();
+  } catch (err) {
+    productGrid.innerHTML =
+      '<p class="shop-error">Couldn\'t load the shop right now. ' +
+      'Please refresh, or <a href="#quote">send a quote request</a> instead.</p>';
+  }
+}
+
+// textContent/setAttribute throughout rather than innerHTML with interpolation:
+// product names and descriptions are admin-editable, so they're untrusted here.
+function renderProducts() {
+  productGrid.innerHTML = '';
+  if (!catalogue.length) {
+    productGrid.innerHTML = '<p class="shop-empty">Nothing listed just yet — check back soon.</p>';
+    return;
+  }
+
+  for (const p of catalogue) {
+    const card = document.createElement('div');
+    card.className = 'product-card';
+
+    const media = document.createElement('div');
+    media.className = 'product-media';
+    const img = document.createElement('img');
+    img.src = p.image;
+    img.alt = p.name;
+    img.loading = 'lazy';
+    media.appendChild(img);
+
+    const body = document.createElement('div');
+    body.className = 'product-body';
+
+    const name = document.createElement('div');
+    name.className = 'product-name';
+    name.textContent = p.name;
+
+    const desc = document.createElement('p');
+    desc.className = 'product-desc';
+    desc.textContent = p.description || '';
+
+    const foot = document.createElement('div');
+    foot.className = 'product-foot';
+
+    const price = document.createElement('div');
+    price.className = 'product-price';
+    price.textContent = rupees(p.price_paise);
+
+    const add = document.createElement('button');
+    add.className = 'product-add';
+    add.type = 'button';
+    add.textContent = 'Add to cart';
+    add.setAttribute('aria-label', 'Add ' + p.name + ' to cart');
+    add.addEventListener('click', () => {
+      if (!addToCart(p.id)) {
+        add.textContent = 'Max ' + MAX_QTY;
+      } else {
+        add.textContent = 'Added ✓';
+        add.classList.add('added');
+      }
+      setTimeout(() => {
+        add.textContent = 'Add to cart';
+        add.classList.remove('added');
+      }, 1200);
+    });
+
+    foot.append(price, add);
+    body.append(name, desc, foot);
+    card.append(media, body);
+    productGrid.appendChild(card);
+  }
+}
+
+function renderShipNote() {
+  if (!shopShipNote || !shipCfg.free_threshold_paise) return;
+  shopShipNote.textContent =
+    '🚚 Flat ' + rupees(shipCfg.flat_paise) + ' shipping across India — free over ' +
+    rupees(shipCfg.free_threshold_paise) + '. Local pickup in Pondicherry is always free.';
+  shopShipNote.classList.add('show');
+}
+
+/* ── cart rendering ────────────────────────────────────────────── */
+function renderCart() {
+  const cart = readCart();
+  const count = cartCount(cart);
+
+  if (cartBadge) {
+    cartBadge.textContent = String(count);
+    cartBadge.hidden = count === 0;
+  }
+
+  if (!cartBody) return;
+  cartBody.innerHTML = '';
+
+  // Lines whose product has vanished from the catalogue are dropped here
+  // rather than shown at a guessed price.
+  const lines = cart
+    .map((it) => ({ it, p: catalogue.find((c) => c.id === it.id) }))
+    .filter((row) => row.p);
+
+  if (!lines.length) {
+    cartBody.innerHTML = '<p class="cart-empty">Your cart is empty.<br>Browse the shop to add something.</p>';
+    if (cartFoot) cartFoot.hidden = true;
+    return;
+  }
+
+  let subtotal = 0;
+  for (const { it, p } of lines) {
+    subtotal += p.price_paise * it.qty;
+
+    const row = document.createElement('div');
+    row.className = 'cart-item';
+
+    const img = document.createElement('img');
+    img.src = p.image;
+    img.alt = '';
+    img.loading = 'lazy';
+
+    const info = document.createElement('div');
+    info.className = 'cart-item-info';
+
+    const name = document.createElement('div');
+    name.className = 'cart-item-name';
+    name.textContent = p.name;
+
+    const price = document.createElement('div');
+    price.className = 'cart-item-price';
+    price.textContent = rupees(p.price_paise) + ' × ' + it.qty + ' = ' + rupees(p.price_paise * it.qty);
+
+    const qty = document.createElement('div');
+    qty.className = 'cart-qty';
+    const minus = document.createElement('button');
+    minus.type = 'button';
+    minus.textContent = '−';
+    minus.setAttribute('aria-label', 'Decrease quantity of ' + p.name);
+    minus.addEventListener('click', () => setQty(it.id, it.qty - 1));
+    const n = document.createElement('span');
+    n.textContent = String(it.qty);
+    const plus = document.createElement('button');
+    plus.type = 'button';
+    plus.textContent = '+';
+    plus.setAttribute('aria-label', 'Increase quantity of ' + p.name);
+    plus.disabled = it.qty >= MAX_QTY;
+    plus.addEventListener('click', () => setQty(it.id, it.qty + 1));
+    qty.append(minus, n, plus);
+
+    const remove = document.createElement('button');
+    remove.className = 'cart-item-remove';
+    remove.type = 'button';
+    remove.textContent = '✕';
+    remove.setAttribute('aria-label', 'Remove ' + p.name + ' from cart');
+    remove.addEventListener('click', () => setQty(it.id, 0));
+
+    info.append(name, price, qty);
+    row.append(img, info, remove);
+    cartBody.appendChild(row);
+  }
+
+  const shipping = shippingForDisplay(subtotal);
+  const setText = (id, text) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+  setText('cartSubtotal', rupees(subtotal));
+  setText('cartShipping', rupees(shipping));
+  setText('cartShipLabel', shipping === 0 ? 'Shipping (free)' : 'Shipping');
+  setText('cartTotal', rupees(subtotal + shipping));
+
+  const hint = document.getElementById('cartShipHint');
+  if (hint) {
+    const short = shipCfg.free_threshold_paise - subtotal;
+    hint.textContent = shipping > 0 && short > 0
+      ? 'Add ' + rupees(short) + ' more for free shipping'
+      : '';
+  }
+
+  if (cartFoot) cartFoot.hidden = false;
+}
+
+/* ── drawer open/close ─────────────────────────────────────────── */
+function openCart() {
+  cartDrawer?.classList.add('open');
+  cartDrawer?.setAttribute('aria-hidden', 'false');
+  if (cartOverlay) cartOverlay.hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeCart() {
+  cartDrawer?.classList.remove('open');
+  cartDrawer?.setAttribute('aria-hidden', 'true');
+  if (cartOverlay) cartOverlay.hidden = true;
+  document.body.style.overflow = '';
+}
+
+cartBtn?.addEventListener('click', openCart);
+document.getElementById('cartClose')?.addEventListener('click', closeCart);
+cartOverlay?.addEventListener('click', closeCart);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && cartDrawer?.classList.contains('open')) closeCart();
+});
+
+// Keep two open tabs in step.
+window.addEventListener('storage', (e) => {
+  if (e.key === CART_KEY) renderCart();
+});
+
+renderCart();      // paint the badge from localStorage before the fetch lands
+loadProducts();

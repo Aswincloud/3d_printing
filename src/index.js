@@ -6,6 +6,7 @@
 
 import { json, bad, isEmail, sendEmail } from "./lib.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
+import { listProducts } from "./shop.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -38,6 +39,7 @@ async function api(request, env, url, ctx) {
     ? await request.json().catch(() => ({}))
     : {};
 
+  if (p === "/api/products" && m === "GET") return listProducts(env);
   if (p === "/api/quote" && m === "POST") return quote(request, env, ctx, body);
   if (p === "/api/health" && m === "GET") return json({ ok: true, app: env.APP_NAME });
 
