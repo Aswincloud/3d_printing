@@ -32,6 +32,18 @@ const RAZORPAY = [
   "https://browser.sentry-cdn.com",
 ];
 
+// Cloudflare injects its Web Analytics beacon into the HTML AFTER the Worker
+// responds, so it appears in production but never in `wrangler dev` — the first
+// deploy of this CSP blocked it, and local testing could not have caught that.
+// Nothing customer-facing broke, but every visitor got a console violation and
+// the analytics stopped reporting.
+//
+// Allowed rather than dropped, on the assumption the analytics are wanted. The
+// alternative is turning Web Analytics off in the Cloudflare dashboard and
+// removing this line — a smaller CSP is genuinely better, so that is the right
+// move if the numbers are not being used.
+const CF_ANALYTICS = "https://static.cloudflareinsights.com";
+
 const CSP = [
   "default-src 'self'",
 
@@ -39,7 +51,7 @@ const CSP = [
   // markup (verified), so script-src can stay strict. This is the directive
   // that actually stops an injected <script> from running, and weakening it
   // for convenience would forfeit most of the CSP's value.
-  `script-src 'self' ${RAZORPAY.join(" ")}`,
+  `script-src 'self' ${CF_ANALYTICS} ${RAZORPAY.join(" ")}`,
 
   // 'unsafe-inline' IS needed for styles: index.html carries 18 inline style=
   // attributes, and Razorpay's checkout injects its own. Inline style is a far
@@ -55,7 +67,9 @@ const CSP = [
   "img-src 'self' data: blob: https://*.razorpay.com",
 
   // litterbox.catbox.moe is the quote-form file uploader (see main.js).
-  `connect-src 'self' https://litterbox.catbox.moe ${RAZORPAY.join(" ")}`,
+  // cloudflareinsights also POSTs its collected metrics back, so allowing only
+  // the script would still leave a violation on every page view.
+  `connect-src 'self' https://litterbox.catbox.moe ${CF_ANALYTICS} ${RAZORPAY.join(" ")}`,
 
   // Razorpay Standard Checkout renders as an iframe from api.razorpay.com.
   "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
