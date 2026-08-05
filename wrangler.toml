@@ -9,11 +9,59 @@ compatibility_date = "2026-07-01"
 [assets]
 directory = "./public"
 binding = "ASSETS"
+# With [assets] + main, a request matching a static file is served DIRECTLY by
+# the asset server and the Worker's fetch handler never runs — so the security
+# headers added in src/security.js reached the JSON API but not a single HTML
+# page, which is exactly where the CSP has to be. Verified: /api/health carried
+# the headers, / did not.
+#
+# Scoped to the HTML entry points rather than `true`, because worker-first on
+# every asset would put a Worker invocation in front of all 78 static files
+# (images, css, js) and forfeit the edge cache on them. These two paths are the
+# only ones that need the CSP, since they are the only documents that execute
+# script. Extend this list when another HTML page is added.
+run_worker_first = ["/", "/index.html", "/shop", "/shop.html"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "3dprints-db"
 database_id = "f553c677-81a3-4d47-a012-9179ddfceb63"
+
+# Rate limiting. Counted at the edge, keyed on CF-Connecting-IP (see
+# src/security.js). `period` accepts only 10 or 60 — not arbitrary windows — so
+# the limits below are expressed per-minute.
+#
+# namespace_id must be unique per limiter and is just an opaque number; reusing
+# one across two limiters would silently pool their counters together.
+#
+# These are per-IP, so they bound one abusive client, not aggregate load. A
+# distributed attacker with many IPs is still only limited by Cloudflare's
+# volumetric DDoS protection at the edge — which is a different control, and one
+# we get for free.
+
+# Each call creates a real Razorpay order, so this is the expensive one.
+[[ratelimits]]
+name = "RL_ORDER"
+namespace_id = "3001"
+  [ratelimits.simple]
+  limit = 12
+  period = 60
+
+# Sends two emails per call via Resend.
+[[ratelimits]]
+name = "RL_QUOTE"
+namespace_id = "3002"
+  [ratelimits.simple]
+  limit = 6
+  period = 60
+
+# Unauthenticated sign-in surface: code request, resend and verify.
+[[ratelimits]]
+name = "RL_AUTH"
+namespace_id = "3003"
+  [ratelimits.simple]
+  limit = 10
+  period = 60
 
 [vars]
 APP_NAME = "AswinPrints"

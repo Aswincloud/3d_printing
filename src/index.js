@@ -5,6 +5,7 @@
 // ~/projects/invoicer, which runs this config in production.
 
 import { json, bad, isEmail, sendEmail } from "./lib.js";
+import { withSecurityHeaders, rateLimit } from "./security.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
 import { listProducts } from "./shop.js";
 import {
@@ -34,16 +35,24 @@ export default {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
       try {
-        return await api(request, env, url, ctx);
+        // Rate limit before any handler runs, so a limited request costs us
+        // nothing downstream — no D1 read, no Razorpay call, no email.
+        const limited = await rateLimit(request, env, url);
+        if (limited) return withSecurityHeaders(limited);
+
+        const res = await api(request, env, url, ctx);
+        return withSecurityHeaders(res);
       } catch (e) {
         // Deliberately generic. Invoicer returns `e.message` here, but these
         // routes talk to Razorpay and Resend, whose errors can echo request
         // detail back to the client. Log it, don't ship it.
         console.error("api error", url.pathname, e?.stack || e);
-        return bad("Something went wrong. Please try again.", 500);
+        return withSecurityHeaders(bad("Something went wrong. Please try again.", 500));
       }
     }
-    return env.ASSETS.fetch(request);
+    // Static assets get the headers too: the CSP only protects the pages if it
+    // is on the HTML response itself, not just on the API JSON.
+    return withSecurityHeaders(await env.ASSETS.fetch(request));
   },
 };
 
