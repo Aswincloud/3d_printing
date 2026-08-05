@@ -6,6 +6,7 @@
 
 import { json, bad, isEmail, sendEmail } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
+import { isProductPath, productPage } from "./productpage.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
 import { listProducts } from "./shop.js";
 import {
@@ -50,6 +51,20 @@ export default {
         return withSecurityHeaders(bad("Something went wrong. Please try again.", 500));
       }
     }
+    // Shareable product links. Served by the Worker rather than the assets
+    // binding because the Open Graph tags have to be per-product, and link
+    // crawlers (WhatsApp, Slack, Facebook) do not run JavaScript — a preview is
+    // built from the first HTML response, so this cannot be done client-side.
+    if (isProductPath(url.pathname) && (request.method === "GET" || request.method === "HEAD")) {
+      try {
+        return withSecurityHeaders(await productPage(request, env, url));
+      } catch (e) {
+        // Never fail a shared link; fall back to the shop.
+        console.error("product page error", url.pathname, e?.stack || e);
+        return Response.redirect(new URL("/#shop", url.origin).toString(), 302);
+      }
+    }
+
     // Static assets get the headers too: the CSP only protects the pages if it
     // is on the HTML response itself, not just on the API JSON.
     return withSecurityHeaders(await env.ASSETS.fetch(request));

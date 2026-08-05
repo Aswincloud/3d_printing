@@ -521,6 +521,9 @@ async function loadProducts() {
     renderProducts();
     renderShipNote();
     renderCart();
+    // Must run after renderProducts(): a shared /p/<slug> link needs the cards to
+    // exist before it can scroll to one and open its lightbox.
+    openSharedProduct();
   } catch (err) {
     productGrid.innerHTML =
       '<p class="shop-error">Couldn\'t load the shop right now. ' +
@@ -750,6 +753,22 @@ function renderProducts() {
       startQuoteFor({ name: p.name, image: p.image, kind: 'product' });
     });
 
+    // Share this one product. The link is /p/<slug>, which the Worker serves with
+    // per-product Open Graph tags so a WhatsApp paste previews this photo and
+    // price. `card.dataset.slug` is what openSharedProduct() looks up.
+    card.dataset.slug = p.slug || '';
+    const share = document.createElement('button');
+    share.type = 'button';
+    share.className = 'product-share';
+    share.title = 'Copy link to this product';
+    share.setAttribute('aria-label', 'Share ' + p.name);
+    share.textContent = 'Share';
+    share.addEventListener('click', (e) => {
+      e.stopPropagation();
+      shareProduct(p, share);
+    });
+    media.appendChild(share);
+
     body.append(name, desc, foot, ask);
     card.append(media, body);
     productGrid.appendChild(card);
@@ -762,6 +781,74 @@ function renderShipNote() {
     '🚚 Shipping India-wide — flat ' + rupees(shipCfg.flat_paise) + ', free over ' +
     rupees(shipCfg.free_threshold_paise) + '.';
   shopShipNote.classList.add('show');
+}
+
+/* ── sharing one product ───────────────────────────────────────── */
+
+const productUrl = (slug) => location.origin + '/p/' + encodeURIComponent(slug);
+
+// navigator.share where it exists (phones — gives the native sheet with WhatsApp,
+// Instagram etc.), clipboard otherwise (desktop). Both are behind a user gesture,
+// which both APIs require.
+async function shareProduct(p, btn) {
+  if (!p.slug) return;
+  const url = productUrl(p.slug);
+  const flash = (msg) => {
+    const original = btn.textContent;
+    btn.textContent = msg;
+    btn.classList.add('shared');
+    setTimeout(() => { btn.textContent = original; btn.classList.remove('shared'); }, 1600);
+  };
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: p.name, text: p.name + ' — ' + rupees(p.price_paise), url });
+      return;
+    } catch (err) {
+      // AbortError means the user dismissed the sheet — not a failure, and falling
+      // through to copy would be surprising. Any other error does fall through.
+      if (err && err.name === 'AbortError') return;
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(url);
+    flash('Copied ✓');
+  } catch (err) {
+    // Clipboard is blocked on http:// origins and in some embedded browsers.
+    // Select the URL in a prompt-free way rather than silently doing nothing.
+    flash('Copy failed');
+    console.warn('clipboard unavailable', err);
+  }
+}
+
+// A visitor arriving from a shared /p/<slug> link. The slug comes from the
+// <meta name="ap:product"> tag that src/productpage.js injected, not from parsing
+// location.pathname — the server already decided which slug is valid and visible,
+// and reading its answer avoids two places disagreeing about that.
+function openSharedProduct() {
+  const meta = document.querySelector('meta[name="ap:product"]');
+  const slug = meta && meta.getAttribute('content');
+  if (!slug) return;
+
+  const card = productGrid?.querySelector(`.product-card[data-slug="${CSS.escape(slug)}"]`);
+  if (!card) return;
+
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('product-linked');
+
+  // Open the lightbox on this product's photo. Delayed so the smooth scroll is
+  // visible first — opening instantly makes it look like the page never moved,
+  // and the visitor loses the context of where in the shop they landed.
+  setTimeout(() => {
+    const media = card.querySelector('.product-media');
+    const index = typeof lbItems === 'function' ? lbItems().indexOf(media) : -1;
+    if (index >= 0) openLightbox(index);
+  }, 700);
+
+  // Run once. Without this the highlight would reappear on any later re-render
+  // (a search keystroke, a category chip) long after the visitor moved on.
+  meta.remove();
 }
 
 /* ── cart rendering ────────────────────────────────────────────── */

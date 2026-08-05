@@ -8,9 +8,16 @@
        Pondicherry stays in the hero badge and footer as the workshop's location. -->
   <title>AswinPrints — Custom 3D Printing, Shipped Across India</title>
   <meta name="description" content="Professional custom 3D printing using Bambu Lab A1. Figurines, prototypes, decorative pieces and more, shipped anywhere in India. Get a free quote today." />
+  <!-- og:image must be an ABSOLUTE url. This was "assets/images/…", which link
+       crawlers do not resolve against the page — so shared links previewed with no
+       image at all. Per-product links (/p/<slug>) get these three rewritten by
+       src/productpage.js; these values are the fallback for the homepage itself. -->
   <meta property="og:title" content="AswinPrints — Custom 3D Printing" />
   <meta property="og:description" content="Bring your ideas to life with precision 3D printing. Fast turnaround, quality results." />
-  <meta property="og:image" content="assets/images/IMG20260403160453.jpg" />
+  <meta property="og:image" content="https://3d-prints.aswincloud.com/assets/images/IMG20260403160453.jpg" />
+  <meta property="og:url" content="https://3d-prints.aswincloud.com/" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
   <!-- Icons. The SVG is preferred by modern browsers and scales cleanly; the
        .ico exists because Safari and older browsers request /favicon.ico by
        convention regardless of what's declared here. -->

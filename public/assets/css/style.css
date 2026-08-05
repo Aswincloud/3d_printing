@@ -1954,6 +1954,47 @@ footer {
 
 .product-ask:hover { color: var(--orange-light); text-decoration: underline; }
 
+/* Share button, top-right of the product photo. Sits opposite the "🔍 View" hint
+   (bottom-right) so the two never overlap. */
+.product-share {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  background: rgba(10, 10, 15, 0.72);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 7px;
+  color: var(--white);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.28rem 0.6rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+}
+
+.product-card:hover .product-share,
+.product-share:focus-visible { opacity: 1; }
+
+.product-share:hover { background: var(--orange); border-color: var(--orange); }
+
+.product-share.shared { background: var(--orange); border-color: var(--orange); opacity: 1; }
+
+/* No hover on touch, so the button would be permanently invisible there. */
+@media (hover: none) {
+  .product-share { opacity: 0.9; }
+}
+
+/* The card a shared /p/<slug> link landed on. Ringed rather than moved or scaled:
+   the visitor is mid-scroll toward it, and shifting its position would fight the
+   smooth scroll that is still running. */
+.product-linked {
+  border-color: var(--orange) !important;
+  box-shadow: 0 0 0 1px var(--orange), 0 12px 40px rgba(255, 107, 0, 0.28);
+}
+
 /* The "asking about" block on the quote form. */
 .quote-ref-box {
   display: flex;
