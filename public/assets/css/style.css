@@ -559,7 +559,10 @@ section { padding: 100px 5%; }
 
 .lightbox-img {
   max-width: 90vw;
-  max-height: 88vh;
+  /* Leaves room for the actions bar below. At 88vh the bar overlapped the bottom
+     of the photo, hiding part of the print the customer is deciding on. */
+  max-height: 74vh;
+  margin-bottom: 5vh;
   border-radius: 12px;
   box-shadow: 0 32px 80px rgba(0,0,0,0.8);
   object-fit: contain;
@@ -1915,17 +1918,24 @@ footer {
 
 /* ===== QUOTE FROM AN IMAGE OR PRODUCT ===== */
 /* The lightbox is a flex column already; these sit under the image. */
+/* A solid bar, not floating text over the photo. With only a caption and one
+   button this worked as an overlay; with a price, two buttons and a link it did
+   not — the text sat on whatever the image happened to be, the price was clipped
+   by the viewport edge at bottom:4%, and the quote link was unreadable against a
+   light photo. Now anchored to the bottom with its own background. */
 .lightbox-actions {
   position: absolute;
-  bottom: 4%;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.25rem;
   flex-wrap: wrap;
   justify-content: center;
-  max-width: 90vw;
+  padding: 0.9rem 1.25rem;
+  background: linear-gradient(to top, rgba(10,10,15,0.96) 0%, rgba(10,10,15,0.88) 70%, transparent 100%);
+  backdrop-filter: blur(8px);
 }
 
 .lightbox-caption {
@@ -1935,7 +1945,98 @@ footer {
   text-shadow: 0 2px 8px rgba(0,0,0,0.8);
 }
 
-.lightbox-quote { font-size: 0.85rem; padding: 0.6rem 1.2rem; }
+/* Name and price stack together, so the buttons sit as one group beside them
+   rather than the price drifting between them when the text wraps. */
+.lightbox-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+
+.lightbox-price {
+  color: var(--orange);
+  font-size: 1.05rem;
+  font-weight: 800;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+}
+
+.lightbox-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.lightbox-add, .lightbox-buy { font-size: 0.88rem; padding: 0.6rem 1.3rem; }
+
+/* Demoted to a text link. It used to be the only action here and carried
+   .btn-primary; now that Add to cart and Buy now exist, three filled buttons
+   compete and the quote — the least common path — should not look like the
+   headline action. */
+.lightbox-quote {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  padding: 0.6rem 0.4rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.lightbox-quote:hover { color: var(--orange-light); }
+
+/* Buy-now disambiguation, centred over the photo so it is clearly a question
+   about what was just clicked. */
+.lightbox-buychoice {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  background: var(--dark-2);
+  border: 1px solid rgba(255, 107, 0, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+  padding: 1.4rem 1.5rem;
+  max-width: min(420px, 88vw);
+  text-align: center;
+}
+
+.lightbox-buychoice[hidden] { display: none; }
+
+.lightbox-buychoice p {
+  color: var(--text);
+  font-size: 0.95rem;
+  margin-bottom: 1.1rem;
+}
+
+.lightbox-buychoice-btns {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.lightbox-buychoice-btns button { font-size: 0.85rem; padding: 0.55rem 1.1rem; }
+
+/* On a phone the actions row is the whole width; let the buttons fill it rather
+   than crowd onto one line. */
+@media (max-width: 560px) {
+  /* Stacked full-width buttons: two side by side at this width are too narrow to
+     read, and Buy now is the action most likely to be tapped one-handed. */
+  .lightbox-actions { flex-direction: column; gap: 0.55rem; padding: 0.8rem 1rem 1rem; }
+  .lightbox-meta { align-items: center; }
+  .lightbox-buttons { width: 100%; flex-direction: column; gap: 0.5rem; }
+  .lightbox-add, .lightbox-buy { width: 100%; justify-content: center; }
+  /* The bar is ~4 rows tall here rather than one, so the photo needs more room
+     than the 5vh the desktop layout leaves it. */
+  .lightbox-img { max-height: 58vh; margin-bottom: 0; }
+  .lightbox-nav { top: 32%; }
+}
 
 /* Per-card link, for a variation of something already listed. */
 .product-ask {

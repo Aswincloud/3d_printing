@@ -47,16 +47,25 @@ function openLightbox(index) {
   lightbox.classList.add('active');
   document.body.style.overflow = 'hidden';
   if (typeof updateLightboxCaption === 'function') updateLightboxCaption();
+  if (typeof updateLightboxBuy === 'function') updateLightboxBuy();
 }
 
 function closeLightbox() {
   lightbox.classList.remove('active');
   document.body.style.overflow = '';
+  // Never leave the buy-choice prompt open: reopening the lightbox on a different
+  // product would show a question that was asked about the previous one.
+  const choice = document.getElementById('lightboxBuyChoice');
+  if (choice) choice.hidden = true;
 }
 
 function navigate(dir) {
   const items = lbItems();
   if (!items.length) return;
+  // Same reason as in closeLightbox(): the prompt names a specific product and a
+  // count, and arrowing away would leave it asking about the wrong one.
+  const choice = document.getElementById('lightboxBuyChoice');
+  if (choice) choice.hidden = true;
   current = (current + dir + items.length) % items.length;
   const img = items[current].querySelector('img');
   lightboxImg.style.opacity = '0';
@@ -65,6 +74,9 @@ function navigate(dir) {
     lightboxImg.alt = img.alt;
     lightboxImg.style.opacity = '1';
     if (typeof updateLightboxCaption === 'function') updateLightboxCaption();
+    // Price and buy buttons must follow the arrows, or they would offer the
+    // previous product's price for the one now on screen.
+    if (typeof updateLightboxBuy === 'function') updateLightboxBuy();
   }, 150);
 }
 
@@ -102,7 +114,18 @@ lightbox?.addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (!lightbox.classList.contains('active')) return;
-  if (e.key === 'Escape') closeLightbox();
+  if (e.key === 'Escape') {
+    // Escape closes the innermost thing first. When the buy-now prompt is open it
+    // takes the key and the lightbox stays put, so one Escape does not throw away
+    // both the question and the photo behind it.
+    //
+    // Handled here rather than in a second listener: two keydown listeners on
+    // `document` are siblings, so stopPropagation() in one cannot prevent the
+    // other from running — the first attempt closed the prompt AND the lightbox.
+    const choice = document.getElementById('lightboxBuyChoice');
+    if (choice && !choice.hidden) { choice.hidden = true; return; }
+    closeLightbox();
+  }
   if (e.key === 'ArrowLeft') navigate(-1);
   if (e.key === 'ArrowRight') navigate(1);
 });
@@ -1054,7 +1077,9 @@ function validateCheckout() {
 function renderCoSummary() {
   const el = document.getElementById('coSummary');
   if (!el) return;
-  const lines = readCart()
+  // checkoutItems(), not readCart(): a "buy now — just this" checkout must show
+  // only that item, and must show the same set the payload will send.
+  const lines = checkoutItems()
     .map((it) => ({ it, p: catalogue.find((c) => c.id === it.id) }))
     .filter((r) => r.p);
 
@@ -1089,9 +1114,22 @@ function renderCoSummary() {
 }
 
 /* ── open / close ──────────────────────────────────────────────── */
-function openCheckout() {
+
+// "Buy now — just this item" checks out ONE product without disturbing the cart,
+// so for the duration of that checkout the three places that read the cart
+// (summary, open guard, order payload) must read this instead. A single override
+// read through one accessor, rather than passing an items array through all three,
+// because the two must never disagree about what is being charged for — and the
+// server prices whatever ids the payload carries.
+//
+// null = normal checkout, charge the cart.
+let buyNowItems = null;
+const checkoutItems = () => buyNowItems || readCart();
+
+function openCheckout(items = null) {
   if (!checkoutModal) return;
-  if (!readCart().length) return;
+  buyNowItems = items;
+  if (!checkoutItems().length) { buyNowItems = null; return; }
   coClearAll();
   renderCoSummary();
   if (typeof prefillCheckout === 'function') prefillCheckout();
@@ -1108,6 +1146,10 @@ function closeCheckout() {
   checkoutOverlay.hidden = true;
   checkoutModal.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
+  // Clear the override, or the NEXT checkout would silently charge for the
+  // single item this one was for. Cleared on close rather than on success
+  // because a cancelled or failed payment leaves the modal by this path too.
+  buyNowItems = null;
 }
 
 document.getElementById('cartCheckout')?.addEventListener('click', () => {
@@ -1150,7 +1192,7 @@ checkoutForm?.addEventListener('submit', async (e) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        items: readCart().map((it) => ({ product_id: it.id, qty: it.qty })),
+        items: checkoutItems().map((it) => ({ product_id: it.id, qty: it.qty })),
         // No `delivery` field: the server sets it, and does not trust a value
         // sent from here — it decides the shipping charge.
         customer: {
@@ -1229,8 +1271,11 @@ async function verifyPayment(response, orderData) {
     const out = await res.json().catch(() => ({}));
     if (!res.ok || !out.ok) throw new Error(out.error || 'Verification failed');
 
-    // Paid — the cart has served its purpose.
-    writeCart([]);
+    // Paid. Clear the cart only if the cart is what was paid for: a "buy now —
+    // just this item" checkout deliberately leaves the cart alone, and wiping it
+    // here would delete items the customer was never charged for and did not
+    // choose to remove.
+    if (!buyNowItems) writeCart([]);
     setCheckoutBusy(false);
     closeCheckout();
     showReceipt(out.receipt, orderData);
@@ -1356,6 +1401,108 @@ document.getElementById('lightboxQuote')?.addEventListener('click', () => {
     kind: 'product',
   });
 });
+
+/* ── buying from the lightbox ──────────────────────────────────── */
+
+// Which product is open. Resolved from the card's data-slug rather than by
+// matching the image src or the caption text: the slug is the product's identity,
+// while a name can be edited to collide and two products could share a photo.
+function lightboxProduct() {
+  const card = lbItems()[current]?.closest('.product-card');
+  const slug = card?.dataset.slug;
+  return slug ? catalogue.find((p) => p.slug === slug) || null : null;
+}
+
+// Enable and label the buy controls for whatever is open. Called on every open and
+// on every prev/next, so navigating with the arrows keeps the price honest.
+function updateLightboxBuy() {
+  const p = lightboxProduct();
+  const priceEl = document.getElementById('lightboxPrice');
+  const addBtn = document.getElementById('lightboxAdd');
+  const buyBtn = document.getElementById('lightboxBuy');
+  if (!priceEl || !addBtn || !buyBtn) return;
+
+  if (!p) {
+    // Defensive: every photo in the lightbox is a listed product today, but if a
+    // non-product image surface is ever added, hide the buy controls rather than
+    // showing buttons that would fail.
+    priceEl.textContent = '';
+    addBtn.hidden = buyBtn.hidden = true;
+    return;
+  }
+
+  addBtn.hidden = buyBtn.hidden = false;
+  priceEl.textContent = rupees(p.price_paise);
+  addBtn.textContent = 'Add to cart';
+  addBtn.disabled = false;
+}
+
+document.getElementById('lightboxAdd')?.addEventListener('click', () => {
+  const p = lightboxProduct();
+  const btn = document.getElementById('lightboxAdd');
+  if (!p || !btn) return;
+  if (!addToCart(p.id)) {
+    btn.textContent = 'Max ' + MAX_QTY + ' reached';
+  } else {
+    btn.textContent = 'Added ✓';
+  }
+  // Deliberately does NOT close the lightbox: someone adding from here is likely
+  // browsing with the arrow keys, and closing would drop them back to the grid
+  // after every add.
+  setTimeout(() => { btn.textContent = 'Add to cart'; }, 1400);
+});
+
+// Buy now. With an empty cart this is unambiguous — add and check out. With items
+// already in it, "buy now" could mean this one thing or the whole basket, and
+// guessing wrong either overcharges or loses the order, so the customer is asked.
+document.getElementById('lightboxBuy')?.addEventListener('click', () => {
+  const p = lightboxProduct();
+  if (!p) return;
+
+  const cart = readCart();
+  const others = cart.filter((it) => it.id !== p.id);
+
+  if (!others.length) {
+    // Nothing else to confuse it with. Make sure the item is in the cart (it may
+    // not be), then check the cart out — one code path, same as the cart button.
+    if (!cart.some((it) => it.id === p.id)) addToCart(p.id);
+    closeLightbox();
+    openCheckout();
+    return;
+  }
+
+  const box = document.getElementById('lightboxBuyChoice');
+  const text = document.getElementById('lightboxBuyChoiceText');
+  const total = cartCount(cart) + (cart.some((it) => it.id === p.id) ? 0 : 1);
+  if (text) {
+    text.textContent = `Your cart already has ${cartCount(others)} other item` +
+      (cartCount(others) === 1 ? '' : 's') + '. Check out just this one, or all ' +
+      total + '?';
+  }
+  if (box) box.hidden = false;
+});
+
+document.getElementById('buyChoiceJustThis')?.addEventListener('click', () => {
+  const p = lightboxProduct();
+  document.getElementById('lightboxBuyChoice').hidden = true;
+  if (!p) return;
+  // The cart is left exactly as it was — see the buyNowItems note by openCheckout.
+  closeLightbox();
+  openCheckout([{ id: p.id, qty: 1 }]);
+});
+
+document.getElementById('buyChoiceEverything')?.addEventListener('click', () => {
+  const p = lightboxProduct();
+  document.getElementById('lightboxBuyChoice').hidden = true;
+  if (!p) return;
+  if (!readCart().some((it) => it.id === p.id)) addToCart(p.id);
+  closeLightbox();
+  openCheckout();
+});
+
+// Escape-dismissal of the prompt lives in the lightbox keydown handler above, not
+// in a second listener here: sibling listeners on `document` cannot suppress each
+// other, so a separate one closed the prompt and the lightbox with one keypress.
 
 // Caption in the lightbox, so a named piece is identifiable before asking.
 function updateLightboxCaption() {

@@ -401,14 +401,36 @@
   <button class="lightbox-nav lightbox-prev" id="lightboxPrev">&#8592;</button>
   <img class="lightbox-img" id="lightboxImg" src="" alt="3D print" />
   <button class="lightbox-nav lightbox-next" id="lightboxNext">&#8594;</button>
-  <!-- Most gallery photos aren't listed products — 18 of the 53 are unnamed
-       pieces with no price. This is how someone asks about one of those, or
-       about a variation of anything else they can see. -->
+  <!-- Every photo here is a listed product now (the gallery of unpriced pieces was
+       removed), so the lightbox can sell rather than only invite a quote. Price,
+       Add to cart and Buy now are filled in by main.js from the open product;
+       "Request a quote" stays for a variation — another colour, size or material. -->
   <div class="lightbox-actions">
-    <span class="lightbox-caption" id="lightboxCaption"></span>
-    <button type="button" class="btn-primary lightbox-quote" id="lightboxQuote">
-      Request a quote for this
-    </button>
+    <div class="lightbox-meta">
+      <span class="lightbox-caption" id="lightboxCaption"></span>
+      <span class="lightbox-price" id="lightboxPrice"></span>
+    </div>
+    <div class="lightbox-buttons">
+      <button type="button" class="btn-secondary lightbox-add" id="lightboxAdd">
+        Add to cart
+      </button>
+      <button type="button" class="btn-primary lightbox-buy" id="lightboxBuy">
+        Buy now
+      </button>
+      <button type="button" class="lightbox-quote" id="lightboxQuote">
+        Ask for a quote
+      </button>
+    </div>
+  </div>
+
+  <!-- Shown by "Buy now" when the cart already has other items, so the customer
+       decides what they are paying for rather than us guessing. -->
+  <div class="lightbox-buychoice" id="lightboxBuyChoice" hidden>
+    <p id="lightboxBuyChoiceText"></p>
+    <div class="lightbox-buychoice-btns">
+      <button type="button" class="btn-secondary" id="buyChoiceJustThis">Just this item</button>
+      <button type="button" class="btn-primary" id="buyChoiceEverything">Everything in cart</button>
+    </div>
   </div>
 </div>
 
