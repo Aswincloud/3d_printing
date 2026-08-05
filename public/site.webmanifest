@@ -1,0 +1,14 @@
+{
+  "name": "AswinPrints — Custom 3D Printing",
+  "short_name": "AswinPrints",
+  "description": "Custom 3D printing in Pondicherry, India. Figurines, decor, functional parts and prototypes.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#ff6b00",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

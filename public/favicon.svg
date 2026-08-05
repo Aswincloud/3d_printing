@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Same mark as the nav logo in index.html: rounded orange-gradient tile with
+       a white house outline. Kept identical so the tab icon and the header read
+       as one brand rather than two similar ones.
+
+       At 16px a browser tab shows almost no detail, so the stroke is slightly
+       heavier here (2.2 vs 1.8) and the corner radius slightly tighter (7 vs 8)
+       — at that size the original reads as a smudge. -->
+  <rect width="32" height="32" rx="7" fill="url(#g)"/>
+  <path d="M8 22V14l8-6 8 6v8M13 22v-5h6v5"
+        stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c38"/>
+    </linearGradient>
+  </defs>
+</svg>
