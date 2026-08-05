@@ -40,7 +40,6 @@
   <ul class="nav-links">
     <li><a href="#services">Services</a></li>
     <li><a href="#shop">Shop</a></li>
-    <li><a href="#gallery">Gallery</a></li>
     <li><a href="#process">How It Works</a></li>
     <li><a href="#quote" class="nav-cta">Get a Quote</a></li>
   </ul>
@@ -89,9 +88,9 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         Request a Quote
       </a>
-      <a href="#gallery" class="btn-secondary">
+      <a href="#shop" class="btn-secondary">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m3 9 4-4 4 4 4-4 4 4"/><path d="m3 15 4 4 4-4 4 4 4-4"/></svg>
-        View Gallery
+        Browse Prints
       </a>
     </div>
     <div class="hero-stats">
@@ -163,9 +162,11 @@
 </section>
 
 <!-- ===== SHOP ===== -->
-<!-- Cards are rendered by assets/js/main.js from GET /api/products. They use
-     .product-card, NOT .gallery-item: the lightbox binds to .gallery-item, so
-     sharing the class would make every "Add to cart" click open a lightbox. -->
+<!-- Cards are rendered by assets/js/main.js from GET /api/products.
+     The lightbox now binds here (the portfolio section it used to serve was
+     removed as a near-duplicate of this one). It is delegated from #productGrid
+     and matches .product-media ONLY — the photo, not the whole card — so that
+     "Add to cart" and the price row stay clickable without opening an overlay. -->
 <section class="shop" id="shop">
   <div class="section-label">Shop</div>
   <h2 class="section-title fade-up">Ready to Order</h2>
@@ -193,228 +194,6 @@
 
   <div class="product-grid" id="productGrid" aria-live="polite">
     <div class="shop-loading">Loading the catalogue…</div>
-  </div>
-</section>
-
-<!-- ===== GALLERY ===== -->
-<section class="gallery" id="gallery">
-  <div class="section-label">Portfolio</div>
-  <h2 class="section-title fade-up">Fresh Off the Printer</h2>
-  <p class="section-sub fade-up" data-delay="100">Every piece is printed on the Bambu Lab A1 using quality PLA filament. Click any image to view full size.</p>
-
-  <div class="gallery-grid">
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260729_wall_staircase.jpg" alt="Wall-mounted staircase floating shelf" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260215094926.jpg" alt="Moon swing figurine" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260413121025.jpg" alt="Tinkerbell figurine" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260403160453.jpg" alt="Articulated character" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260216170453.jpg" alt="Evolution to Dirt Bike" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260413101327.jpg" alt="Hummingbird on Blossom" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260413101336.jpg" alt="Lookout Tower" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260413101352_01.jpg" alt="Fairy Cottage" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260413120817.jpg" alt="Spiral Marble Run" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260413120832.jpg" alt="Kinetic Spiral Sculpture" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260413120850.jpg" alt="Katana display sword" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260413120901.jpg" alt="Switchback Marble Run" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260413120919.jpg" alt="Desert Eagle replica display model" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260413120934.jpg" alt="Kinetic Spinner Disc" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260413120943.jpg" alt="Monster Truck" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260413120952.jpg" alt="Climbing to the Moon" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260413120958.jpg" alt="Helicopter" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260413121014.jpg" alt="Butterfly Lantern" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260413121041.jpg" alt="Patterned Elephant" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260413121047.jpg" alt="Lion on a Rock" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260413121100.jpg" alt="Filigree Rearing Horse" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260413121113.jpg" alt="Little Prince on His Planet" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260517_butterfly_hand.jpg" alt="Butterfly hand" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260517_golden_vase.jpg" alt="Golden vase" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260517_red_horse.jpg" alt="Red horse" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260517_spiderman.jpg" alt="Spider-Man" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260521_bird.jpg" alt="Bird" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260521_buddha_icecream.jpg" alt="Buddha ice cream" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260521_dogs_rooster.jpg" alt="Dogs and rooster" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260521_dragon.jpg" alt="Dragon" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260521_icecream_cone.jpg" alt="Ice cream cone" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260521_temple1.jpg" alt="Temple design" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260521_temple2.jpg" alt="Temple design 2" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260521_vases_temple.jpg" alt="Vases and temple" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260523_murugan_temple.jpg" alt="Murugan temple" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260531_jeep_4x4.jpg" alt="Jeep 4x4" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260531_phone_stand_figure.jpg" alt="Phone stand figure" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260531_laughing_buddha.jpg" alt="Laughing Buddha" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260531_phoenix_mask.jpg" alt="Phoenix mask" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260531_ganesha_veena.jpg" alt="Ganesha with veena" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260725_tbm900_plane.jpg" alt="TBM 900 aircraft model" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260725_stork.jpg" alt="White stork figurine" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260725_kingfisher.jpg" alt="Kingfisher bird figurine" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260725_robot_articulated.jpg" alt="Articulated robot figure" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260725_carebear.jpg" alt="Good Luck Care Bear" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260725_elephant.jpg" alt="Elephant sculpture" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260725_flowers_bouquet.jpg" alt="Dahlia flower bouquet" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260725_dahlias.jpg" alt="Dahlia flowers close-up" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260725_batman_angel_eiffel.jpg" alt="Batman, angel & Eiffel Tower" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="50">
-      <img src="assets/images/IMG20260725_toothless_collection.jpg" alt="Toothless dragons & figures" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="100">
-      <img src="assets/images/IMG20260725_full_collection.jpg" alt="Full figurine collection" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="150">
-      <img src="assets/images/IMG20260725_batman_angel_topdown.jpg" alt="Batman & angel figures" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
-    <div class="gallery-item fade-up" data-delay="0">
-      <img src="assets/images/IMG20260725_batman_angel.jpg" alt="Batman & angel figurines" loading="lazy" />
-      <div class="gallery-overlay"><div class="gallery-overlay-text">🔍 View</div></div>
-    </div>
   </div>
 </section>
 
@@ -832,7 +611,7 @@
       <div class="footer-col">
         <h4>Quick Links</h4>
         <ul>
-          <li><a href="#gallery">Gallery</a></li>
+          <li><a href="#shop">Shop</a></li>
           <li><a href="#process">How It Works</a></li>
           <li><a href="#quote">Get a Quote</a></li>
           <li><a href="https://www.aswincloud.com" target="_blank" rel="noopener">Portfolio</a></li>

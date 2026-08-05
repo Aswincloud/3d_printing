@@ -507,7 +507,11 @@ section { padding: 100px 5%; }
   line-height: 1.6;
 }
 
-/* ===== GALLERY ===== */
+/* ===== FILTER CHIPS =====
+   Named .gallery-filter / .filter-btn because they were built for the portfolio
+   section. That section is gone, but the SHOP's category chips reuse both rules,
+   so they stay. Class names left as they are rather than renamed: it would churn
+   the markup and three test files for no behavioural gain. */
 .gallery-filter {
   display: flex;
   gap: 0.75rem;
@@ -531,63 +535,6 @@ section { padding: 100px 5%; }
   background: var(--orange);
   border-color: var(--orange);
   color: var(--white);
-}
-
-.gallery-grid {
-  columns: 4;
-  column-gap: 14px;
-}
-
-@media (max-width: 1100px) { .gallery-grid { columns: 3; } }
-@media (max-width: 768px) { .gallery-grid { columns: 2; } }
-@media (max-width: 480px) { .gallery-grid { columns: 1; } }
-
-.gallery-item {
-  break-inside: avoid;
-  margin-bottom: 14px;
-  border-radius: var(--radius);
-  overflow: hidden;
-  cursor: pointer;
-  position: relative;
-  border: 1px solid rgba(255,255,255,0.05);
-  transition: transform var(--transition), box-shadow var(--transition);
-}
-
-.gallery-item:hover {
-  transform: scale(1.02);
-  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-  z-index: 2;
-}
-
-.gallery-item img {
-  width: 100%;
-  height: auto;
-  display: block;
-  transition: transform 0.5s ease;
-}
-
-.gallery-item:hover img { transform: scale(1.06); }
-
-.gallery-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 50%);
-  opacity: 0;
-  transition: opacity var(--transition);
-  display: flex;
-  align-items: flex-end;
-  padding: 1.2rem;
-}
-
-.gallery-item:hover .gallery-overlay { opacity: 1; }
-
-.gallery-overlay-text {
-  color: white;
-  font-size: 0.85rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 /* ===== LIGHTBOX ===== */
@@ -1124,9 +1071,10 @@ footer {
 }
 
 /* ===== SHOP ===== */
-/* Deliberately NOT reusing .gallery-item. The lightbox binds click handlers to
-   .gallery-item, so a product card sharing that class would open a lightbox
-   every time someone pressed "Add to cart". Same tokens, separate class. */
+/* The lightbox now binds here, since the portfolio section it used to serve was
+   removed (51 of its 53 photos duplicated products already listed for sale). It
+   matches .product-media only — the photo, not the whole card — so "Add to cart"
+   and the price row are unaffected by the click handler. */
 .shop { background: var(--dark-2); }
 
 /* .section-sub carries a 3.5rem bottom margin meant to clear a grid directly
@@ -1185,6 +1133,41 @@ footer {
   aspect-ratio: 1 / 1;
   overflow: hidden;
   background: var(--dark-4);
+  /* Clickable since the lightbox moved here from the removed portfolio section.
+     The cursor and the ::after hint below are the whole affordance — without them
+     the enlarge behaviour is invisible, which is how the feature would quietly
+     stop being used. */
+  cursor: zoom-in;
+}
+
+/* "View" hint on hover, mirroring what the portfolio's .gallery-overlay did.
+   Built with ::after rather than a real element so the JS card renderer does not
+   need to construct one per card, and so it cannot become a click target that
+   confuses the delegated handler. */
+.product-media::after {
+  content: '🔍 View';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0.7rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--white);
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 55%);
+  opacity: 0;
+  transition: opacity var(--transition);
+  pointer-events: none;
+}
+
+.product-media:hover::after,
+.product-media:focus-visible::after { opacity: 1; }
+
+/* Touch devices have no hover, so the hint would never appear and the photo would
+   look inert. Show it faintly and always. */
+@media (hover: none) {
+  .product-media::after { opacity: 0.55; }
 }
 
 .product-media img {

@@ -21,12 +21,25 @@ const observer = new IntersectionObserver((entries) => {
 fadeEls.forEach(el => observer.observe(el));
 
 /* ===== LIGHTBOX ===== */
+// Attached to the SHOP's product cards. It used to serve the portfolio section,
+// which was removed because 51 of its 53 photos were the same prints already
+// listed for sale — the same piece appeared twice, priced in one place and not
+// the other. Click-to-enlarge and "request a quote for this" were worth keeping,
+// so they moved onto the product cards rather than being deleted with the section.
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = document.getElementById('lightboxImg');
-const items = [...document.querySelectorAll('.gallery-item')];
+
+// A LIVE query, not a snapshot. The old `[...querySelectorAll('.gallery-item')]`
+// worked because the gallery was static markup present at parse time; product
+// cards are rendered from /api/products after load, so a snapshot taken here
+// would always be empty. Re-reading on each call also keeps prev/next correct
+// when the search box or a category filter changes which cards are on screen.
+const lbItems = () => [...document.querySelectorAll('.product-media')];
 let current = 0;
 
 function openLightbox(index) {
+  const items = lbItems();
+  if (!items[index]) return;
   current = index;
   const img = items[index].querySelector('img');
   lightboxImg.src = img.src;
@@ -42,6 +55,8 @@ function closeLightbox() {
 }
 
 function navigate(dir) {
+  const items = lbItems();
+  if (!items.length) return;
   current = (current + dir + items.length) % items.length;
   const img = items[current].querySelector('img');
   lightboxImg.style.opacity = '0';
@@ -55,8 +70,26 @@ function navigate(dir) {
 
 lightboxImg.style.transition = 'opacity 0.15s ease';
 
-items.forEach((item, i) => {
-  item.addEventListener('click', () => openLightbox(i));
+// Delegated from the grid, because the cards do not exist yet when this runs and
+// are replaced wholesale on every search keystroke and filter change. Binding to
+// each card at render time would mean re-binding on every one of those.
+document.getElementById('productGrid')?.addEventListener('click', (e) => {
+  const media = e.target.closest('.product-media');
+  if (!media) return;
+  const index = lbItems().indexOf(media);
+  if (index >= 0) openLightbox(index);
+});
+
+// A div with role="button" does not fire click on Enter/Space the way a real
+// button does, so the keyboard path is wired explicitly. Space is
+// preventDefault-ed to stop it scrolling the page instead.
+document.getElementById('productGrid')?.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const media = e.target.closest?.('.product-media');
+  if (!media) return;
+  e.preventDefault();
+  const index = lbItems().indexOf(media);
+  if (index >= 0) openLightbox(index);
 });
 
 document.getElementById('lightboxClose')?.addEventListener('click', closeLightbox);
@@ -655,6 +688,15 @@ function renderProducts() {
 
     const media = document.createElement('div');
     media.className = 'product-media';
+    // Opens the lightbox (delegated from #productGrid). Given a role and made
+    // focusable so it is reachable by keyboard and announced as an action — the
+    // portfolio's gallery items were plain divs and were NOT keyboard-accessible,
+    // so this is a fix carried along with the move rather than a like-for-like
+    // port. Enter/Space are handled below because a div does not fire click on
+    // key press the way a real button does.
+    media.setAttribute('role', 'button');
+    media.setAttribute('tabindex', '0');
+    media.setAttribute('aria-label', 'View larger photo of ' + p.name);
     const img = document.createElement('img');
     img.src = p.image;
     img.alt = p.name;
@@ -1190,7 +1232,12 @@ document.getElementById('receiptOverlay')?.addEventListener('click', closeReceip
    Both scroll to the form and attach a visible reference so Aswin knows what
    the request is about without the customer having to describe the photo. */
 
-function startQuoteFor({ name, image, kind }) {
+// `kind` used to distinguish a listed product from a gallery-only photo. With the
+// portfolio section removed, every reference is a listed product — both callers
+// pass 'product' — so the gallery branches are gone rather than left as
+// unreachable conditionals. The parameter is kept because it still reads at the
+// call site and would be needed again if a non-product image surface came back.
+function startQuoteFor({ name, image, kind = 'product' }) {
   const box = document.getElementById('quoteRef');
   const hidden = document.getElementById('refItem');
   if (!box || !hidden) return;
@@ -1199,22 +1246,17 @@ function startQuoteFor({ name, image, kind }) {
   document.getElementById('quoteRefImg').src = image || '';
   document.getElementById('quoteRefImg').alt = label;
   document.getElementById('quoteRefName').textContent = label;
-  document.getElementById('quoteRefNote').textContent = kind === 'product'
-    ? 'A variation of this listed item'
-    : 'From the gallery — not a listed product';
+  document.getElementById('quoteRefNote').textContent = 'A variation of this listed item';
 
   // The server receives this as one short string; it is escaped into the email
   // like every other field.
-  hidden.value = (kind === 'product' ? 'Product: ' : 'Gallery: ') + label
-    + (image ? ' (' + image + ')' : '');
+  hidden.value = 'Product: ' + label + (image ? ' (' + image + ')' : '');
   box.hidden = false;
 
   // Nudge the description so the box isn't the only hint about what to write.
   const desc = document.getElementById('desc');
   if (desc && !desc.value.trim()) {
-    desc.placeholder = kind === 'product'
-      ? 'What would you like changed? Colour, size, material, quantity…'
-      : "Tell me what you'd like — size, colour, material, how many…";
+    desc.placeholder = 'What would you like changed? Colour, size, material, quantity…';
   }
 
   closeLightbox?.();
@@ -1229,16 +1271,17 @@ document.getElementById('quoteRefClear')?.addEventListener('click', () => {
 
 // The lightbox already tracks which image is open via `current`.
 document.getElementById('lightboxQuote')?.addEventListener('click', () => {
-  const img = items[current]?.querySelector('img');
+  const img = lbItems()[current]?.querySelector('img');
   if (!img) return;
   const alt = img.getAttribute('alt') || '';
-  // The 18 unnamed photos all share this alt text, so there's no useful name to
-  // show — say so rather than printing "3D print sample" back at them.
+  // Every product has a real name now that the source is D1 rather than the
+  // gallery's alt text, so the generic fallback should never fire — kept because
+  // an admin can still save a product with an empty name through the API.
   const generic = /^3D print sample$/i.test(alt.trim());
   startQuoteFor({
-    name: generic ? 'This gallery piece' : alt,
+    name: generic ? 'This piece' : alt,
     image: img.getAttribute('src') || '',
-    kind: 'gallery',
+    kind: 'product',
   });
 });
 
@@ -1246,7 +1289,9 @@ document.getElementById('lightboxQuote')?.addEventListener('click', () => {
 function updateLightboxCaption() {
   const cap = document.getElementById('lightboxCaption');
   if (!cap) return;
-  const alt = (items[current]?.querySelector('img')?.getAttribute('alt') || '').trim();
+  // The img alt is the product name (set in the card renderer), so the caption
+  // now names the piece rather than describing a photo.
+  const alt = (lbItems()[current]?.querySelector('img')?.getAttribute('alt') || '').trim();
   cap.textContent = /^3D print sample$/i.test(alt) ? '' : alt;
 }
 
