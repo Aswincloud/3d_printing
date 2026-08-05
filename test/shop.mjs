@@ -13,7 +13,7 @@ const ok = (name, cond, detail = "") => {
 };
 const section = (s) => console.log(`\n${s}`);
 
-const ENV = { FLAT_SHIP_PAISE: "9900", FREE_SHIP_THRESHOLD_PAISE: "150000" };
+const ENV = { FLAT_SHIP_PAISE: "9900", FREE_SHIP_THRESHOLD_PAISE: "200000" };
 
 // Fake catalogue: two visible products, one hidden.
 const CATALOGUE = [
@@ -49,23 +49,25 @@ section("shippingConfig()");
 {
   const c = shippingConfig(ENV);
   ok("parses flat rate", c.flat_paise === 9900, String(c.flat_paise));
-  ok("parses threshold", c.free_threshold_paise === 150000, String(c.free_threshold_paise));
+  ok("parses threshold", c.free_threshold_paise === 200000, String(c.free_threshold_paise));
 
   // Vars are strings from wrangler.toml; a missing or junk one must not make
   // shipping NaN (which would produce a NaN total sent to Razorpay).
   const d = shippingConfig({});
-  ok("missing vars fall back", d.flat_paise === 9900 && d.free_threshold_paise === 150000);
+  // The fallback must equal the wrangler.toml value, else a deploy where the var
+// did not arrive would quietly ship free from ₹1,500 again.
+ok("missing vars fall back", d.flat_paise === 9900 && d.free_threshold_paise === 200000);
   const e = shippingConfig({ FLAT_SHIP_PAISE: "abc", FREE_SHIP_THRESHOLD_PAISE: "-5" });
-  ok("junk vars fall back", e.flat_paise === 9900 && e.free_threshold_paise === 150000);
+  ok("junk vars fall back", e.flat_paise === 9900 && e.free_threshold_paise === 200000);
   const z = shippingConfig({ FLAT_SHIP_PAISE: "0" });
   ok("explicit 0 flat rate is honoured, not treated as missing", z.flat_paise === 0);
 }
 
 // ── shipping edges ────────────────────────────────────────────────
 section("shippingFor() — threshold edges");
-ok("one paise under threshold → flat", shippingFor(149999, "ship", ENV) === 9900);
-ok("exactly at threshold → free", shippingFor(150000, "ship", ENV) === 0);
-ok("one paise over → free", shippingFor(150001, "ship", ENV) === 0);
+ok("one paise under threshold → flat", shippingFor(199999, "ship", ENV) === 9900);
+ok("exactly at threshold → free", shippingFor(200000, "ship", ENV) === 0);
+ok("one paise over → free", shippingFor(200001, "ship", ENV) === 0);
 ok("well under → flat", shippingFor(34900, "ship", ENV) === 9900);
 // Pickup was withdrawn, and with it the `if (delivery === "pickup") return 0`
 // branch — a free-shipping path any client able to set that field could reach.
@@ -75,6 +77,9 @@ for (const mode of ["pickup", "PICKUP", "Pickup", "", null, undefined, "collect"
   ok(`delivery=${JSON.stringify(mode)} still charged`, shippingFor(34900, mode, ENV) === 9900);
 }
 ok("threshold still applies whatever delivery says", shippingFor(500000, "pickup", ENV) === 0);
+// The old threshold must NOT still grant free shipping.
+ok("₹1,500 no longer ships free", shippingFor(150000, "ship", ENV) === 9900);
+ok("₹1,999 still charged", shippingFor(199900, "ship", ENV) === 9900);
 
 // ── happy path ────────────────────────────────────────────────────
 section("priceCart() — amounts");
@@ -90,11 +95,20 @@ section("priceCart() — amounts");
   ok("no error", !r.error);
 }
 {
-  // Two large items cross the free-shipping threshold.
+  // 179800 USED to clear the ₹1,500 threshold and ship free. With the threshold at
+  // ₹2,000 it no longer does, so this block now asserts the charged case and a
+  // separate one below covers actually crossing the line.
   const r = await priceCart(envWith(), [{ product_id: "p-large", qty: 2 }], "ship");
   ok("2 × 89900 = 179800 subtotal", r.subtotal_paise === 179800, String(r.subtotal_paise));
+  ok("just under the new threshold → charged", r.shipping_paise === 9900, String(r.shipping_paise));
+  ok("total includes shipping", r.total_paise === 189700, String(r.total_paise));
+}
+{
+  // Three large items (269700) clear ₹2,000, so shipping is free.
+  const r = await priceCart(envWith(), [{ product_id: "p-large", qty: 3 }], "ship");
+  ok("3 × 89900 = 269700 subtotal", r.subtotal_paise === 269700, String(r.subtotal_paise));
   ok("crosses threshold → free shipping", r.shipping_paise === 0);
-  ok("total equals subtotal when shipping free", r.total_paise === 179800);
+  ok("total equals subtotal when shipping free", r.total_paise === 269700);
 }
 {
   const r = await priceCart(envWith(), [
@@ -102,7 +116,7 @@ section("priceCart() — amounts");
     { product_id: "p-large", qty: 1 },
   ], "pickup");
   ok("mixed cart subtotal", r.subtotal_paise === 124800, String(r.subtotal_paise));
-  // 124800 is under the 150000 free-shipping threshold, so shipping is charged
+  // 124800 is under the 200000 free-shipping threshold, so shipping is charged
   // even though the caller passed "pickup" — that is the point of removing the
   // pickup branch from shippingFor(). This assertion previously expected 0.
   ok("a pickup claim does not waive shipping", r.shipping_paise === 9900, String(r.shipping_paise));

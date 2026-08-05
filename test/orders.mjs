@@ -129,7 +129,7 @@ const ENV = () => ({
   RESEND_API_KEY: "re_fake",
   OWNER_EMAIL: "owner@example.com",
   FLAT_SHIP_PAISE: "9900",
-  FREE_SHIP_THRESHOLD_PAISE: "150000",
+  FREE_SHIP_THRESHOLD_PAISE: "200000",
   DB: makeDB(),
 });
 
@@ -232,10 +232,12 @@ section("POST /api/orders — the client cannot waive shipping");
 }
 {
   const env = ENV(); stubFetch();
-  const body = { items: [{ product_id: "p-large", qty: 2 }], delivery: "ship", customer: CUSTOMER };
+  // 3 × 89900 = 269700, which clears the ₹2,000 free-shipping threshold. This was
+  // qty 2 (179800) when the threshold was ₹1,500.
+  const body = { items: [{ product_id: "p-large", qty: 3 }], delivery: "ship", customer: CUSTOMER };
   const [, out] = await readJson(await createOrderHandler(post(body), env, body));
   ok("over threshold ships free", out.shipping_paise === 0);
-  ok("total = 179800", out.total_paise === 179800, String(out.total_paise));
+  ok("total = 269700 with no shipping added", out.total_paise === 269700, String(out.total_paise));
 }
 
 section("POST /api/orders — validation");

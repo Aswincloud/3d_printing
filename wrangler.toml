@@ -70,7 +70,7 @@ RESEND_FROM_EMAIL = "noreply@aswincloud.com"
 OWNER_EMAIL = "aswin@aswincloud.com"
 ACCESS_MODE = "owners"
 FLAT_SHIP_PAISE = "9900"
-FREE_SHIP_THRESHOLD_PAISE = "150000"
+FREE_SHIP_THRESHOLD_PAISE = "200000"
 
 # Secrets (NOT here — set via `wrangler secret put`, never committed):
 #   RESEND_API_KEY

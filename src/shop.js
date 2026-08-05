@@ -38,10 +38,13 @@ function shape(r) {
 // ── shipping ──────────────────────────────────────────────────────
 // Both amounts are wrangler.toml vars, so they're editable without a code
 // change. They arrive as strings; coerce once, here.
+// The fallbacks must track wrangler.toml. They are what applies if a var is
+// missing or unparseable, so a stale fallback would silently give away shipping
+// at the old, lower threshold on any deploy where the var did not come through.
 export function shippingConfig(env) {
   return {
     flat_paise: intVar(env.FLAT_SHIP_PAISE, 9900),
-    free_threshold_paise: intVar(env.FREE_SHIP_THRESHOLD_PAISE, 150000),
+    free_threshold_paise: intVar(env.FREE_SHIP_THRESHOLD_PAISE, 200000),
   };
 }
 
