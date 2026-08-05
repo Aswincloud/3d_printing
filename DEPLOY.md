@@ -167,6 +167,33 @@ Live mode also brings a real-money footgun the test keys hid: the browser suites
 in `~/.cache/3dprints-e2e` create orders against whatever key is configured, so
 **`.dev.vars` stays on `rzp_test_…`**. Live keys belong only in Worker secrets.
 
+### Live cutover — done and verified 2026-08-05
+
+All three secrets are live-mode. Verified against production, in this order:
+
+| Check | Result |
+|---|---|
+| `GET /v1/payments` with the live key | 200 (read-only probe first, so nothing was created just to test auth) |
+| Order creation | `order_TM8idDAdeBOiln`, browser receives `rzp_live_…` |
+| Forged webhook signature | 400 `invalid signature` (three variants: junk, all-zeros, empty) |
+| Correct signature | `{"ok":true}` |
+| Correct signature, **tampered body** | 400 — proves the HMAC covers the payload, not just the header |
+| `order.paid` → D1 | `pending` → `paid`, `rzp_payment_id` recorded, `paid_at` set |
+| Same event redelivered twice | `{"ok":true,"duplicate":true}`, one `webhook_events` row, `paid_at` unchanged |
+
+Two things worth knowing from that run:
+
+- **A secret write takes up to a minute to reach every edge node.** The correctly
+  signed probe was rejected three times and accepted on the fourth. If a signature
+  check fails immediately after `wrangler secret put`, retry before debugging.
+- The signing method itself was validated against the local server (which returns
+  `{"ok":true}`) *before* trusting a production rejection as meaningful — otherwise
+  a mistake in the probe is indistinguishable from a wrong secret.
+
+Probe orders were deleted afterwards, matched on the placeholder emails
+(`probe@example.com`, `p@example.com`, `modecheck@example.com`) and never on status
+or date, so real orders could not be caught by the cleanup.
+
 Only those two. `payment.captured` fires alongside `order.paid` and would be
 handled twice. (The event-id dedup would catch it, but there is no reason to
 subscribe to it.)
