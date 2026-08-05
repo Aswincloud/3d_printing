@@ -16,6 +16,11 @@
   --red-glow: rgba(248, 113, 113, 0.12);
   --radius: 14px;
   --transition: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Nav is position:fixed, so anything laid out from the top of the viewport has
+     to subtract it by hand. Kept as a variable because three separate rules need
+     to agree on it — when they drifted, .hero-visual ended up centred on the
+     full viewport and its top 180px went under the nav and off-screen. */
+  --nav-h: 68px;
 }
 
 html { scroll-behavior: smooth; }
@@ -292,50 +297,95 @@ nav {
   letter-spacing: 0.5px;
 }
 
+/* Centred within the area BELOW the nav, not within the whole hero. The hero
+   starts at y=0 behind the fixed nav, so `top: 50%` centred the stack on the
+   viewport and — because the stack is taller than the viewport (see below) —
+   pushed its top edge to -112px at 1440x900. The dinosaur's head is in the top
+   of that photo, so the subject was the part being cut off. */
 .hero-visual {
   position: absolute;
   right: 5%;
-  top: 50%;
+  top: calc(var(--nav-h) + (100vh - var(--nav-h)) / 2);
   transform: translateY(-50%);
-  width: 42%;
-  max-width: 560px;
+  width: 44%;
+  max-width: 600px;
+  /* The stack must fit the space under the nav, with breathing room. Without a
+     bound, three 3:4 portrait photos at 560px wide stack to 1125px — 225px
+     taller than a 900px viewport — so it overflowed at both ends however it was
+     positioned. The tiles below size themselves off this budget rather than off
+     the images' aspect ratio. */
+  --stack-h: min(calc(100vh - var(--nav-h) - 110px), 600px);
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: auto auto;
+  /* Feature tile on the left running the FULL height, two squares stacked right.
+     The previous arrangement (wide tile on top, two below) forced the feature
+     photo into a landscape box — and since all three photos are 3:4 portraits of
+     tall subjects, a landscape crop is the one crop that cuts the subject's head
+     and feet off. A full-height tile is narrower than 3:4, so it crops the sides
+     instead and keeps the whole subject. */
+  grid-template-columns: 1.08fr 1fr;
+  grid-template-rows: 1fr 1fr;
   gap: 14px;
+  height: var(--stack-h);
   z-index: 1;
 }
 
 .hero-img-main {
-  grid-column: 1 / 3;
-  grid-row: 1 / 2;
+  grid-column: 1 / 2;
+  grid-row: 1 / 3;
   border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
   background: var(--dark-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  min-height: 0; /* else the grid item floors at the image's intrinsic height */
 }
 
-.hero-img-main img { width: 100%; height: auto; object-fit: contain; border-radius: 18px; }
+/* cover, not contain: the tiles are a fixed height set by the layout, and contain
+   would letterbox a 3:4 photo inside them against --dark-3.
+
+   `50% 38%` — the subject sits slightly above centre in all three shots (they're
+   handheld phone photos of an object on a table, so there's table in the lower
+   third). Biasing the crop up keeps the print and sheds table. Note this is a
+   bias, not a top anchor: `0%` would show the photo's top edge, which is laptop
+   screens and background, and cut the subject off entirely on the landscape
+   tiles. Verified by eye at each breakpoint, not just by arithmetic. */
+.hero-img-main img,
+.hero-img-small img {
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: 50% 38%;
+  display: block;
+}
+
+/* The desktop feature tile is the one tile narrower than the photos' 3:4, so it
+   shows their full height — including the baked-in "OnePlus 15" + signature
+   watermark strip along the bottom. Scaling to 112% and pulling up sheds it.
+   Scoped to this breakpoint because every other tile is landscape enough that
+   `cover` already crops the strip away, and applying it globally would cut into
+   the subject. Display-only: the source files are shared with the gallery and
+   product listings and are left untouched. */
+@media (min-width: 1025px) {
+  .hero-img-main img { height: 112%; object-position: 50% 30%; }
+}
+
+.hero-img-main img { border-radius: 18px; }
 
 .hero-img-small {
   border-radius: 14px;
   overflow: hidden;
   box-shadow: 0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06);
   background: var(--dark-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  min-height: 0;
 }
 
-.hero-img-small img { width: 100%; height: auto; object-fit: contain; border-radius: 14px; }
+.hero-img-small img { border-radius: 14px; }
 
+/* Inset, not hanging off the corner. At -10px/-10px the badge sat outside its
+   parent tile, which is `overflow: hidden` for the rounded corners — so 10px of
+   it was clipped on both edges (measured: badge bottom 1022 vs tile bottom 1012).
+   Sitting inside the tile is also more legible against the photo. */
 .hero-printer-badge {
   position: absolute;
-  bottom: -10px;
-  right: -10px;
+  bottom: 10px;
+  right: 10px;
   background: linear-gradient(135deg, var(--orange), var(--orange-light));
   color: white;
   font-size: 0.72rem;
@@ -984,8 +1034,34 @@ footer {
 
 /* ===== MOBILE ===== */
 @media (max-width: 1024px) {
-  .hero-visual { display: none; }
+  /* Below 1024px there isn't room for text and photos side by side, so the
+     absolute positioning is dropped and the visual becomes a normal block that
+     flows under the copy. It used to be `display: none` here — for a local print
+     shop where most traffic is a phone, that hid the product photography from
+     exactly the visitors most likely to be deciding whether to order. */
+  .hero {
+    min-height: 0;
+    padding-top: calc(var(--nav-h) + 40px);
+    display: block;
+  }
   .hero-content { max-width: 100%; }
+  .hero-visual {
+    /* relative, NOT static: .hero-bg and .hero-grid are absolutely positioned
+       with no z-index, so they paint in DOM order and sit above any static
+       sibling regardless of its z-index (z-index is ignored on static elements).
+       Going static here made the tiles invisible on tablet and mobile — they were
+       laid out and loaded, just painted over by the hero background. */
+    position: relative;
+    top: auto;
+    transform: none;
+    width: 100%;
+    max-width: 560px;
+    height: auto;
+    margin: 3rem auto 0;
+    /* Landscape band on tablet: two columns, feature tile spanning both rows on
+       the left. Fixed height because the tiles crop rather than letterbox. */
+    height: 380px;
+  }
   .quote-wrapper { grid-template-columns: 1fr; gap: 2.5rem; }
 }
 
@@ -994,11 +1070,23 @@ footer {
   .nav-links { display: none; }
   .nav-hamburger { display: flex; }
   section { padding: 70px 4%; }
-  .hero { padding: 90px 4% 60px; }
+  .hero { padding: calc(var(--nav-h) + 30px) 4% 60px; }
   .form-row { grid-template-columns: 1fr; }
   .hero-stats { gap: 1.5rem; }
   .footer-links { gap: 2rem; }
   .footer-top { flex-direction: column; }
+  .hero-visual { height: 320px; gap: 10px; margin-top: 2.5rem; }
+}
+
+@media (max-width: 480px) {
+  /* Single column, feature photo only spanning the top. Two 140px-wide thumbs
+     beside a feature tile is too small to read as anything at this width. */
+  .hero-visual {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1.4fr 1fr;
+    height: 300px;
+  }
+  .hero-img-main { grid-column: 1 / 3; grid-row: 1 / 2; }
 }
 
 @media (max-width: 480px) {
