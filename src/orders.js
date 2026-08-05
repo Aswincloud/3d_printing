@@ -47,15 +47,12 @@ function validateCustomer(c, delivery) {
     errors.push("Please enter a valid phone number.");
   }
 
-  if (delivery === "ship") {
-    if (out.addr_line.length < 5) errors.push("Please enter your street address.");
-    if (!out.addr_city) errors.push("Please enter your city.");
-    if (!out.addr_state) errors.push("Please enter your state.");
-    if (!/^\d{6}$/.test(out.addr_pin)) errors.push("Please enter a valid 6-digit PIN code.");
-  } else {
-    // Pickup: don't store a half-filled address.
-    out.addr_line = out.addr_city = out.addr_state = out.addr_pin = "";
-  }
+  // Every order ships — local pickup was withdrawn, so there is no branch here
+  // any more and an address is always required.
+  if (out.addr_line.length < 5) errors.push("Please enter your street address.");
+  if (!out.addr_city) errors.push("Please enter your city.");
+  if (!out.addr_state) errors.push("Please enter your state.");
+  if (!/^\d{6}$/.test(out.addr_pin)) errors.push("Please enter a valid 6-digit PIN code.");
 
   return { customer: out, errors };
 }
@@ -65,10 +62,11 @@ function validateCustomer(c, delivery) {
 const makeReceipt = () => "AP-" + randToken(4);
 
 // ── POST /api/orders ──────────────────────────────────────────────
-// Body: { items: [{product_id, qty}], customer: {...}, delivery: 'ship'|'pickup' }
+// Body: { items: [{product_id, qty}], customer: {...} }
 //
 // Note what is NOT in that list: any amount. The client cannot send a price,
-// and if it does, priceCart() ignores it.
+// and if it does, priceCart() ignores it. `delivery` is also no longer read from
+// the body — see below.
 // `sessionUserId` is resolved by the router from the customer session cookie, or
 // null for a guest. It is NOT read from the body: a request must not be able to
 // attach its order to an arbitrary account.
@@ -78,7 +76,12 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
     return bad("Online payment isn't set up yet. Please use the quote form.", 503);
   }
 
-  const delivery = body?.delivery === "pickup" ? "pickup" : "ship";
+  // Hardcoded, NOT read from the body. Pickup used to be a checkout option and
+  // shippingFor() returns 0 for it, so while the field was still honoured a
+  // client could POST {delivery:"pickup"} and pay nothing for shipping while
+  // supplying a full address — the same class of bug as sending your own price.
+  // Removing the radio from the form would not have closed that; this does.
+  const delivery = "ship";
 
   const { customer, errors } = validateCustomer(body?.customer, delivery);
   if (errors.length) return json({ error: errors[0], errors }, 400);

@@ -50,10 +50,15 @@ function intVar(v, fallback) {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-// Free over the threshold, free on pickup, flat rate otherwise.
+// Free over the threshold, flat rate otherwise.
 // `>=` is intentional: an order exactly at the threshold ships free.
+//
+// The `delivery` parameter is kept in the signature but no longer branches on:
+// pickup was withdrawn (everything ships now), and the old `if (delivery ===
+// "pickup") return 0` was a free-shipping path reachable by anyone who could set
+// that field. createOrderHandler now hardcodes "ship", so this is belt-and-braces
+// — a second place the value would have to be honoured for the bug to return.
 export function shippingFor(subtotalPaise, delivery, env) {
-  if (delivery === "pickup") return 0;
   const { flat_paise, free_threshold_paise } = shippingConfig(env);
   return subtotalPaise >= free_threshold_paise ? 0 : flat_paise;
 }

@@ -224,8 +224,11 @@ function orderCard(o) {
   pair('Customer', o.cust_name);
   pair('Email', o.cust_email);
   pair('Phone', o.cust_phone);
-  pair('Delivery', o.delivery === 'pickup' ? 'Local pickup' : 'Ship');
-  if (o.delivery === 'ship') {
+  // Only shown for the legacy value: pickup is no longer offered, so on every new
+  // order this row would just say "Ship" on every line. Still rendered when an old
+  // row has it, rather than hiding information that is actually in the database.
+  if (o.delivery === 'pickup') pair('Delivery', 'Local pickup (legacy)');
+  if (o.delivery !== 'pickup') {
     pair('Address', [o.addr_line, o.addr_city, o.addr_state, o.addr_pin].filter(Boolean).join(', '));
   }
   pair('Shipping', rupees(o.shipping_paise));

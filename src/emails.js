@@ -120,10 +120,11 @@ export function orderCustomerEmail(env, order, items) {
     `<tr><td style="padding:${bold ? "12px" : "6px"} 0;font-size:${bold ? "16px" : "14px"};color:${bold ? TEXT : MUTED};${bold ? "font-weight:700" : ""}">${esc(label)}</td>` +
     `<td style="padding:${bold ? "12px" : "6px"} 0;text-align:right;font-size:${bold ? "16px" : "14px"};font-weight:${bold ? "700" : "600"};${bold ? `color:${ORANGE}` : ""}">${value}</td></tr>`;
 
-  const address = order.delivery === "pickup"
-    ? `<p style="margin:0;font-size:14px;line-height:1.6">Local pickup — I'll message you when it's ready to collect.</p>`
-    : `<p style="margin:0;font-size:14px;line-height:1.6">${esc(order.cust_name)}<br>` +
-      `${esc(order.addr_line)}<br>${esc(order.addr_city)}, ${esc(order.addr_state)} ${esc(order.addr_pin)}</p>`;
+  // Every order ships — local pickup was withdrawn, so there is no collection
+  // variant of this block any more.
+  const address =
+    `<p style="margin:0;font-size:14px;line-height:1.6">${esc(order.cust_name)}<br>` +
+    `${esc(order.addr_line)}<br>${esc(order.addr_city)}, ${esc(order.addr_state)} ${esc(order.addr_pin)}</p>`;
 
   return shell(
     header(env.APP_NAME || "AswinPrints", "Order confirmed · Thank you!") +
@@ -139,7 +140,7 @@ export function orderCustomerEmail(env, order, items) {
     totalRow("Total paid", rupees(order.total_paise), true) +
     `</table></div>` +
     `<div style="background:${CARD};border-radius:10px;padding:20px;margin-bottom:8px">` +
-    `<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">${order.delivery === "pickup" ? "Collection" : "Shipping To"}</p>` +
+    `<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Shipping To</p>` +
     address + `</div>` +
     button(base + "/?receipt=" + encodeURIComponent(order.receipt), "View Order") +
     `</div>` + footer()
@@ -163,10 +164,8 @@ export function orderOwnerEmail(env, order, items) {
       ["Customer", esc(order.cust_name)],
       ["Email", `<a href="mailto:${esc(order.cust_email)}" style="color:${ORANGE}">${esc(order.cust_email)}</a>`],
       ["Phone", esc(order.cust_phone || "—")],
-      ["Delivery", order.delivery === "pickup" ? "Local pickup" : "Ship"],
-      order.delivery === "ship"
-        ? ["Address", esc(`${order.addr_line}, ${order.addr_city}, ${order.addr_state} ${order.addr_pin}`)]
-        : null,
+      // No "Delivery" row: every order ships, so it carried no information.
+      ["Address", esc(`${order.addr_line}, ${order.addr_city}, ${order.addr_state} ${order.addr_pin}`)],
       ["Payment ID", esc(order.rzp_payment_id || "—")],
       ["Subtotal", rupees(order.subtotal_paise)],
       ["Shipping", rupees(order.shipping_paise)],

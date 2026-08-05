@@ -115,11 +115,14 @@ ok("owner mail links dashboard", own.includes("/shop"));
 const freeOrder = { ...order, shipping_paise: 0, subtotal_paise: 160000, total_paise: 160000 };
 ok("free shipping labelled", orderCustomerEmail(ENV, freeOrder, items).includes("Shipping (free)"));
 
-// pickup hides the address
-const pickup = { ...order, delivery: "pickup" };
-const pickupHtml = orderCustomerEmail(ENV, pickup, items);
-ok("pickup mail omits street address", !pickupHtml.includes("12 Main St"));
-ok("pickup mail says pickup", pickupHtml.includes("Local pickup"));
+// Pickup was withdrawn: every order ships, so the confirmation always shows the
+// delivery address and there is no collection variant. A legacy row that still
+// carries delivery="pickup" must not lose its address from the email.
+const legacyPickup = { ...order, delivery: "pickup" };
+const legacyHtml = orderCustomerEmail(ENV, legacyPickup, items);
+ok("address shown regardless of the stored delivery value", legacyHtml.includes("12 Main St"));
+ok("no collection wording", !legacyHtml.includes("Local pickup"));
+ok("always labelled Shipping To", legacyHtml.includes("Shipping To"));
 
 // XSS through order fields too
 const evilOrder = { ...order, cust_name: XSS, addr_line: XSS };

@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AswinPrints — Custom 3D Printing Services in Pondicherry</title>
-  <meta name="description" content="Professional custom 3D printing services using Bambu Lab A1. Figurines, prototypes, decorative pieces and more. Get a free quote today." />
+  <!-- Title says India, not Pondicherry: orders ship nationwide, and a city in the
+       title reads as a local-only service to anyone searching from elsewhere.
+       Pondicherry stays in the hero badge and footer as the workshop's location. -->
+  <title>AswinPrints — Custom 3D Printing, Shipped Across India</title>
+  <meta name="description" content="Professional custom 3D printing using Bambu Lab A1. Figurines, prototypes, decorative pieces and more, shipped anywhere in India. Get a free quote today." />
   <meta property="og:title" content="AswinPrints — Custom 3D Printing" />
   <meta property="og:description" content="Bring your ideas to life with precision 3D printing. Fast turnaround, quality results." />
   <meta property="og:image" content="assets/images/IMG20260403160453.jpg" />
@@ -325,17 +328,11 @@
       </div>
     </div>
 
-    <fieldset class="co-delivery">
-      <legend>Delivery</legend>
-      <label class="co-radio">
-        <input type="radio" name="delivery" value="ship" checked />
-        <span>Ship to me</span>
-      </label>
-      <label class="co-radio">
-        <input type="radio" name="delivery" value="pickup" />
-        <span>Pick up in Pondicherry (free)</span>
-      </label>
-    </fieldset>
+    <!-- Every order ships, so there is no delivery choice to make and no radio
+         group here. The server hardcodes it rather than reading the request.
+         (This comment ships to the browser in view-source, so it states the rule
+         without advertising what is no longer on offer.) -->
+    <p class="co-delivery-note">Shipped anywhere in India.</p>
 
     <div id="coAddress">
       <div class="co-field">
@@ -434,7 +431,7 @@
     <div class="process-step fade-up" data-delay="200">
       <div class="step-num">3</div>
       <h3>Print & Deliver</h3>
-      <p>Your piece goes into the print queue that day. Pickup in Pondicherry, or shipped anywhere in India.</p>
+      <p>Your piece goes into the print queue that day, then ships anywhere in India.</p>
     </div>
   </div>
 
@@ -462,7 +459,7 @@
     <div class="process-step fade-up" data-delay="300">
       <div class="step-num">4</div>
       <h3>Deliver</h3>
-      <p>Pickup in Pondicherry or shipping anywhere in India. Fast and safely packaged so your print arrives perfect.</p>
+      <p>Shipped anywhere in India, fast and safely packaged so your print arrives perfect.</p>
     </div>
   </div>
 </section>
@@ -480,7 +477,7 @@
         <li>Multiple material options (PLA, PETG, TPU)</li>
         <li>Custom colour matching available</li>
         <li>Post-processing &amp; finishing on request</li>
-        <li>Pickup or shipping across India</li>
+        <li>Shipping across India</li>
       </ul>
     </div>
 

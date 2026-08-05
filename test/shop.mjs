@@ -67,11 +67,14 @@ ok("one paise under threshold → flat", shippingFor(149999, "ship", ENV) === 99
 ok("exactly at threshold → free", shippingFor(150000, "ship", ENV) === 0);
 ok("one paise over → free", shippingFor(150001, "ship", ENV) === 0);
 ok("well under → flat", shippingFor(34900, "ship", ENV) === 9900);
-ok("pickup always free", shippingFor(100, "pickup", ENV) === 0);
-ok("pickup free even above threshold", shippingFor(500000, "pickup", ENV) === 0);
-// An unrecognised delivery mode must not silently mean "free".
-ok("unknown delivery mode is charged", shippingFor(34900, "", ENV) === 9900);
-ok("unknown delivery mode string is charged", shippingFor(34900, "PICKUP", ENV) === 9900);
+// Pickup was withdrawn, and with it the `if (delivery === "pickup") return 0`
+// branch — a free-shipping path any client able to set that field could reach.
+// The parameter is still accepted, so assert it changes NOTHING: this is the test
+// that would fail if someone reintroduced the branch.
+for (const mode of ["pickup", "PICKUP", "Pickup", "", null, undefined, "collect"]) {
+  ok(`delivery=${JSON.stringify(mode)} still charged`, shippingFor(34900, mode, ENV) === 9900);
+}
+ok("threshold still applies whatever delivery says", shippingFor(500000, "pickup", ENV) === 0);
 
 // ── happy path ────────────────────────────────────────────────────
 section("priceCart() — amounts");
@@ -99,7 +102,10 @@ section("priceCart() — amounts");
     { product_id: "p-large", qty: 1 },
   ], "pickup");
   ok("mixed cart subtotal", r.subtotal_paise === 124800, String(r.subtotal_paise));
-  ok("pickup → no shipping", r.shipping_paise === 0);
+  // 124800 is under the 150000 free-shipping threshold, so shipping is charged
+  // even though the caller passed "pickup" — that is the point of removing the
+  // pickup branch from shippingFor(). This assertion previously expected 0.
+  ok("a pickup claim does not waive shipping", r.shipping_paise === 9900, String(r.shipping_paise));
   ok("two line items", r.items.length === 2);
   ok("client order preserved", r.items[0].product_id === "p-small" && r.items[1].product_id === "p-large");
   ok("pos increments", r.items[1].pos === 1);

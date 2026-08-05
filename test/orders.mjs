@@ -205,14 +205,30 @@ section("POST /api/orders — the client cannot set the price (invariant 1)");
   ok("stored total is the D1 amount", env.DB._db.orders[0].total_paise === 99800);
 }
 
-section("POST /api/orders — pickup and free shipping");
+// Pickup was withdrawn: every order ships. The handler hardcodes delivery rather
+// than reading it from the body, because shippingFor() used to return 0 for
+// pickup — so while that field was honoured, a client could post
+// {delivery:"pickup"} and pay nothing for shipping. Same class of bug as sending
+// your own price, and removing the radio from the form would not have closed it.
+section("POST /api/orders — the client cannot waive shipping");
 {
   const env = ENV(); stubFetch();
   const body = { items: [{ product_id: "p-small", qty: 1 }], delivery: "pickup", customer: CUSTOMER };
   const [, out] = await readJson(await createOrderHandler(post(body), env, body));
-  ok("pickup has no shipping", out.shipping_paise === 0);
-  ok("pickup total = subtotal", out.total_paise === 34900);
-  ok("pickup discards the address", env.DB._db.orders[0].addr_line === "");
+  ok("a pickup claim is still charged shipping", out.shipping_paise === 9900, String(out.shipping_paise));
+  ok("total includes shipping", out.total_paise === 44800, String(out.total_paise));
+  ok("the address is stored, not discarded", env.DB._db.orders[0].addr_line === CUSTOMER.addr_line);
+  ok("delivery is recorded as ship", env.DB._db.orders[0].delivery === "ship", env.DB._db.orders[0].delivery);
+}
+{
+  // Every spelling and type, so a future refactor cannot reintroduce the branch
+  // through a case difference or a truthy value.
+  for (const mode of ["pickup", "PICKUP", "Pickup", "collect", true, 1, {}]) {
+    const env = ENV(); stubFetch();
+    const body = { items: [{ product_id: "p-small", qty: 1 }], delivery: mode, customer: CUSTOMER };
+    const [, out] = await readJson(await createOrderHandler(post(body), env, body));
+    ok(`delivery=${JSON.stringify(mode)} → shipping charged`, out.shipping_paise === 9900);
+  }
 }
 {
   const env = ENV(); stubFetch();
@@ -243,13 +259,21 @@ section("POST /api/orders — validation");
   }
 }
 
-section("POST /api/orders — pickup needs no address");
+section("POST /api/orders — an address is always required");
 {
-  const env = ENV(); stubFetch();
-  const body = { items: [{ product_id: "p-small", qty: 1 }], delivery: "pickup",
-    customer: { name: "A B", email: "a@b.com", phone: "9876543210" } };
-  const [status] = await readJson(await createOrderHandler(post(body), env, body));
-  ok("pickup without an address is accepted", status === 200);
+  // This used to assert the opposite ("pickup without an address is accepted").
+  // With pickup withdrawn there is no way to place an order without one, so a
+  // request that omits the address must fail however it labels its delivery.
+  for (const mode of ["pickup", "ship", undefined]) {
+    const env = ENV(); const calls = stubFetch();
+    const body = { items: [{ product_id: "p-small", qty: 1 }], delivery: mode,
+      customer: { name: "A B", email: "a@b.com", phone: "9876543210" } };
+    const [status, out] = await readJson(await createOrderHandler(post(body), env, body));
+    ok(`delivery=${JSON.stringify(mode)} without an address → 400`, status === 400, String(status));
+    ok(`delivery=${JSON.stringify(mode)} asks for the address`,
+       /street address/i.test(out.error || ""), out.error);
+    ok(`delivery=${JSON.stringify(mode)} makes no Razorpay call`, calls.razorpay.length === 0);
+  }
 }
 
 section("POST /api/orders — unconfigured keys");

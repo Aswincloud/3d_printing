@@ -759,8 +759,8 @@ function renderProducts() {
 function renderShipNote() {
   if (!shopShipNote || !shipCfg.free_threshold_paise) return;
   shopShipNote.textContent =
-    '🚚 Flat ' + rupees(shipCfg.flat_paise) + ' shipping across India — free over ' +
-    rupees(shipCfg.free_threshold_paise) + '. Local pickup in Pondicherry is always free.';
+    '🚚 Shipping India-wide — flat ' + rupees(shipCfg.flat_paise) + ', free over ' +
+    rupees(shipCfg.free_threshold_paise) + '.';
   shopShipNote.classList.add('show');
 }
 
@@ -908,14 +908,11 @@ const checkoutForm = document.getElementById('checkoutForm');
 const coError = document.getElementById('coError');
 const coSubmit = document.getElementById('coSubmit');
 const coSubmitLabel = document.getElementById('coSubmitLabel');
-const coAddress = document.getElementById('coAddress');
 
 const SHIP_FIELDS = ['co_line', 'co_city', 'co_state', 'co_pin'];
 
-function deliveryMode() {
-  const el = checkoutForm?.querySelector('input[name="delivery"]:checked');
-  return el?.value === 'pickup' ? 'pickup' : 'ship';
-}
+// Every order ships, so there is no delivery mode to read and the address is
+// always required. The server hardcodes it too; this file is display only.
 
 /* ── field validation ──────────────────────────────────────────── */
 /* Same shape as the quote form's helpers. These are UX only — the Worker
@@ -956,12 +953,11 @@ function validateCheckout() {
   if (!EMAIL_RE.test(v('co_email'))) bad('co_email', 'Please enter a valid email address.');
   if (v('co_phone').replace(/\D/g, '').length < 10) bad('co_phone', 'Please enter a valid phone number.');
 
-  if (deliveryMode() === 'ship') {
-    if (v('co_line').length < 5) bad('co_line', 'Please enter your street address.');
-    if (!v('co_city')) bad('co_city', 'Please enter your city.');
-    if (!v('co_state')) bad('co_state', 'Please enter your state.');
-    if (!/^\d{6}$/.test(v('co_pin'))) bad('co_pin', 'Please enter a valid 6-digit PIN code.');
-  }
+  // Always required now — every order ships.
+  if (v('co_line').length < 5) bad('co_line', 'Please enter your street address.');
+  if (!v('co_city')) bad('co_city', 'Please enter your city.');
+  if (!v('co_state')) bad('co_state', 'Please enter your state.');
+  if (!/^\d{6}$/.test(v('co_pin'))) bad('co_pin', 'Please enter a valid 6-digit PIN code.');
 
   if (firstBad) checkoutForm.querySelector('[name="' + firstBad + '"]')?.focus();
   return !firstBad;
@@ -989,7 +985,7 @@ function renderCoSummary() {
     el.appendChild(row);
   }
 
-  const shipping = deliveryMode() === 'pickup' ? 0 : shippingForDisplay(subtotal);
+  const shipping = shippingForDisplay(subtotal);
   const addRow = (label, value, cls) => {
     const row = document.createElement('div');
     row.className = 'co-line' + (cls ? ' ' + cls : '');
@@ -1011,7 +1007,6 @@ function openCheckout() {
   if (!readCart().length) return;
   coClearAll();
   renderCoSummary();
-  syncAddressVisibility();
   if (typeof prefillCheckout === 'function') prefillCheckout();
   checkoutModal.hidden = false;
   checkoutOverlay.hidden = false;
@@ -1028,22 +1023,12 @@ function closeCheckout() {
   document.body.style.overflow = '';
 }
 
-function syncAddressVisibility() {
-  const ship = deliveryMode() === 'ship';
-  if (coAddress) coAddress.hidden = !ship;
-  // A hidden field must not keep a stale error that blocks submit.
-  if (!ship) SHIP_FIELDS.forEach(coClearError);
-  renderCoSummary();
-}
-
 document.getElementById('cartCheckout')?.addEventListener('click', () => {
   closeCart();
   openCheckout();
 });
 document.getElementById('checkoutClose')?.addEventListener('click', closeCheckout);
 checkoutOverlay?.addEventListener('click', closeCheckout);
-checkoutForm?.querySelectorAll('input[name="delivery"]').forEach((r) =>
-  r.addEventListener('change', syncAddressVisibility));
 
 // Clear a field's error as soon as it's corrected.
 checkoutForm?.querySelectorAll('input, textarea').forEach((el) => {
@@ -1068,7 +1053,6 @@ checkoutForm?.addEventListener('submit', async (e) => {
   }
 
   const v = (n) => (checkoutForm.querySelector('[name="' + n + '"]')?.value || '').trim();
-  const delivery = deliveryMode();
 
   setCheckoutBusy(true, 'Starting payment…');
 
@@ -1080,7 +1064,8 @@ checkoutForm?.addEventListener('submit', async (e) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         items: readCart().map((it) => ({ product_id: it.id, qty: it.qty })),
-        delivery,
+        // No `delivery` field: the server sets it, and does not trust a value
+        // sent from here — it decides the shipping charge.
         customer: {
           name: v('co_name'),
           email: v('co_email'),
@@ -1653,7 +1638,8 @@ function myOrderRow(o) {
     const meta = document.createElement('div');
     meta.className = 'my-order-date';
     const bits = [];
-    if (o.delivery === 'pickup') bits.push('Local pickup');
+    // Legacy rows only; new orders are always 'ship'.
+    if (o.delivery === 'pickup') bits.push('Collected');
     if (o.shipped_at) bits.push('Shipped');
     if (o.notes) bits.push(o.notes);
     meta.textContent = bits.join(' · ');
