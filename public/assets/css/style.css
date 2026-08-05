@@ -436,10 +436,24 @@ section { padding: 100px 5%; }
 /* ===== SERVICES ===== */
 .services { background: var(--dark-2); }
 
+/* Explicit 3 columns, not auto-fit. There are exactly six service cards, and
+   `repeat(auto-fit, minmax(250px, 1fr))` packs as many columns as the width
+   allows with no regard for whether six divides by the result — it gave 4+2 at
+   1440px and 5+1 at 1600px, leaving the last card stranded alone on its own row.
+   Six divides evenly by 3, 2 and 1, so the column counts below always fill.
+   If a seventh service is ever added, this needs revisiting: 7 orphans at 3. */
 .services-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .services-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .services-grid { grid-template-columns: 1fr; }
 }
 
 .service-card {
