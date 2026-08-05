@@ -165,6 +165,24 @@
 
   <div class="shop-note" id="shopShipNote"></div>
 
+  <!-- Search + category filtering. Entirely client-side: /api/products already
+       returns the whole catalogue in one request, so filtering locally is
+       instant and needs no extra round trip. Hidden until products load, so it
+       never appears above an empty or failed grid. -->
+  <div class="shop-controls" id="shopControls" hidden>
+    <div class="shop-search">
+      <svg class="shop-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="search" id="shopSearch" placeholder="Search prints…"
+             aria-label="Search products" autocomplete="off" />
+      <button type="button" class="shop-search-clear" id="shopSearchClear"
+              aria-label="Clear search" hidden>✕</button>
+    </div>
+    <!-- Chips are built by main.js from the categories actually present, so a
+         new category needs no change here. -->
+    <div class="gallery-filter" id="shopFilters" role="group" aria-label="Filter by category"></div>
+    <p class="shop-result-count" id="shopResultCount" aria-live="polite"></p>
+  </div>
+
   <div class="product-grid" id="productGrid" aria-live="polite">
     <div class="shop-loading">Loading the catalogue…</div>
   </div>

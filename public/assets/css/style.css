@@ -1923,3 +1923,107 @@ footer {
   .lightbox-actions { bottom: 2%; gap: 0.6rem; }
   .lightbox-caption { font-size: 0.8rem; }
 }
+
+/* ===== SHOP SEARCH + FILTERS ===== */
+/* .gallery-filter and .filter-btn already existed in this stylesheet, unused —
+   left over from the original template. Reusing them keeps one chip style
+   rather than inventing a second. */
+.shop-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+
+/* .gallery-filter ships a 2.5rem bottom margin for its original standalone use;
+   inside .shop-controls the flex gap handles spacing, so drop it. */
+.shop-controls .gallery-filter { margin-bottom: 0; }
+
+.shop-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  max-width: 380px;
+}
+
+.shop-search-icon {
+  position: absolute;
+  left: 0.85rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.shop-search input {
+  width: 100%;
+  background: var(--dark-3);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.92rem;
+  padding: 0.65rem 2.4rem;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.shop-search input::placeholder { color: var(--text-muted); }
+
+.shop-search input:focus {
+  border-color: rgba(255,107,0,0.5);
+  box-shadow: 0 0 0 3px rgba(255,107,0,0.1);
+}
+
+/* Safari draws its own clear affordance on type=search; ours is consistent
+   across browsers and keyboard-reachable. */
+.shop-search input::-webkit-search-cancel-button { display: none; }
+
+.shop-search-clear {
+  position: absolute;
+  right: 0.6rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.25rem 0.35rem;
+  border-radius: 6px;
+  line-height: 1;
+  transition: color var(--transition);
+}
+
+.shop-search-clear:hover { color: var(--orange); }
+
+/* The chip count sits inside the button, dimmer than the label. */
+.filter-btn .filter-count {
+  opacity: 0.6;
+  font-weight: 500;
+  margin-left: 0.3rem;
+}
+
+.filter-btn.active .filter-count { opacity: 0.85; }
+
+.shop-result-count {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0;
+  min-height: 1.1rem;
+}
+
+/* Shown when a search matches nothing — routes them to the quote form rather
+   than leaving a dead end. */
+.shop-no-match {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--text-muted);
+}
+
+.shop-no-match strong { color: var(--text); display: block; margin-bottom: 0.4rem; }
+.shop-no-match a { color: var(--orange); }
+.shop-no-match a:hover { text-decoration: underline; }
+
+@media (max-width: 480px) {
+  .shop-search { max-width: 100%; }
+  .gallery-filter { gap: 0.4rem; }
+  .filter-btn { font-size: 0.78rem; padding: 0.4rem 0.8rem; }
+}

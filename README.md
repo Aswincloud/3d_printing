@@ -157,6 +157,19 @@ other field — never used as a URL or a lookup key.
 `GET /api/products` returns the visible catalogue from D1 plus the shipping
 config; `assets/js/main.js` renders the grid and the cart drawer from it.
 
+**Search and category filters are entirely client-side.** That one request
+already returns the whole catalogue, so filtering locally is instant and needs no
+round trip. Category chips are built from the categories actually present, so
+adding one to the database needs no code change; `CATEGORY_LABELS` in `main.js`
+maps the internal slugs to the friendlier wording used elsewhere on the page
+(`figurine` → "Figurines", `decor` → "Home Décor"), falling back to the
+capitalised slug for anything unmapped.
+
+A multi-word search matches all terms in any order across name, description and
+category, so "run marble" finds both marble runs. A search that matches nothing
+offers the quote form and carries the search term into its description — the best
+hint available about what they actually wanted.
+
 The cart in `localStorage` stores **only `{id, qty}`** — no prices, no names.
 Everything displayed is re-derived from the API on load, and when checkout
 lands the browser will post only those id/qty pairs. `priceCart()` in

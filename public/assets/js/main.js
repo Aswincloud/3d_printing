@@ -482,6 +482,9 @@ async function loadProducts() {
     const data = await res.json();
     catalogue = Array.isArray(data.products) ? data.products : [];
     if (data.shipping) shipCfg = data.shipping;
+    // Chips before the grid: renderFilters reveals the controls, and doing it
+    // first means they never flash in above an empty grid.
+    renderFilters();
     renderProducts();
     renderShipNote();
     renderCart();
@@ -494,6 +497,122 @@ async function loadProducts() {
 
 // textContent/setAttribute throughout rather than innerHTML with interpolation:
 // product names and descriptions are admin-editable, so they're untrusted here.
+/* ── search + category filters ─────────────────────────────────── */
+/* Entirely client-side. /api/products returns the whole catalogue in one
+   request, so there's no reason to round-trip for a filter. */
+
+let shopQuery = '';
+let shopCategory = 'all';
+
+// Display labels for the internal category slugs. Wording matches the Services
+// section above, so the page reads as one thing. An unmapped slug falls back to
+// itself capitalised, so a new category still shows something sensible.
+const CATEGORY_LABELS = {
+  figurine: 'Figurines',
+  decor: 'Home Décor',
+  functional: 'Functional',
+  set: 'Sets',
+};
+
+const categoryLabel = (slug) =>
+  CATEGORY_LABELS[slug] || (slug ? slug[0].toUpperCase() + slug.slice(1) : 'Other');
+
+// Match on name and description. Multi-word queries must match ALL terms, in any
+// order — "blue horse" should find the filigree horse even though the words
+// aren't adjacent.
+function matchesQuery(p, q) {
+  if (!q) return true;
+  const haystack = `${p.name} ${p.description || ''} ${categoryLabel(p.category)}`.toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every((t) => haystack.includes(t));
+}
+
+function visibleProducts() {
+  return catalogue.filter((p) =>
+    (shopCategory === 'all' || p.category === shopCategory) && matchesQuery(p, shopQuery));
+}
+
+function updateResultCount(n) {
+  const el = document.getElementById('shopResultCount');
+  if (!el) return;
+  const filtered = shopQuery.trim() || shopCategory !== 'all';
+  if (!filtered) { el.textContent = ''; return; }
+  el.textContent = n === 1 ? '1 piece' : `${n} pieces`;
+}
+
+// Built from the categories actually present, so adding one to the database
+// needs no change here.
+function renderFilters() {
+  const box = document.getElementById('shopFilters');
+  const controls = document.getElementById('shopControls');
+  if (!box || !catalogue.length) return;
+
+  const counts = new Map();
+  for (const p of catalogue) {
+    const c = p.category || 'other';
+    counts.set(c, (counts.get(c) || 0) + 1);
+  }
+
+  box.innerHTML = '';
+  const chip = (slug, label, n) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'filter-btn' + (shopCategory === slug ? ' active' : '');
+    b.dataset.category = slug;
+    b.setAttribute('aria-pressed', String(shopCategory === slug));
+    b.appendChild(document.createTextNode(label));
+    const c = document.createElement('span');
+    c.className = 'filter-count';
+    c.textContent = String(n);
+    b.appendChild(c);
+    b.addEventListener('click', () => {
+      // Clicking the active chip clears it, which is what people expect from a
+      // toggle and saves reaching for "All".
+      shopCategory = (shopCategory === slug) ? 'all' : slug;
+      renderFilters();
+      renderProducts();
+    });
+    box.appendChild(b);
+  };
+
+  chip('all', 'All', catalogue.length);
+  // Biggest categories first; ties alphabetical so the order is stable between
+  // loads rather than depending on insertion order.
+  [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .forEach(([slug, n]) => chip(slug, categoryLabel(slug), n));
+
+  if (controls) controls.hidden = false;
+}
+
+const searchInput = document.getElementById('shopSearch');
+const searchClear = document.getElementById('shopSearchClear');
+
+searchInput?.addEventListener('input', () => {
+  shopQuery = searchInput.value;
+  if (searchClear) searchClear.hidden = !shopQuery;
+  renderProducts();
+});
+
+// Escape clears the box — standard for a search field, and quicker than
+// selecting the text.
+searchInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && searchInput.value) {
+    e.stopPropagation();
+    clearShopSearch();
+  }
+});
+
+searchClear?.addEventListener('click', clearShopSearch);
+
+function clearShopSearch() {
+  if (!searchInput) return;
+  searchInput.value = '';
+  shopQuery = '';
+  if (searchClear) searchClear.hidden = true;
+  renderProducts();
+  searchInput.focus();
+}
+
 function renderProducts() {
   productGrid.innerHTML = '';
   if (!catalogue.length) {
@@ -501,7 +620,36 @@ function renderProducts() {
     return;
   }
 
-  for (const p of catalogue) {
+  const shown = visibleProducts();
+  updateResultCount(shown.length);
+
+  // A search that matches nothing is a dead end unless we offer a way out.
+  if (!shown.length) {
+    const box = document.createElement('div');
+    box.className = 'shop-no-match';
+    const head = document.createElement('strong');
+    head.textContent = 'Nothing matches that.';
+    const body = document.createElement('span');
+    body.textContent = "Try a different word or clear the filters — or ";
+    const link = document.createElement('a');
+    link.href = '#quote';
+    link.textContent = 'ask me to print it for you';
+    link.addEventListener('click', () => {
+      // Carry the search term into the quote form: it's the best hint we have
+      // about what they wanted.
+      const q = shopQuery.trim();
+      if (q) {
+        const desc = document.getElementById('desc');
+        if (desc && !desc.value.trim()) desc.value = `I'm looking for: ${q}`;
+      }
+    });
+    body.appendChild(link);
+    box.append(head, body, document.createTextNode('.'));
+    productGrid.appendChild(box);
+    return;
+  }
+
+  for (const p of shown) {
     const card = document.createElement('div');
     card.className = 'product-card';
 
