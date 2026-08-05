@@ -138,10 +138,11 @@ the response.
 
 ### Asking about something that isn't listed
 
-53 photos are in the gallery but only 31 are products — 18 are unnamed pieces
-with no price, and they can't be listed without knowing what they are.
+All 53 gallery photos are now identified and listed (migration 0005 named the 18
+that previously carried `alt="3D print sample"`). Four are seeded `visible = 0`
+pending a decision — see that migration's comments.
 
-Rather than guess, every gallery photo has **"Request a quote for this"** in its
+Every gallery photo also has **"Request a quote for this"** in its
 lightbox, and every product card has **"Different colour or size?"**. Both
 scroll to the existing quote form with a visible reference attached (thumbnail,
 name, and whether it's a listed item), which travels as `ref_item` and appears
