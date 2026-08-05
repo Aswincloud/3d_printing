@@ -132,6 +132,41 @@ Razorpay dashboard → Settings → Webhooks → Add:
 - Secret: the same string you set as `RAZORPAY_WEBHOOK_SECRET`
 - Events: `order.paid` and `payment.failed`
 
+### Going live: the webhook is per-mode, and it is the part that breaks quietly
+
+Razorpay keeps **separate webhooks for Test and Live mode**, each with its own
+signing secret. Switching `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` to `rzp_live_…`
+does NOT carry the webhook across — the toggle at the top of the dashboard's
+Webhooks page decides which list you are looking at.
+
+This matters more than it sounds, because of who marks an order paid:
+
+- `POST /api/orders/verify` (the browser callback) deliberately does NOT set
+  `status = 'paid'`. A callback comes from the customer's browser and is therefore
+  attacker-controlled; it only records the payment id.
+- **Only the webhook sets `paid`** (`src/orders.js`, the `order.paid` branch), and
+  it rejects any payload whose HMAC does not verify.
+
+So with live API keys and a test-mode webhook secret, the failure is:
+
+  customer pays for real → money leaves their account → Razorpay POSTs the live
+  webhook → signature mismatch → 400 → order stays `pending` → no confirmation
+  email to them, no order email to you.
+
+Nothing errors on the customer's screen. Verify the chain rather than assuming:
+
+1. Create the LIVE webhook (dashboard in **Live** mode) with the same URL and the
+   two events above, and a freshly generated secret.
+2. `wrangler secret put RAZORPAY_WEBHOOK_SECRET` with that value.
+3. Send a forged signature — must be `400 {"error":"invalid signature"}`.
+4. Make one small real payment and confirm the order reaches `paid` and both
+   emails arrive. Razorpay's dashboard shows webhook delivery attempts and their
+   response codes; a 400 there is the signature, a 5xx is the Worker.
+
+Live mode also brings a real-money footgun the test keys hid: the browser suites
+in `~/.cache/3dprints-e2e` create orders against whatever key is configured, so
+**`.dev.vars` stays on `rzp_test_…`**. Live keys belong only in Worker secrets.
+
 Only those two. `payment.captured` fires alongside `order.paid` and would be
 handled twice. (The event-id dedup would catch it, but there is no reason to
 subscribe to it.)
