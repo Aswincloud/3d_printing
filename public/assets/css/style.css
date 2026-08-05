@@ -914,6 +914,12 @@ footer {
 .footer-links {
   display: flex;
   gap: 4rem;
+  /* Without this, three columns at a 4rem gap cannot fit a narrow phone and the
+     row simply extends past the viewport — measured 346px inside a 320px screen,
+     which scrolled the WHOLE page sideways, every section, from the footer alone.
+     The 768px breakpoint below reduces the gap but a smaller gap still overflows;
+     wrapping is what actually bounds it. */
+  flex-wrap: wrap;
 }
 
 .footer-col h4 {
@@ -1058,6 +1064,19 @@ footer {
   .hero-actions { flex-direction: column; width: 100%; }
   .btn-primary, .btn-secondary { width: 100%; justify-content: center; }
   .quote-form { padding: 1.5rem; }
+}
+
+/* 320px — iPhone SE (1st gen) and the narrowest width still in real use.
+   .nav-actions carries margin-left: 2rem, which together with the logo pushed the
+   hamburger to x=332 in a 320px viewport: the whole page scrolled sideways by
+   20px, on every section, because of one nav margin. Measured, not guessed —
+   logo ~150 + 32 margin + 132 actions + 26 padding = 340.
+   `margin-left: auto` still right-aligns the group without reserving the gap. */
+@media (max-width: 360px) {
+  nav { padding: 0 3%; }
+  .nav-actions { margin-left: auto; gap: 0.5rem; }
+  .nav-logo { font-size: 1.05rem; gap: 7px; }
+  .nav-logo svg { width: 26px; height: 26px; }
 }
 
 /* Mobile Nav Menu */
