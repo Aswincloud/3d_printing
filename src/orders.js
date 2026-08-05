@@ -102,8 +102,29 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
   if (!rzp.ok) {
     // 401 is a config problem (bad keys), not the customer's fault. Log the
     // distinction; show them the same neutral message either way.
-    if (rzp.status === 401) console.error("razorpay auth failed — check RAZORPAY_KEY_ID/SECRET");
-    else console.error("razorpay order create failed", rzp.status, rzp.error);
+    //
+    // Razorpay's own `description` is logged verbatim, because the 401 reasons are
+    // materially different and the fix differs with them:
+    //   "Authentication failed"                  → wrong id/secret, or mismatched pair
+    //   "The api key provided by you has expired" → key must be regenerated
+    // The previous version logged only "check RAZORPAY_KEY_ID/SECRET", which sent
+    // me hunting for a wrong value when the keys were correct but expired. Safe to
+    // log: it is Razorpay's message about the key, never the key itself.
+    if (rzp.status === 401) {
+      console.error("razorpay auth rejected (401):", rzp.error || "no description",
+        "— key id ends", String(env.RAZORPAY_KEY_ID || "").slice(-4) || "unset");
+      // A 401 cannot be fixed by retrying, so do not tell the customer to try
+      // again in a moment — that wastes their time and loses the sale silently.
+      // Point them at the quote form instead, which still reaches the owner by
+      // email. Same treatment as unset keys above (503, not 502): the service is
+      // unavailable by configuration, not failing intermittently upstream.
+      return bad(
+        "Online payment is temporarily unavailable. Please send a quote request "
+        + "and I'll get back to you with payment details.",
+        503,
+      );
+    }
+    console.error("razorpay order create failed", rzp.status, rzp.error);
     return bad("We couldn't start the payment. Please try again in a moment.", 502);
   }
 

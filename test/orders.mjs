@@ -289,16 +289,36 @@ section("POST /api/orders — unconfigured keys");
   ok("no Razorpay call", calls.razorpay.length === 0);
 }
 
-section("POST /api/orders — Razorpay rejects");
-{
+// A 401 from Razorpay means the keys are wrong or expired. It CANNOT be fixed by
+// retrying, so the customer must not be told to try again in a moment — that wastes
+// their time and loses the sale with no trace. 503 + the quote form, matching how
+// unset keys are already handled. This happened for real: the configured test key
+// expired and every checkout returned "please try again in a moment".
+section("POST /api/orders — Razorpay rejects the keys (401)");
+for (const desc of ["Authentication failed",
+                    "The api key provided by you has expired and cannot be used."]) {
   const env = ENV();
   globalThis.fetch = async () => new Response(
-    JSON.stringify({ error: { description: "Authentication failed" } }), { status: 401 });
-  const body = { items: [{ product_id: "p-small", qty: 1 }], delivery: "pickup", customer: CUSTOMER };
+    JSON.stringify({ error: { description: desc } }), { status: 401 });
+  const body = { items: [{ product_id: "p-small", qty: 1 }], customer: CUSTOMER };
   const [status, out] = await readJson(await createOrderHandler(post(body), env, body));
-  ok("502 to the client", status === 502);
-  ok("razorpay's wording is not echoed", !/Authentication/i.test(out.error), out.error);
+  ok(`503, not 502, for "${desc.slice(0, 24)}…"`, status === 503, String(status));
+  ok("does not promise that retrying will work", !/try again/i.test(out.error), out.error);
+  ok("points at the quote form instead", /quote request/i.test(out.error), out.error);
+  ok("razorpay's wording is not echoed to the customer",
+     !/Authentication|api key/i.test(out.error), out.error);
   ok("no order row on failure", env.DB._db.orders.length === 0);
+}
+{
+  // A non-401 upstream failure IS potentially transient, so that path keeps 502
+  // and keeps suggesting a retry.
+  const env = ENV();
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({ error: { description: "Gateway timeout" } }), { status: 502 });
+  const body = { items: [{ product_id: "p-small", qty: 1 }], customer: CUSTOMER };
+  const [status, out] = await readJson(await createOrderHandler(post(body), env, body));
+  ok("non-401 upstream failure stays 502", status === 502, String(status));
+  ok("and does suggest retrying", /try again/i.test(out.error), out.error);
 }
 
 // ── callback verification ─────────────────────────────────────────
