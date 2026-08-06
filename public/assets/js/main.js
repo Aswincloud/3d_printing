@@ -1657,6 +1657,11 @@ function applyGuestState() {
   const dot = document.getElementById('accountDot');
   if (dot) dot.hidden = true;
   if (accountMenu) accountMenu.hidden = true;
+  // Must be re-hidden on sign-out, not just left unset: signing out without a
+  // reload would otherwise leave the Dashboard button in the header for whoever
+  // uses the browser next.
+  const navDash = document.getElementById('navDashboard');
+  if (navDash) navDash.hidden = true;
   const tabs = document.getElementById('drawerTabs');
   if (tabs) tabs.hidden = true;
 }
@@ -1670,9 +1675,15 @@ function applySignedInState(me) {
   const who = document.getElementById('accountMenuWho');
   if (who) who.textContent = me.name ? `${me.name} · ${me.email}` : me.email;
 
-  // Dashboard entry, admins only. This is a DISPLAY decision — /api/admin/*
-  // re-checks the allowlist server-side, so a faked is_admin shows a link that
-  // leads to a 401.
+  // Dashboard in the header itself, so reaching it is one click rather than
+  // opening the account menu first. Same DISPLAY-only caveat as the menu entry
+  // below: /api/admin/* re-checks the allowlist server-side, so a faked is_admin
+  // reveals a link that leads to a 401 and nothing more.
+  const navDash = document.getElementById('navDashboard');
+  if (navDash) navDash.hidden = !me.is_admin;
+
+  // Kept in the menu as well. Costs nothing, and on a narrow phone the header
+  // button is the first thing to be squeezed out.
   if (me.is_admin && !document.getElementById('menuDashboard')) {
     const item = document.createElement('button');
     item.type = 'button';

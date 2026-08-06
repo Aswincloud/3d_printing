@@ -64,6 +64,15 @@
     <!-- Also outside .nav-links: that list is display:none under 768px, so an
          account button inside it would be unreachable on a phone without opening
          the hamburger first. Same reason the cart button lives here. -->
+    <!-- Admin-only, revealed by main.js when /api/me reports is_admin. Sits in
+         .nav-actions rather than .nav-links because that list is display:none
+         under 768px — the same reason the cart and account buttons live here.
+         Hidden by default so it never flashes for a guest before the session
+         check comes back. -->
+    <a href="/shop" class="nav-dashboard" id="navDashboard" hidden>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      <span>Dashboard</span>
+    </a>
     <div class="nav-account">
       <button class="nav-cart" id="accountBtn" type="button"
               aria-label="Sign in" aria-haspopup="true" aria-expanded="false">

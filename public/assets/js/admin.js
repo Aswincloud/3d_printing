@@ -507,8 +507,12 @@ window.addEventListener('beforeunload', (e) => {
 
 /* ── coupons ───────────────────────────────────────────────────── */
 
-const onlyDate = (ms) => new Date(Number(ms))
-  .toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+// '—' rather than "1 Jan 1970" for a missing or zero timestamp. Every real row
+// has created_at NOT NULL, but rendering an epoch date is the kind of thing that
+// gets read as a data-corruption bug when it is only a missing field.
+const onlyDate = (ms) => (Number(ms) > 0
+  ? new Date(Number(ms)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  : '—');
 
 // Rupees in the form, paise on the wire — the same convention as the product
 // price editor, and the server rejects anything non-integer either way.
@@ -567,25 +571,71 @@ function couponRow(c) {
   left.appendChild(el('div', 'cr-code', c.code));
   left.appendChild(el('div', 'cr-what', couponSummary(c)));
 
-  // The conditions, only when set. Listing "no minimum / never expires /
-  // unlimited" on every row would bury the ones that actually have limits.
-  const bits = [];
-  if (c.min_order_paise > 0) bits.push(`min ${rupees(c.min_order_paise)}`);
-  // Date only. when() appends a time, which is right for an order but noise for
-  // an expiry — and the stored value is 23:59:59 of the chosen day, so showing
-  // "04:16 am" (the local rendering of that UTC instant) would be actively
-  // misleading about when the code stops working.
-  if (c.expires_at) bits.push(`until ${onlyDate(c.expires_at)}`);
-  if (c.max_uses !== null) bits.push(`${c.uses}/${c.max_uses} used`);
-  else if (c.uses > 0) bits.push(`${c.uses} used`);
-  if (c.once_per_customer) bits.push('one per customer');
-  if (bits.length) left.appendChild(el('div', 'cr-limits', bits.join(' · ')));
+  // Every condition, stated either way. The first version listed only the limits
+  // that were SET, which reads well but means a blank space is ambiguous — you
+  // cannot tell "no expiry" from "I forgot to look". Aswin asked for full
+  // details, so absence is now spelled out.
+  const facts = [
+    ['Minimum', c.min_order_paise > 0 ? rupees(c.min_order_paise) : 'none'],
+    ['Expires', c.expires_at ? onlyDate(c.expires_at) : 'never'],
+    ['Uses', c.max_uses !== null ? `${c.uses} of ${c.max_uses}` : `${c.uses} (unlimited)`],
+    ['Per customer', c.once_per_customer ? 'once only' : 'unlimited'],
+  ];
+  if (c.kind === 'percent') {
+    facts.splice(1, 0, ['Max discount', c.max_discount_paise ? rupees(c.max_discount_paise) : 'uncapped']);
+  }
+  facts.push(['Created', onlyDate(c.created_at)]);
+
+  const grid = el('div', 'cr-facts');
+  for (const [k, v] of facts) {
+    const pair = el('div', 'cr-fact');
+    pair.appendChild(el('span', 'cr-fact-k', k));
+    pair.appendChild(el('span', 'cr-fact-v', v));
+    grid.appendChild(pair);
+  }
+  left.appendChild(grid);
+
+  // What it has actually cost. `uses` says a code was redeemed; this says what
+  // that was worth — the number that decides whether to run the promo again.
+  if (c.paid_orders > 0) {
+    const money = el('div', 'cr-money');
+    money.appendChild(el('span', 'cr-money-item',
+      `${c.paid_orders} paid order${c.paid_orders === 1 ? '' : 's'}`));
+    money.appendChild(el('span', 'cr-money-item cr-given', `−${rupees(c.given_away_paise)} given`));
+    money.appendChild(el('span', 'cr-money-item cr-earned', `${rupees(c.revenue_paise)} revenue`));
+    if (c.last_used_at) money.appendChild(el('span', 'cr-money-item', `last ${onlyDate(c.last_used_at)}`));
+    left.appendChild(money);
+  }
 
   const state = el('div', 'cr-state');
   state.appendChild(el('span', 'badge badge-' + (blocked ? 'cancelled' : 'paid'),
     blocked || 'active'));
 
   const actions = el('div', 'cr-actions');
+
+  // Who redeemed it. Loaded on demand rather than with the list: it returns
+  // customer emails, and fetching those for every row on every dashboard load
+  // would be more exposure than the feature needs.
+  if (c.paid_orders > 0 || c.uses > 0) {
+    actions.appendChild(actionBtn('Who used it', 'admin-btn-ghost', async () => {
+      const existing = row.querySelector('.cr-redemptions');
+      if (existing) { existing.remove(); return; }
+      const data = await api(`/api/admin/coupons/${c.id}/redemptions`);
+      const box = el('div', 'cr-redemptions');
+      if (!data.redemptions.length) {
+        box.appendChild(el('p', 'admin-muted', 'No redemptions recorded yet.'));
+      } else {
+        for (const r of data.redemptions) {
+          const line = el('div', 'cr-redemption');
+          line.appendChild(el('span', 'cr-r-email', r.email));
+          line.appendChild(el('span', 'cr-r-meta',
+            `${r.receipt || '—'} · ${r.status || '—'} · −${rupees(r.discount_paise || 0)} · ${when(r.created_at)}`));
+          box.appendChild(line);
+        }
+      }
+      row.appendChild(box);
+    }));
+  }
 
   // Pause/resume rather than only delete: the common case is ending a promo, and
   // deleting would lose the redemption history that once-per-customer relies on.

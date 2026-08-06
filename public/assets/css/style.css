@@ -105,6 +105,38 @@ nav {
 
 .nav-cta:hover { background: var(--orange-light) !important; transform: translateY(-1px); }
 
+/* Admin-only Dashboard link. Outlined rather than filled: "Get a Quote" is the
+   customer's call to action and must stay the one filled button in the header —
+   two competing solid buttons would blunt it, and this one is only ever visible
+   to one person. */
+.nav-dashboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--orange-light);
+  border: 1px solid rgba(255, 107, 0, 0.4);
+  border-radius: 8px;
+  padding: 0.42rem 0.9rem;
+  white-space: nowrap;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.nav-dashboard:hover {
+  background: rgba(255, 107, 0, 0.12);
+  border-color: var(--orange);
+}
+
+.nav-dashboard[hidden] { display: none; }
+
+/* Below 600px the header is already carrying a logo, cart, account and burger.
+   Drop the word and keep the icon — the account menu still has the full entry. */
+@media (max-width: 600px) {
+  .nav-dashboard span { display: none; }
+  .nav-dashboard { padding: 0.42rem 0.6rem; }
+}
+
 /* Cart + hamburger live here, outside .nav-links, so both stay reachable
    when the link list collapses on mobile. */
 .nav-actions {

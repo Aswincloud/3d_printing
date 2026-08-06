@@ -7,7 +7,7 @@
 // The tampering block is the point of the whole file. Everything else is
 // arithmetic.
 
-import { applyCoupon, recordRedemption, normaliseCode } from "../src/coupons.js";
+import { applyCoupon, recordRedemption, normaliseCode, listCoupons } from "../src/coupons.js";
 import { priceCart } from "../src/shop.js";
 
 let pass = 0, fail = 0;
@@ -328,6 +328,72 @@ section("recordRedemption() — counts once, on payment");
     await recordRedemption(env, { couponCode: "GONE", orderId: "o1", email: "a@b.com" });
   } catch { threw = true; }
   ok("a deleted coupon does not throw", !threw);
+}
+
+// ── what a code has cost ──────────────────────────────────────────
+// `uses` says a code was redeemed; these say what that was worth. Aswin asked to
+// see full details in the dashboard, and "37 redemptions" without "₹4,200 given
+// away, ₹31,000 brought in" is not enough to decide whether to run it again.
+section("listCoupons() — money aggregation");
+{
+  const coupons = [{
+    id: "e1", code: "DIWALI20", kind: "percent", value: 20, min_order_paise: 100000,
+    max_discount_paise: 50000, expires_at: null, max_uses: 100, uses: 2,
+    once_per_customer: 1, active: 1, created_at: 1785000000000, updated_at: 1785000000000,
+  }];
+  const totals = [{
+    coupon_code: "DIWALI20", orders: 2, discount_paise: 44000,
+    revenue_paise: 235900, last_used: 1785910000000,
+  }];
+  const env = { DB: { prepare(sql) {
+    const s = sql.replace(/\s+/g, " ").trim();
+    return { bind() { return this; }, async all() {
+      if (s.startsWith("SELECT id, code, kind, value")) return { results: coupons };
+      if (s.startsWith("SELECT coupon_code,")) return { results: totals };
+      throw new Error("unhandled SQL: " + s.slice(0, 60));
+    } };
+  } } };
+  const body = await (await listCoupons(env)).json();
+  const c = body.coupons[0];
+  ok("counts paid orders", c.paid_orders === 2, String(c.paid_orders));
+  ok("sums what was given away", c.given_away_paise === 44000, String(c.given_away_paise));
+  ok("sums the revenue it brought in", c.revenue_paise === 235900, String(c.revenue_paise));
+  ok("carries the last-used timestamp", c.last_used_at === 1785910000000);
+  ok("original columns survive the merge", c.code === "DIWALI20" && c.max_uses === 100);
+}
+{
+  // A coupon nobody has used must report zeroes, not undefined — the dashboard
+  // branches on `paid_orders > 0` and undefined would render "undefined orders".
+  const env = { DB: { prepare(sql) {
+    const s = sql.replace(/\s+/g, " ").trim();
+    return { bind() { return this; }, async all() {
+      if (s.startsWith("SELECT id, code, kind, value")) {
+        return { results: [{ id: "e2", code: "UNUSED", kind: "fixed", value: 10000, uses: 0 }] };
+      }
+      return { results: [] };
+    } };
+  } } };
+  const c = (await (await listCoupons(env)).json()).coupons[0];
+  ok("unused coupon reports zero orders", c.paid_orders === 0);
+  ok("unused coupon reports zero given away", c.given_away_paise === 0);
+  ok("unused coupon has a null last-used", c.last_used_at === null);
+}
+{
+  // The join is case-insensitive: coupons.code is COLLATE NOCASE, but the
+  // orders snapshot is a plain TEXT column, so a differently-cased snapshot must
+  // still match or the totals would silently read zero.
+  const env = { DB: { prepare(sql) {
+    const s = sql.replace(/\s+/g, " ").trim();
+    return { bind() { return this; }, async all() {
+      if (s.startsWith("SELECT id, code, kind, value")) {
+        return { results: [{ id: "e3", code: "SAVE10", kind: "percent", value: 10, uses: 1 }] };
+      }
+      return { results: [{ coupon_code: "save10", orders: 1, discount_paise: 5000,
+                           revenue_paise: 50000, last_used: 1 }] };
+    } };
+  } } };
+  const c = (await (await listCoupons(env)).json()).coupons[0];
+  ok("matches a differently-cased snapshot", c.paid_orders === 1, String(c.paid_orders));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

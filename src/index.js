@@ -14,6 +14,7 @@ import { listProducts, priceCart } from "./shop.js";
 import {
   listCoupons as adminListCoupons, createCoupon as adminCreateCoupon,
   updateCoupon as adminUpdateCoupon, deleteCoupon as adminDeleteCoupon,
+  couponRedemptions as adminCouponRedemptions,
 } from "./coupons.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
@@ -211,6 +212,10 @@ async function api(request, env, url, ctx) {
 
     if (p === "/api/admin/coupons" && m === "GET") return adminListCoupons(env);
     if (p === "/api/admin/coupons" && m === "POST") return adminCreateCoupon(env, body);
+
+    // Matched BEFORE the bare :id form below, which is a prefix of this one.
+    const redemptions = p.match(/^\/api\/admin\/coupons\/([0-9a-f-]{36})\/redemptions$/);
+    if (redemptions && m === "GET") return adminCouponRedemptions(env, redemptions[1]);
 
     const coup = p.match(/^\/api\/admin\/coupons\/([0-9a-f-]{36})$/);
     if (coup && m === "PATCH") return adminUpdateCoupon(env, coup[1], body);

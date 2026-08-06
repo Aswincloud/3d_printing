@@ -265,7 +265,61 @@ export async function listCoupons(env) {
             max_uses, uses, once_per_customer, active, created_at, updated_at
        FROM coupons ORDER BY active DESC, created_at DESC`
   ).all();
-  return json({ coupons: results || [] });
+
+  // What each code has actually COST, joined from the orders it was used on.
+  // `uses` alone says a code was redeemed 37 times; it does not say that those
+  // 37 orders gave away ₹4,200 and brought in ₹31,000 — which is the number that
+  // decides whether a promo was worth running.
+  //
+  // Counted from PAID orders only (paid or shipped): a pending order is money
+  // that has not arrived, and including it would overstate both figures.
+  const { results: totals } = await env.DB.prepare(
+    `SELECT coupon_code,
+            COUNT(*) AS orders,
+            COALESCE(SUM(discount_paise), 0) AS discount_paise,
+            COALESCE(SUM(total_paise), 0) AS revenue_paise,
+            MAX(created_at) AS last_used
+       FROM orders
+      WHERE coupon_code IS NOT NULL AND status IN ('paid','shipped')
+      GROUP BY coupon_code`
+  ).all();
+
+  const byCode = new Map((totals || []).map((t) => [String(t.coupon_code).toUpperCase(), t]));
+
+  const coupons = (results || []).map((c) => {
+    const t = byCode.get(String(c.code).toUpperCase());
+    return {
+      ...c,
+      paid_orders: t?.orders || 0,
+      given_away_paise: t?.discount_paise || 0,
+      revenue_paise: t?.revenue_paise || 0,
+      last_used_at: t?.last_used || null,
+    };
+  });
+
+  return json({ coupons });
+}
+
+// GET /api/admin/coupons/:id/redemptions
+//
+// Who used a code and when. Separate from the list because it is per-coupon
+// detail rather than something to load for every row, and because it returns
+// customer emails — worth keeping to an explicit request.
+export async function couponRedemptions(env, id) {
+  const c = await env.DB.prepare(`SELECT id, code FROM coupons WHERE id = ?`).bind(id).first();
+  if (!c) return bad("Coupon not found.", 404);
+
+  const { results } = await env.DB.prepare(
+    `SELECT r.email, r.created_at, o.receipt, o.status,
+            o.discount_paise, o.total_paise
+       FROM coupon_redemptions r
+       LEFT JOIN orders o ON o.id = r.order_id
+      WHERE r.coupon_id = ?
+      ORDER BY r.created_at DESC
+      LIMIT 200`
+  ).bind(id).all();
+
+  return json({ code: c.code, redemptions: results || [] });
 }
 
 export async function createCoupon(env, body) {
