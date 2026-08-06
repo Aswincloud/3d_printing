@@ -200,6 +200,142 @@ export async function createProduct(env, body) {
   return json({ ok: true, id, slug, image: imagePath }, 201);
 }
 
+// ── batch operations on unlisted photos ───────────────────────────
+//
+// Both of these take a list of FILENAMES from the unlisted panel and write one
+// product row each, in a single transaction.
+//
+// The transaction is the point. Looping over createProduct() from the browser
+// would fail partway on the first bad filename or duplicate slug, leaving some
+// photos listed and some not — and no obvious way to tell which. `env.DB.batch()`
+// is one D1 transaction: it all lands or none of it does.
+
+// Validate a list of filenames against the manifest, and plan a row for each.
+// Shared by batch-list and hide, because the checks are identical and the only
+// difference is what the rows contain.
+async function planRowsFor(env, images, { price, category, visible }) {
+  if (!Array.isArray(images) || images.length === 0) return { error: "No photos selected." };
+  if (images.length > 100) return { error: "Too many photos in one request (max 100)." };
+
+  const manifest = await readManifest(env);
+  if (!manifest) return { error: "Image manifest unavailable — run `npm run images` and deploy.", status: 503 };
+  const known = new Set(manifest.images.map((i) => i.file));
+
+  // Slugs must be unique across the WHOLE table, so existing rows are pulled in
+  // before deciding. Cheap: this is an admin path and the catalogue is ~60 rows.
+  const { results: existing } = await env.DB.prepare(`SELECT slug, image FROM products`).all();
+  const takenSlugs = new Set((existing || []).map((r) => r.slug));
+  const alreadyListed = new Set((existing || []).map((r) => String(r.image || "").replace(/^.*\//, "")));
+
+  const seen = new Set();
+  const rows = [];
+
+  for (const raw of images) {
+    const file = String(raw || "").trim().replace(/^.*\//, "");
+    if (!file) return { error: "An entry in the selection is empty." };
+
+    // Same guard as createProduct, for the same reason: these are
+    // client-supplied strings, so an external URL or a traversal must not become
+    // a product's image. See the note there.
+    if (!known.has(file) || /^https?:|^\/\/|\.\./i.test(String(raw))) {
+      return { error: `"${file}" is not in assets/images. Push the photo, run \`npm run images\`, and try again.` };
+    }
+    if (seen.has(file)) return { error: `"${file}" is selected twice.` };
+    seen.add(file);
+    if (alreadyListed.has(file)) return { error: `"${file}" is already a product.` };
+
+    // A camera-default filename yields nothing to name a product after. Blocking
+    // the whole batch for that would be worse than a placeholder Aswin can edit.
+    const name = suggestName(file) || "Custom piece";
+
+    // De-duplicate the slug against existing rows AND against earlier entries in
+    // this same batch.
+    //
+    // This is not hypothetical: poster_wall_staircase.jpg and
+    // poster_wall_staircase_v2.jpg both slugify to "poster-wall-staircase", so
+    // selecting both — which the "select all" button makes easy — would collide.
+    let slug = slugify(name) || "item";
+    if (takenSlugs.has(slug)) {
+      let n = 2;
+      while (takenSlugs.has(`${slug}-${n}`)) n++;
+      slug = `${slug}-${n}`;
+    }
+    takenSlugs.add(slug);
+
+    rows.push({ id: uid(), slug, name, image: `assets/images/${file}`, price, category, visible });
+  }
+
+  return { rows };
+}
+
+// POST /api/admin/products/batch — list several photos at one price.
+export async function batchCreateProducts(env, body) {
+  const price = parsePaise(body?.price_paise);
+  if (price === null || price < 1) {
+    return bad("Enter a price in rupees for the selected photos.");
+  }
+
+  const planned = await planRowsFor(env, body?.images, {
+    price,
+    category: clip(body?.category, MAXLEN.category),
+    visible: body?.visible === false ? 0 : 1,
+  });
+  if (planned.error) return bad(planned.error, planned.status || 400);
+
+  await writeProductRows(env, planned.rows);
+  return json({
+    ok: true,
+    created: planned.rows.length,
+    products: planned.rows.map((r) => ({ id: r.id, slug: r.slug, name: r.name, image: r.image })),
+  }, 201);
+}
+
+// POST /api/admin/products/hide — take photos out of the shop without deleting
+// the files.
+//
+// The posters are Instagram creatives: they belong in the repo (they are used on
+// Instagram) but not in the storefront, where they read as products that tell
+// customers to DM instead of buying.
+//
+// Implemented as a HIDDEN PRODUCT ROW rather than a separate ignore-list table.
+// listProducts() already excludes images belonging to hidden products from the
+// auto-listing (see the note in src/shop.js), so this reuses a path that exists
+// and is tested — and the result is visible and reversible in the products list
+// rather than buried in a second place where "why is this not showing?" can be
+// answered.
+//
+// Note it does NOT go through createProduct(), which requires a price: hiding a
+// poster would otherwise mean inventing a price for something never meant to be
+// sold.
+export async function hideImages(env, body) {
+  const planned = await planRowsFor(env, body?.images, {
+    price: 0,        // never sellable; priceCart refuses price_paise = 0 anyway
+    category: "",
+    visible: 0,
+  });
+  if (planned.error) return bad(planned.error, planned.status || 400);
+
+  await writeProductRows(env, planned.rows);
+  return json({
+    ok: true,
+    hidden: planned.rows.length,
+    images: planned.rows.map((r) => r.image),
+  }, 201);
+}
+
+// One transaction for the whole set.
+function writeProductRows(env, rows) {
+  const ts = now();
+  const stmt = env.DB.prepare(
+    `INSERT INTO products (id, slug, name, description, price_paise, image, images,
+       category, visible, sort, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  return env.DB.batch(rows.map((r) => stmt.bind(
+    r.id, r.slug, r.name, "", r.price, r.image, "", r.category, r.visible, 0, ts, ts,
+  )));
+}
+
 // PATCH semantics: only the fields present in the body are touched, so the
 // dashboard can send just a price or just a visibility toggle.
 export async function updateProduct(env, id, body) {

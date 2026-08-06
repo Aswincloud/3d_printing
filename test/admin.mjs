@@ -8,6 +8,7 @@
 import { ownerAllowed, ssoConfigured, currentOwner } from "../src/auth.js";
 import {
   listProducts, createProduct, updateProduct, deleteProduct, unlistedImages,
+  batchCreateProducts, hideImages,
   listOrders, updateOrder, refundOrder, stats, bulkUpdateProducts,
 } from "../src/admin.js";
 import { signToken } from "@aswincloud/auth";
@@ -217,8 +218,18 @@ function makeDB(seed = {}) {
     }
     if (s.startsWith("INSERT INTO products")) {
       const [id, slug, name, description, price_paise, image, images, category, visible, sort, created_at, updated_at] = a;
+      // Emulate the UNIQUE constraint on slug. Without it, the de-duplication
+      // test would pass against a fake more permissive than the real database —
+      // which is exactly how the collision shipped unnoticed in the first place.
+      if (db.products.some((p) => p.slug === slug)) {
+        throw new Error("UNIQUE constraint failed: products.slug");
+      }
       db.products.push({ id, slug, name, description, price_paise, image, images, category, visible, sort, created_at, updated_at });
       return { meta: { changes: 1 } };
+    }
+    // Read by the batch planner to check slugs and already-listed images.
+    if (s.startsWith("SELECT slug, image FROM products")) {
+      return { results: db.products.map((p) => project(p, ["slug", "image"])) };
     }
     if (s.startsWith("UPDATE products SET")) {
       const id = a[a.length - 1];
@@ -307,12 +318,22 @@ function makeDB(seed = {}) {
   return {
     _db: db,
     prepare(sql) {
-      return {
-        bind(...args) { this._a = args; return this; },
-        async all() { return { results: run(sql, this._a || []).results || [] }; },
-        async first() { return run(sql, this._a || []).first ?? null; },
-        async run() { return run(sql, this._a || []); },
-      };
+      // bind() returns a NEW statement, as real D1 does — it does not mutate and
+      // return itself.
+      //
+      // batchCreateProducts() prepares ONE statement and binds it once per row,
+      // collecting the results into an array for batch(). Against a fake that
+      // returns `this`, every element of that array is the same object carrying
+      // the LAST row's arguments — so a 4-photo batch would write one row four
+      // times and the test would still see "4 rows written". The identical bug
+      // hid a real defect in the invoicer's line items earlier today.
+      const make = (args) => ({
+        bind: (...a) => make(a),
+        async all() { return { results: run(sql, args).results || [] }; },
+        async first() { return run(sql, args).first ?? null; },
+        async run() { return run(sql, args); },
+      });
+      return make([]);
     },
     // Real D1 batch() is a single transaction. Snapshot first so a throw
     // mid-way rolls back, matching production rather than leaving the fake in a
@@ -523,6 +544,144 @@ section("admin products — the image path cannot be forged");
   }));
   ok("missing manifest → 503, not a guess", status === 503, String(status));
   ok("and no row written", env.DB._db.products.length === 0);
+}
+
+// ── batch listing ─────────────────────────────────────────────────
+section("admin products — batch list");
+{
+  const env = envDB();
+  const [status, out] = await read(await batchCreateProducts(env, {
+    images: ["n.jpg", "i.jpg", "kingfisher.jpg"],
+    price_paise: 44900, category: "decor",
+  }));
+  ok("201", status === 201, String(status));
+  ok("all three written", env.DB._db.products.length === 3, String(env.DB._db.products.length));
+  ok("reports the count", out.created === 3);
+
+  // One price for all — the whole point of the batch form.
+  ok("every row gets the one price",
+     env.DB._db.products.every((p) => p.price_paise === 44900));
+  ok("every row gets the category",
+     env.DB._db.products.every((p) => p.category === "decor"));
+  ok("every row is visible", env.DB._db.products.every((p) => p.visible === 1));
+
+  // Each row must carry ITS OWN image — the bug a fake with an aliasing bind()
+  // would hide entirely.
+  const imgs = env.DB._db.products.map((p) => p.image).sort();
+  ok("each row keeps its own image",
+     imgs.join(",") === "assets/images/i.jpg,assets/images/kingfisher.jpg,assets/images/n.jpg",
+     imgs.join(","));
+  ok("names are derived per file",
+     new Set(env.DB._db.products.map((p) => p.name)).size === 3,
+     env.DB._db.products.map((p) => p.name).join(","));
+}
+{
+  // THE case that motivated de-duplication. These two real filenames both
+  // slugify to "poster-wall-staircase"; without handling, the second INSERT
+  // violates UNIQUE(slug) and the batch dies partway.
+  const env = { ...BASE_ENV, DB: makeDB(),
+    ASSETS: makeAssets(["poster_wall_staircase.jpg", "poster_wall_staircase_v2.jpg"]) };
+
+  // Caught rather than allowed to propagate: without de-duplication the fake's
+  // UNIQUE constraint throws, which would abort the whole suite with a stack
+  // trace instead of reporting which assertion failed.
+  let status = 0, threw = "";
+  try {
+    [status] = await read(await batchCreateProducts(env, {
+      images: ["poster_wall_staircase.jpg", "poster_wall_staircase_v2.jpg"],
+      price_paise: 9900,
+    }));
+  } catch (e) {
+    threw = String(e?.message || e);
+  }
+  ok("colliding slugs do not hit the UNIQUE constraint", !threw, threw);
+  ok("colliding slugs still list", status === 201, String(status));
+  ok("both rows written", env.DB._db.products.length === 2, String(env.DB._db.products.length));
+  const slugs = env.DB._db.products.map((p) => p.slug);
+  ok("slugs are made unique", new Set(slugs).size === 2, slugs.join(","));
+  ok("the second is suffixed", slugs.some((s) => /-2$/.test(s)), slugs.join(","));
+}
+{
+  // Nothing is written unless everything validates. A partial batch is the worst
+  // outcome: some photos listed, some not, and no indication which.
+  const cases = [
+    ["one bad file among good", ["n.jpg", "not-in-manifest.jpg", "i.jpg"]],
+    ["external URL", ["https://evil.com/x.jpg"]],
+    ["path traversal", ["../../etc/passwd"]],
+    ["traversal ending in a real name", ["assets/images/../../n.jpg"]],
+    ["the same file twice", ["n.jpg", "n.jpg"]],
+    ["empty selection", []],
+  ];
+  for (const [label, images] of cases) {
+    const env = envDB();
+    const [status] = await read(await batchCreateProducts(env, { images, price_paise: 9900 }));
+    ok(`${label} → refused`, status === 400, String(status));
+    ok(`${label} → NOTHING written`, env.DB._db.products.length === 0,
+       `${env.DB._db.products.length} rows`);
+  }
+}
+{
+  const env = envDB();
+  ok("no price → refused",
+     (await read(await batchCreateProducts(env, { images: ["n.jpg"] })))[0] === 400);
+  ok("zero price → refused",
+     (await read(await batchCreateProducts(env, { images: ["n.jpg"], price_paise: 0 })))[0] === 400);
+  ok("and nothing written", env.DB._db.products.length === 0);
+
+  const many = Array.from({ length: 101 }, () => "n.jpg");
+  ok("over 100 photos → refused",
+     (await read(await batchCreateProducts(env, { images: many, price_paise: 100 })))[0] === 400);
+}
+{
+  // A photo that is already a product cannot be listed twice.
+  const env = envDB();
+  await batchCreateProducts(env, { images: ["n.jpg"], price_paise: 9900 });
+  const [status] = await read(await batchCreateProducts(env, { images: ["n.jpg"], price_paise: 9900 }));
+  ok("re-listing the same photo → refused", status === 400, String(status));
+  ok("and still only one row", env.DB._db.products.length === 1);
+}
+
+// ── hiding photos ─────────────────────────────────────────────────
+//
+// The real requirement: an Instagram poster (including a GIVEAWAY card) must be
+// removable from the storefront without deleting the file, which is still needed
+// for Instagram.
+section("admin products — hide photos");
+{
+  const env = envDB();
+  const [status, out] = await read(await hideImages(env, { images: ["n.jpg", "i.jpg"] }));
+  ok("201", status === 201, String(status));
+  ok("reports the count", out.hidden === 2);
+  ok("a row per image", env.DB._db.products.length === 2);
+  ok("all hidden", env.DB._db.products.every((p) => p.visible === 0));
+  // Priced at 0 so that even if one were made visible by accident, priceCart
+  // refuses it — belt and braces with visible = 0.
+  ok("all unpriced", env.DB._db.products.every((p) => p.price_paise === 0));
+  ok("no price is required to hide", true);
+}
+{
+  // The same guards as batch listing.
+  for (const [label, images] of [
+    ["a forged path", ["https://evil.com/x.jpg"]],
+    ["a file not in the manifest", ["nope.jpg"]],
+    ["an empty selection", []],
+  ]) {
+    const env = envDB();
+    const [status] = await read(await hideImages(env, { images }));
+    ok(`hide ${label} → refused`, status === 400, String(status));
+    ok(`hide ${label} → nothing written`, env.DB._db.products.length === 0);
+  }
+}
+{
+  // What the user actually sees: a hidden photo leaves the unlisted panel.
+  const env = envDB();
+  const before = (await read(await unlistedImages(env)))[1].images.length;
+  await hideImages(env, { images: ["kingfisher.jpg"] });
+  const after = (await read(await unlistedImages(env)))[1];
+  ok("a hidden photo leaves the unlisted list", after.images.length === before - 1,
+     `${before} → ${after.images.length}`);
+  ok("and it is specifically that photo",
+     !after.images.some((i) => i.file === "kingfisher.jpg"));
 }
 
 // ── which photos still need listing ───────────────────────────────

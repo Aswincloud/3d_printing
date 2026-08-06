@@ -396,11 +396,145 @@ async function loadUnlisted() {
 
   if (wrap) wrap.hidden = false;
   if (head) head.textContent = `Not yet listed (${list.length})`;
+
+  // Drop selections for photos that are no longer unlisted — otherwise listing
+  // three and then hiding "the selection" would act on rows that are already
+  // products.
+  const present = new Set(list.map((i) => i.file));
+  for (const f of [...ulSelected]) if (!present.has(f)) ulSelected.delete(f);
+
   for (const img of list) box.appendChild(unlistedRow(img));
+  refreshUlBar();
 }
+
+// ── batch selection ───────────────────────────────────────────────
+function refreshUlBar() {
+  const bar = $('ulBulkBar');
+  const count = $('ulBulkCount');
+  const all = $('ulSelectAll');
+  if (!bar) return;
+
+  const n = ulSelected.size;
+  bar.hidden = n === 0;
+  if (count) count.textContent = `${n} photo${n === 1 ? '' : 's'} selected`;
+
+  const list = $('ulBulkList');
+  const hide = $('ulBulkHide');
+  if (list) list.textContent = n > 1 ? `List ${n}` : 'List selected';
+  if (hide) hide.textContent = n > 1 ? `Hide ${n}` : 'Hide selected';
+
+  // Reflect partial selection, so the header checkbox is never a lie.
+  if (all) {
+    const total = document.querySelectorAll('.unlisted-row').length;
+    all.checked = total > 0 && n === total;
+    all.indeterminate = n > 0 && n < total;
+  }
+}
+
+function clearUlSelection() {
+  ulSelected.clear();
+  for (const cb of document.querySelectorAll('.ul-pick')) cb.checked = false;
+  for (const r of document.querySelectorAll('.unlisted-row')) r.classList.remove('is-picked');
+  const err = $('ulBulkError');
+  if (err) err.hidden = true;
+  refreshUlBar();
+}
+
+$('ulSelectAll')?.addEventListener('change', (e) => {
+  const rows = [...document.querySelectorAll('.unlisted-row')];
+
+  // From a PARTIAL selection, this must select everything.
+  //
+  // A checkbox showing indeterminate is visually neither on nor off, and
+  // browsers resolve a click on it to checked = false — so reading e.target
+  // .checked would make "Select all" behave as "select none" whenever some rows
+  // were already ticked. Decide from the selection instead: anything less than
+  // all means select all.
+  const on = ulSelected.size < rows.length;
+  e.target.checked = on;
+  e.target.indeterminate = false;
+
+  ulSelected.clear();
+  for (const row of rows) {
+    const cb = row.querySelector('.ul-pick');
+    if (cb) cb.checked = on;
+    row.classList.toggle('is-picked', on);
+    if (on && row.dataset.file) ulSelected.add(row.dataset.file);
+  }
+  refreshUlBar();
+});
+
+$('ulBulkClear')?.addEventListener('click', clearUlSelection);
+
+async function runUlBatch(path, payload, btn, describe) {
+  const err = $('ulBulkError');
+  if (err) err.hidden = true;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Working…';
+  try {
+    const out = await api(path, { method: 'POST', body: JSON.stringify(payload) });
+    clearUlSelection();
+    flash(describe(out));
+    // loadProducts() refreshes the unlisted panel itself, so awaiting BOTH ran
+    // loadUnlisted() twice concurrently: each cleared the list, then each
+    // appended to it, leaving every row rendered twice. Found by a test counting
+    // 8 checkboxes for 4 photos — which then made "select all" look broken.
+    await loadProducts();
+  } catch (e) {
+    if (err) { err.textContent = e.message; err.hidden = false; }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+$('ulBulkList')?.addEventListener('click', (e) => {
+  const err = $('ulBulkError');
+  const paise = toPaise($('ulBulkPrice')?.value);
+  // The one field with no safe default — it is what a customer pays.
+  if (paise === null || paise < 100) {
+    if (err) { err.textContent = 'Enter a price in rupees, e.g. 349.'; err.hidden = false; }
+    $('ulBulkPrice')?.focus();
+    return;
+  }
+  runUlBatch('/api/admin/products/batch', {
+    images: [...ulSelected],
+    price_paise: paise,
+    category: $('ulBulkCategory')?.value || 'figurine',
+  }, e.target, (out) => `${out.created} photo${out.created === 1 ? '' : 's'} listed at ${rupees(paise)}.`);
+});
+
+$('ulBulkHide')?.addEventListener('click', (e) => {
+  const n = ulSelected.size;
+  // Confirmed because it writes rows, and undoing a 15-photo mistake means
+  // finding and un-hiding each one in the products list below.
+  if (!confirm(`Hide ${n} photo${n === 1 ? '' : 's'} from the shop?\n\nThe files stay in the repo — you can show them again from the products list.`)) return;
+  runUlBatch('/api/admin/products/hide', { images: [...ulSelected] }, e.target,
+    (out) => `${out.hidden} photo${out.hidden === 1 ? '' : 's'} hidden from the shop.`);
+});
+
+// Which unlisted photos are ticked. Keyed on filename, which is what both batch
+// endpoints take — so nothing has to be translated at submit time.
+const ulSelected = new Set();
 
 function unlistedRow(img) {
   const row = el('div', 'unlisted-row');
+  row.dataset.file = img.file;
+
+  const pick = document.createElement('input');
+  pick.type = 'checkbox';
+  pick.className = 'ul-pick';
+  pick.checked = ulSelected.has(img.file);
+  pick.setAttribute('aria-label', 'Select ' + img.file);
+  pick.addEventListener('change', () => {
+    if (pick.checked) ulSelected.add(img.file);
+    else ulSelected.delete(img.file);
+    row.classList.toggle('is-picked', pick.checked);
+    refreshUlBar();
+  });
+  row.classList.toggle('is-picked', pick.checked);
+  row.appendChild(pick);
 
   const thumb = document.createElement('img');
   thumb.className = 'pr-thumb';
@@ -498,9 +632,9 @@ function unlistedRow(img) {
     }
 
     flash(`"${name.value.trim()}" is live in the shop.`);
-    // Both lists change: the photo leaves "not yet listed" and the product
-    // appears in the catalogue below.
-    await Promise.all([loadUnlisted(), loadProducts()]);
+    // loadProducts() refreshes the unlisted panel too — see the note in
+    // runUlBatch(). Calling both duplicates every row.
+    await loadProducts();
   });
 
   const meta = el('div', 'ul-meta');

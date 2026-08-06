@@ -99,9 +99,45 @@
     <div class="unlisted-panel" id="unlistedPanel" hidden>
       <div class="panel-head">
         <h3 id="unlistedHead">Not yet listed</h3>
-        <span class="admin-muted">Pushed to <code>assets/images/</code> but not in the shop. Set a price to list one.</span>
+        <span class="admin-muted">Pushed to <code>assets/images/</code> and already showing as “Price on request”. Set a price to sell one, or hide it.</span>
       </div>
+
+      <div class="ul-selectbar">
+        <label class="cr-check">
+          <input type="checkbox" id="ulSelectAll">
+          <span>Select all</span>
+        </label>
+      </div>
+
       <div id="unlistedList"></div>
+
+      <!-- Appears only when something is selected. Mirrors the products list's
+           bulk bar, so the interaction is one that already exists here. -->
+      <div class="ul-bulkbar" id="ulBulkBar" hidden>
+        <span class="bulk-count" id="ulBulkCount"></span>
+        <div class="ul-bulk-fields">
+          <label class="ul-field">
+            <span class="ul-label">Price for all</span>
+            <span class="price-input"><span>₹</span><input type="text" id="ulBulkPrice" inputmode="decimal" placeholder="349"></span>
+          </label>
+          <label class="ul-field">
+            <span class="ul-label">Category</span>
+            <select class="ul-input" id="ulBulkCategory">
+              <option value="figurine">figurine</option>
+              <option value="decor">decor</option>
+              <option value="functional">functional</option>
+              <option value="set">set</option>
+            </select>
+          </label>
+        </div>
+        <div class="ul-bulk-actions">
+          <button type="button" class="admin-btn" id="ulBulkList">List selected</button>
+          <!-- No price needed: hiding is for photos that will never have one. -->
+          <button type="button" class="admin-btn-danger" id="ulBulkHide">Hide selected</button>
+          <button type="button" class="admin-btn-ghost" id="ulBulkClear">Clear</button>
+        </div>
+        <p class="ul-error" id="ulBulkError" hidden></p>
+      </div>
     </div>
 
     <div id="productsList" class="products-list"><p class="admin-muted">Loading…</p></div>

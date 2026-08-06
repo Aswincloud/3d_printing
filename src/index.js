@@ -34,6 +34,7 @@ import { getCart, putCart, mergeCart } from "./cart.js";
 import {
   listProducts as adminListProducts, createProduct as adminCreateProduct,
   unlistedImages as adminUnlistedImages,
+  batchCreateProducts as adminBatchCreate, hideImages as adminHideImages,
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
   listOrders as adminListOrders, updateOrder as adminUpdateOrder,
   refundOrder as adminRefundOrder, stats as adminStats,
@@ -211,6 +212,10 @@ async function api(request, env, url, ctx) {
     // a 36-char uuid so there is no real collision, but a literal path sitting
     // under a wildcard is the kind of thing that becomes one later.
     if (p === "/api/admin/products/unlisted" && m === "GET") return adminUnlistedImages(env);
+    // List several photos at one price, or take photos out of the shop. Both
+    // write a row per image in a single transaction — see the note in admin.js.
+    if (p === "/api/admin/products/batch" && m === "POST") return adminBatchCreate(env, body);
+    if (p === "/api/admin/products/hide" && m === "POST") return adminHideImages(env, body);
 
     const prod = p.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/);
     if (prod && m === "PATCH") return adminUpdateProduct(env, prod[1], body);

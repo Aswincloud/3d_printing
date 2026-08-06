@@ -361,10 +361,47 @@
 .unlisted-panel .panel-head { margin-bottom: 0.9rem; }
 .unlisted-panel h3 { font-size: 1rem; font-weight: 700; color: var(--orange); }
 
+.ul-selectbar { margin-bottom: 0.6rem; }
+
+/* Batch bar. Same idea as the products list's bulk bar — appears only when
+   something is selected, so it is never in the way. */
+.ul-bulkbar {
+  position: sticky;
+  bottom: 0.75rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.9rem;
+  padding: 0.85rem 1rem;
+  background: var(--dark-3);
+  border: 1px solid var(--orange);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.ul-bulkbar .bulk-count { font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
+.ul-bulk-fields { display: flex; gap: 0.7rem; flex-wrap: wrap; }
+.ul-bulk-fields .ul-field { min-width: 110px; }
+.ul-bulk-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-left: auto; }
+.ul-bulkbar .ul-error { flex-basis: 100%; margin: 0; }
+
+.ul-pick {
+  grid-area: pick;
+  align-self: center;
+  width: 18px; height: 18px;
+  accent-color: var(--orange);
+  cursor: pointer;
+}
+
+.unlisted-row.is-picked {
+  border-color: var(--orange);
+  background: rgba(255, 107, 0, 0.06);
+}
+
 .unlisted-row {
   display: grid;
-  grid-template-columns: 72px 1fr auto;
-  grid-template-areas: "thumb form actions" "thumb meta actions" "err err err";
+  grid-template-columns: 24px 72px 1fr auto;
+  grid-template-areas: "pick thumb form actions" "pick thumb meta actions" "err err err err";
   align-items: start;
   gap: 0.65rem 1rem;
   background: var(--dark-2);
@@ -422,12 +459,16 @@
    unusable, and this is a screen Aswin will use from his phone after a print. */
 @media (max-width: 720px) {
   .unlisted-row {
-    grid-template-columns: 56px 1fr;
-    grid-template-areas: "thumb meta" "form form" "actions actions" "err err";
+    grid-template-columns: 24px 56px 1fr;
+    grid-template-areas: "pick thumb meta" "form form form" "actions actions actions" "err err err";
   }
   .unlisted-row .pr-thumb { width: 56px; height: 56px; }
   .ul-form { grid-template-columns: 1fr 1fr; }
   .ul-actions button { width: 100%; }
+
+  .ul-bulkbar { flex-direction: column; align-items: stretch; }
+  .ul-bulk-actions { margin-left: 0; }
+  .ul-bulk-actions button { flex: 1; }
 }
 
 .product-row img {
