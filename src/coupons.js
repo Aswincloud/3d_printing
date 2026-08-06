@@ -90,9 +90,19 @@ export async function applyCoupon(env, rawCode, subtotalPaise, email) {
   let freeShipping = false;
 
   if (c.kind === "percent") {
-    // floor, not round: rounding up would hand the customer a paise at Aswin's
-    // expense on roughly half of all orders, and the total must stay an integer.
-    discount = Math.floor((subtotalPaise * c.value) / 100);
+    // Rounded UP to a whole rupee, not left at paise precision.
+    //
+    // 10% of ₹899 is ₹89.90, which makes the total ₹908.10. That is
+    // arithmetically exact — every amount here is integer paise and Razorpay is
+    // charged 100810 exactly — but every price in this shop is a whole rupee, so
+    // a total ending in .10 reads as a bug to the customer and the paise are
+    // unspendable in practice.
+    //
+    // Ceil rather than floor so the rounding favours the customer (₹90 off, not
+    // ₹89): at most 99 paise per order, and a promo that rounds against the
+    // person redeeming it is a bad look for the sake of a rupee.
+    const raw = (subtotalPaise * c.value) / 100;
+    discount = Math.ceil(raw / 100) * 100;
     if (c.max_discount_paise !== null && discount > c.max_discount_paise) {
       discount = c.max_discount_paise;
     }

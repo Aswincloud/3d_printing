@@ -136,6 +136,11 @@ export function orderCustomerEmail(env, order, items) {
     `<p style="margin:0 0 14px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Order Summary</p>` +
     `<table style="width:100%;border-collapse:collapse">${lines}` +
     totalRow("Subtotal", rupees(order.subtotal_paise)) +
+    // Only when there was one. A "Discount ₹0" line on every receipt would be
+    // noise. esc() because the code is admin-editable text landing in HTML.
+    (order.discount_paise > 0
+      ? totalRow(`Promo ${esc(order.coupon_code || "")}`, "−" + rupees(order.discount_paise))
+      : "") +
     totalRow(order.shipping_paise === 0 ? "Shipping (free)" : "Shipping", rupees(order.shipping_paise)) +
     totalRow("Total paid", rupees(order.total_paise), true) +
     `</table></div>` +
@@ -168,6 +173,11 @@ export function orderOwnerEmail(env, order, items) {
       ["Address", esc(`${order.addr_line}, ${order.addr_city}, ${order.addr_state} ${order.addr_pin}`)],
       ["Payment ID", esc(order.rzp_payment_id || "—")],
       ["Subtotal", rupees(order.subtotal_paise)],
+      // Aswin needs to see WHICH code was used, not just that the total is lower
+      // — otherwise a promo's real cost is invisible in the order mail.
+      order.discount_paise > 0
+        ? ["Discount", `${esc(order.coupon_code || "")} −${rupees(order.discount_paise)}`]
+        : null,
       ["Shipping", rupees(order.shipping_paise)],
       ["Total", `<span style="color:${ORANGE}">${rupees(order.total_paise)}</span>`],
       order.notes ? ["Notes", esc(order.notes)] : null,

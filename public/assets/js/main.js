@@ -1042,7 +1042,7 @@ function coClearError(name) {
 }
 
 function coClearAll() {
-  ['co_name', 'co_email', 'co_phone', ...SHIP_FIELDS].forEach(coClearError);
+  ['co_name', 'co_email', 'co_phone', 'co_promo', ...SHIP_FIELDS].forEach(coClearError);
   if (coError) { coError.hidden = true; coError.textContent = ''; }
 }
 
@@ -1097,7 +1097,6 @@ function renderCoSummary() {
     el.appendChild(row);
   }
 
-  const shipping = shippingForDisplay(subtotal);
   const addRow = (label, value, cls) => {
     const row = document.createElement('div');
     row.className = 'co-line' + (cls ? ' ' + cls : '');
@@ -1108,10 +1107,103 @@ function renderCoSummary() {
     row.append(l, r);
     el.appendChild(row);
   };
+
   addRow('Subtotal', rupees(subtotal));
+
+  // When a coupon is applied, show the SERVER's numbers rather than recomputing
+  // the discount here. The browser has no idea whether SAVE10 is 10% capped at
+  // ₹200 or has a minimum — only /api/coupon/check does, and it already told us.
+  if (appliedCoupon) {
+    addRow('Promo ' + appliedCoupon.code, '−' + rupees(appliedCoupon.discount_paise), 'co-line-discount');
+    const ship = appliedCoupon.shipping_paise;
+    addRow(ship === 0 ? 'Shipping (free)' : 'Shipping', rupees(ship));
+    addRow('Total', rupees(appliedCoupon.total_paise), 'co-line-total');
+    return;
+  }
+
+  const shipping = shippingForDisplay(subtotal);
   addRow(shipping === 0 ? 'Shipping (free)' : 'Shipping', rupees(shipping));
   addRow('Total', rupees(subtotal + shipping), 'co-line-total');
 }
+
+/* ── promo code ────────────────────────────────────────────────── */
+
+// The server's answer for the currently applied code, or null. Holds the priced
+// result rather than the coupon's rules, because the browser must never do the
+// discount arithmetic itself — that would be the same mistake as pricing items
+// client-side.
+let appliedCoupon = null;
+
+function clearCoupon() {
+  appliedCoupon = null;
+  const ok = document.getElementById('coPromoOk');
+  if (ok) { ok.hidden = true; ok.textContent = ''; }
+  coClearError('co_promo');
+}
+
+async function applyPromo() {
+  const input = checkoutForm?.querySelector('[name="co_promo"]');
+  const okSlot = document.getElementById('coPromoOk');
+  const btn = document.getElementById('coPromoApply');
+  if (!input) return;
+
+  const code = input.value.trim();
+  if (!code) { clearCoupon(); renderCoSummary(); return; }
+
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = 'Checking…';
+  try {
+    const res = await fetch('/api/coupon/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        // Only ids, qty and the code. No amounts — the server prices it, exactly
+        // as it does for the order itself.
+        items: checkoutItems().map((it) => ({ product_id: it.id, qty: it.qty })),
+        code,
+        // For a once-per-customer code. The server re-checks against the
+        // validated address at order time, so this is a preview convenience.
+        email: (checkoutForm.querySelector('[name="co_email"]')?.value || '').trim(),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'That code could not be applied.');
+
+    appliedCoupon = data;
+    coClearError('co_promo');
+    if (okSlot) {
+      const saved = data.discount_paise > 0
+        ? rupees(data.discount_paise) + ' off'
+        : 'free shipping';
+      okSlot.textContent = `${data.code} applied — ${saved}.`;
+      okSlot.hidden = false;
+    }
+  } catch (err) {
+    clearCoupon();
+    coSetError('co_promo', err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+    renderCoSummary();
+  }
+}
+
+document.getElementById('coPromoApply')?.addEventListener('click', applyPromo);
+
+// Enter inside the promo field applies the code rather than submitting the whole
+// form — submitting would start a payment for a total the customer has not seen.
+checkoutForm?.querySelector('[name="co_promo"]')?.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  applyPromo();
+});
+
+// Editing the code after applying it drops the applied discount, so the summary
+// can never show a discount for a code that is no longer in the box.
+checkoutForm?.querySelector('[name="co_promo"]')?.addEventListener('input', () => {
+  if (appliedCoupon) { clearCoupon(); renderCoSummary(); }
+});
 
 /* ── open / close ──────────────────────────────────────────────── */
 
@@ -1131,6 +1223,13 @@ function openCheckout(items = null) {
   buyNowItems = items;
   if (!checkoutItems().length) { buyNowItems = null; return; }
   coClearAll();
+  // A coupon applied to a PREVIOUS cart must not carry over: the discount was
+  // priced against those items, and "buy now — just this" opens checkout with a
+  // completely different basket. Clear the field too, so the box and the summary
+  // never disagree about whether a code is active.
+  clearCoupon();
+  const promo = checkoutForm?.querySelector('[name="co_promo"]');
+  if (promo) promo.value = '';
   renderCoSummary();
   if (typeof prefillCheckout === 'function') prefillCheckout();
   checkoutModal.hidden = false;
@@ -1195,6 +1294,12 @@ checkoutForm?.addEventListener('submit', async (e) => {
         items: checkoutItems().map((it) => ({ product_id: it.id, qty: it.qty })),
         // No `delivery` field: the server sets it, and does not trust a value
         // sent from here — it decides the shipping charge.
+        //
+        // The coupon is sent as a CODE only, never as an amount. The server
+        // re-validates and re-prices it; if it has expired or been used up since
+        // Apply was clicked, the order is refused rather than silently charged at
+        // full price.
+        coupon_code: appliedCoupon?.code || null,
         customer: {
           name: v('co_name'),
           email: v('co_email'),
@@ -1316,6 +1421,11 @@ function showReceipt(receipt, orderData) {
       sum.appendChild(row);
     };
     addRow('Subtotal', rupees(orderData.subtotal_paise));
+    // The server's snapshot, not the applied-coupon state: by the time the
+    // receipt shows, what matters is what was actually charged.
+    if (orderData.discount_paise > 0) {
+      addRow('Promo ' + (orderData.coupon_code || ''), '−' + rupees(orderData.discount_paise), 'co-line-discount');
+    }
     addRow(orderData.shipping_paise === 0 ? 'Shipping (free)' : 'Shipping', rupees(orderData.shipping_paise));
     addRow('Total paid', rupees(orderData.total_paise), 'co-line-total');
   }

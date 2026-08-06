@@ -316,6 +316,21 @@
   <form class="checkout-form" id="checkoutForm" novalidate>
     <div class="co-summary" id="coSummary"></div>
 
+    <!-- Sits directly under the summary because it changes those numbers. The
+         Apply button posts to /api/coupon/check, which reprices the whole cart
+         server-side — the discount shown here is never computed in the browser,
+         for the same reason the item prices aren't. -->
+    <div class="co-field co-promo">
+      <label for="coPromo">Promo code <span class="co-optional">(optional)</span></label>
+      <div class="co-promo-row">
+        <input type="text" id="coPromo" name="co_promo" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" placeholder="e.g. SAVE10" />
+        <button type="button" class="btn-secondary co-promo-apply" id="coPromoApply">Apply</button>
+      </div>
+      <span class="field-error" id="co_promoError"></span>
+      <span class="co-promo-ok" id="coPromoOk" hidden></span>
+    </div>
+
     <div class="co-field">
       <label for="coName">Name <span aria-hidden="true">*</span></label>
       <input type="text" id="coName" name="co_name" autocomplete="name" required />
