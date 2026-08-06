@@ -539,6 +539,36 @@ const onlyDate = (ms) => (Number(ms) > 0
   ? new Date(Number(ms)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   : '—');
 
+// An expiry, at whatever precision actually distinguishes it.
+//
+// onlyDate() alone was fine while every coupon was hand-made and expired on a
+// date. Chat-issued codes live 30 MINUTES, so a date-only rendering shows
+// "6 Aug 2026" for one that died an hour ago and one with 20 minutes left — the
+// two states that matter most are indistinguishable.
+//
+// Anything expiring within a day gets a time and a countdown; everything else
+// keeps the old format, since "expires 14 Sep 2026" is the right answer for a
+// festival code and a clock on it would be noise.
+function expiryLabel(ms) {
+  const t = Number(ms);
+  if (!(t > 0)) return 'never';
+  const left = t - Date.now();
+  const day = 24 * 60 * 60 * 1000;
+
+  if (left <= 0) {
+    const agoMin = Math.round(-left / 60000);
+    if (agoMin < 60) return `expired ${agoMin} min ago`;
+    if (-left < day) return `expired ${Math.round(-left / 3600000)}h ago`;
+    return `expired ${onlyDate(t)}`;
+  }
+  if (left < day) {
+    const time = new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+    const mins = Math.round(left / 60000);
+    return mins < 60 ? `${time} (${mins} min left)` : `${time} (${Math.round(left / 3600000)}h left)`;
+  }
+  return onlyDate(t);
+}
+
 // Rupees in the form, paise on the wire — the same convention as the product
 // price editor, and the server rejects anything non-integer either way.
 const toPaise = (v) => {
@@ -585,7 +615,39 @@ async function loadCoupons() {
     box.appendChild(el('p', 'admin-muted', 'No promo codes yet. Create one above.'));
     return;
   }
-  for (const c of data.coupons) box.appendChild(couponRow(c));
+
+  // Chat-issued codes are separated from the ones Aswin made.
+  //
+  // They are minted one per visitor who asks and expire in 30 minutes, so on a
+  // busy day there could be dozens — all dead, all noise, and all sitting above
+  // the handful of real promos in a list sorted by creation date. Mixing them
+  // would make this screen useless for the thing it is actually for.
+  const mine = data.coupons.filter((c) => c.issued_by !== 'chat');
+  const fromChat = data.coupons.filter((c) => c.issued_by === 'chat');
+
+  for (const c of mine) box.appendChild(couponRow(c));
+
+  if (fromChat.length) {
+    const live = fromChat.filter((c) => !couponBlockedReason(c)).length;
+    const used = fromChat.filter((c) => c.uses > 0).length;
+
+    const head = el('div', 'coupon-group-head');
+    head.appendChild(el('h4', null, 'Issued by live chat'));
+    // The number worth knowing is how many were REDEEMED — that is whether the
+    // promo is working. The rest expired unused and cost nothing.
+    head.appendChild(el('p', 'admin-muted',
+      `${fromChat.length} issued · ${used} redeemed · ${live} still live`));
+    box.appendChild(head);
+
+    // Newest first, and only the recent ones by default: an unbounded list of
+    // expired codes is not something anyone scrolls.
+    const recent = fromChat.slice(0, 25);
+    for (const c of recent) box.appendChild(couponRow(c));
+    if (fromChat.length > recent.length) {
+      box.appendChild(el('p', 'admin-muted',
+        `+ ${fromChat.length - recent.length} older chat codes not shown.`));
+    }
+  }
 }
 
 function couponRow(c) {
@@ -602,7 +664,7 @@ function couponRow(c) {
   // details, so absence is now spelled out.
   const facts = [
     ['Minimum', c.min_order_paise > 0 ? rupees(c.min_order_paise) : 'none'],
-    ['Expires', c.expires_at ? onlyDate(c.expires_at) : 'never'],
+    ['Expires', expiryLabel(c.expires_at)],
     ['Uses', c.max_uses !== null ? `${c.uses} of ${c.max_uses}` : `${c.uses} (unlimited)`],
     ['Per customer', c.once_per_customer ? 'once only' : 'unlimited'],
   ];

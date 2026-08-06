@@ -562,6 +562,21 @@
 .cr-limits { font-size: 0.76rem; color: var(--text-muted); margin-top: 0.25rem; }
 .cr-actions { display: flex; gap: 0.5rem; }
 
+/* Divider above the chat-issued codes. They are minted automatically and expire
+   in 30 minutes, so on a busy day they would otherwise bury the handful of
+   promos Aswin actually made. */
+.coupon-group-head {
+  margin: 1.5rem 0 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.coupon-group-head h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.coupon-group-head p { margin: 0.15rem 0 0; font-size: 0.78rem; }
+
 @media (max-width: 640px) {
   .coupon-row {
     grid-template-columns: 1fr auto;
