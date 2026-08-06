@@ -44,6 +44,22 @@ const RAZORPAY = [
 // move if the numbers are not being used.
 const CF_ANALYTICS = "https://static.cloudflareinsights.com";
 
+// Self-hosted Chatwoot, same instance the portfolio at aswincloud.com uses.
+//
+// Measured, not guessed — the same method the Razorpay list came from. Loading
+// the SDK on a bare page with no CSP and recording every request showed it needs
+// this origin for FIVE resource types (script, frame, stylesheet, xhr, image),
+// plus a WebSocket that Playwright does not report as a request at all:
+//
+//   wss://support.aswincloud.com/cable   ← ActionCable, carries live messages
+//
+// connect-src governs WebSockets too, and `https://…` does NOT cover `wss://…`,
+// so the socket origin is listed separately. Miss it and the widget opens,
+// renders, and silently never delivers a message — the worst kind of broken,
+// because it looks like it is working.
+const CHATWOOT = "https://support.aswincloud.com";
+const CHATWOOT_WS = "wss://support.aswincloud.com";
+
 const CSP = [
   "default-src 'self'",
 
@@ -51,28 +67,28 @@ const CSP = [
   // markup (verified), so script-src can stay strict. This is the directive
   // that actually stops an injected <script> from running, and weakening it
   // for convenience would forfeit most of the CSP's value.
-  `script-src 'self' ${CF_ANALYTICS} ${RAZORPAY.join(" ")}`,
+  `script-src 'self' ${CF_ANALYTICS} ${CHATWOOT} ${RAZORPAY.join(" ")}`,
 
   // 'unsafe-inline' IS needed for styles: index.html carries 18 inline style=
   // attributes, and Razorpay's checkout injects its own. Inline style is a far
   // weaker vector than inline script — it cannot execute JS in any browser we
   // target — so this is an accepted trade rather than an oversight. Removing it
   // would mean rewriting those attributes into classes first.
-  `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://checkout-static-next.razorpay.com`,
+  `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://checkout-static-next.razorpay.com ${CHATWOOT}`,
 
   "font-src 'self' https://fonts.gstatic.com https://checkout-static-next.razorpay.com",
 
   // data: for the inline SVG/PNG data URIs in the markup; blob: for the image
   // previews the quote uploader generates client-side.
-  "img-src 'self' data: blob: https://*.razorpay.com",
+  `img-src 'self' data: blob: https://*.razorpay.com ${CHATWOOT}`,
 
   // litterbox.catbox.moe is the quote-form file uploader (see main.js).
   // cloudflareinsights also POSTs its collected metrics back, so allowing only
   // the script would still leave a violation on every page view.
-  `connect-src 'self' https://litterbox.catbox.moe ${CF_ANALYTICS} ${RAZORPAY.join(" ")}`,
+  `connect-src 'self' https://litterbox.catbox.moe ${CF_ANALYTICS} ${CHATWOOT} ${CHATWOOT_WS} ${RAZORPAY.join(" ")}`,
 
   // Razorpay Standard Checkout renders as an iframe from api.razorpay.com.
-  "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
+  `frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com ${CHATWOOT}`,
 
   // Clickjacking: nobody may frame US. This is the header-equivalent of
   // X-Frame-Options: DENY, and is the directive modern browsers actually honour.

@@ -759,5 +759,9 @@
      this file is unsupported and there is no v2. -->
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script src="assets/js/main.js"></script>
+<!-- Live chat. External file, not an inline block: script-src has no
+     'unsafe-inline', so the snippet the portfolio uses would be blocked here.
+     Loaded last and deferred — a chat widget must never delay the shop. -->
+<script src="assets/js/chat.js" defer></script>
 </body>
 </html>
