@@ -1,0 +1,133 @@
+/* Policy pages — terms, privacy, refunds, shipping, contact.
+ *
+ * Loaded ON TOP of style.css so the shell (nav, footer, colours, fonts) is
+ * shared and these pages cannot drift from the shop visually. Only the reading
+ * column is defined here. */
+
+.policy {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: calc(var(--nav-h) + 56px) 5% 80px;
+  /* Long-form reading, not marketing copy: a wider measure and looser leading
+     than the shop, because these are pages people actually have to read. */
+  line-height: 1.75;
+  color: var(--text);
+}
+
+.policy-kicker {
+  color: var(--orange);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.policy h1 {
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  line-height: 1.15;
+  margin-bottom: 0.4rem;
+}
+
+.policy-updated {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--dark-4);
+}
+
+.policy h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--white);
+  margin: 2.4rem 0 0.75rem;
+}
+
+.policy h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.35rem; }
+
+.policy p { color: var(--text-muted); margin-bottom: 1rem; }
+.policy strong { color: var(--text); font-weight: 600; }
+
+.policy ul { margin: 0 0 1.25rem 1.1rem; }
+.policy li { color: var(--text-muted); margin-bottom: 0.6rem; padding-left: 0.3rem; }
+
+.policy a { color: var(--orange); text-decoration: underline; text-underline-offset: 3px; }
+.policy a:hover { color: var(--orange-light); }
+
+/* Unfilled details. Deliberately loud: a placeholder that blends in is one that
+   ships to a payment aggregator's reviewer unnoticed. */
+.policy-todo {
+  background: var(--red-glow);
+  color: var(--red);
+  border: 1px dashed rgba(248,113,113,0.5);
+  border-radius: 5px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.policy-help {
+  margin-top: 3rem;
+  padding: 1.25rem 1.4rem;
+  background: var(--dark-3);
+  border: 1px solid rgba(255,107,0,0.2);
+  border-radius: var(--radius);
+}
+.policy-help p { margin: 0; font-size: 0.9rem; }
+
+.nav-back {
+  font-size: 0.85rem;
+  padding: 0.45rem 1rem;
+}
+
+/* Contact page */
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.75rem 0 2rem;
+}
+
+.contact-card {
+  background: var(--dark-3);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: var(--radius);
+  padding: 1.2rem 1.3rem;
+}
+.contact-card h3 { color: var(--orange); }
+.contact-card p { margin-bottom: 0.3rem; font-size: 0.95rem; color: var(--text); }
+.contact-note { font-size: 0.8rem !important; color: var(--text-muted) !important; }
+
+.contact-address {
+  background: var(--dark-3);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: var(--radius);
+  padding: 1.2rem 1.3rem;
+  font-style: normal;
+  color: var(--text-muted);
+  line-height: 1.9;
+}
+
+/* Footer link row on policy pages — the five required pages, always reachable
+   from each other. */
+.policy-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.75rem;
+  justify-content: center;
+  padding: 2.5rem 5% 1.5rem;
+}
+.policy-footer-links a {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.policy-footer-links a:hover { color: var(--orange); }
+
+@media (max-width: 560px) {
+  .policy { padding-top: calc(var(--nav-h) + 32px); }
+  .policy-footer-links { gap: 0.5rem 1.1rem; }
+}

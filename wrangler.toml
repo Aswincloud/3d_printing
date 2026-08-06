@@ -20,7 +20,16 @@ binding = "ASSETS"
 # (images, css, js) and forfeit the edge cache on them. These two paths are the
 # only ones that need the CSP, since they are the only documents that execute
 # script. Extend this list when another HTML page is added.
-run_worker_first = ["/", "/index.html", "/shop", "/shop.html"]
+run_worker_first = [
+  "/", "/index.html", "/shop", "/shop.html",
+  # The five policy pages Razorpay requires. They load chat.js, so they need the
+  # same CSP as every other document — without an entry here the asset server
+  # answers them directly and they ship with no security headers at all, which is
+  # exactly the bug this list was created to fix.
+  "/terms", "/terms.html", "/privacy", "/privacy.html",
+  "/refunds", "/refunds.html", "/shipping", "/shipping.html",
+  "/contact", "/contact.html",
+]
 
 [[d1_databases]]
 binding = "DB"
