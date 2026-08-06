@@ -25,7 +25,7 @@ const header = (title, sub) =>
 
 const footer = () =>
   `<div style="background:#111118;padding:20px 32px;text-align:center;border-top:1px solid ${LINE}">` +
-  `<p style="margin:0;font-size:13px;color:${MUTED}">Aswin Zayasankaran · ` +
+  `<p style="margin:0;font-size:13px;color:${MUTED}">Aswin · ` +
   `<a href="https://www.aswincloud.com" style="color:${ORANGE};text-decoration:none">aswincloud.com</a>` +
   ` · Pondicherry, India</p></div>`;
 
