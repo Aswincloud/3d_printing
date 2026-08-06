@@ -20,7 +20,12 @@
   g.onload = function () {
     if (!window.chatwootSDK) return;
     window.chatwootSDK.run({
-      websiteToken: 'A2f18JGY7uLahTifqxi74Ncd',
+      // Inbox 2, "3D Prints" — NOT the portfolio's token. Same Chatwoot app, so
+      // there is still one inbox list to check, but a separate inbox is what
+      // lets the assistant answer with print facts instead of hosting facts.
+      // Sharing the portfolio's token would have meant a customer asking about
+      // turnaround being answered from a VPS knowledge base.
+      websiteToken: 'oVzVm2LNC6kK1bXiLRC4rNeP',
       baseUrl: BASE_URL,
     });
   };
