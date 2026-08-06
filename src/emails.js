@@ -152,6 +152,61 @@ export function orderCustomerEmail(env, order, items) {
   );
 }
 
+// ── shipped notification → customer ───────────────────────────────
+//
+// The confirmation email promises "I'll email you again when it ships", which
+// until now was a promise the code did not keep — marking an order shipped
+// changed a status column and told the customer nothing.
+//
+// Courier and tracking are both optional. A print handed to a local courier with
+// no tracking number is still worth telling someone about, so the email works
+// with neither, either, or both rather than being blocked on data that may not
+// exist.
+export function orderShippedEmail(env, order, { courier, tracking, trackingUrl } = {}) {
+  const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
+
+  const detail = [
+    courier ? ["Courier", esc(courier)] : null,
+    // Monospace: a tracking id is a string to be copied character by character,
+    // and a proportional font makes 0/O and 1/l ambiguous.
+    tracking
+      ? ["Tracking", `<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${esc(tracking)}</span>`]
+      : null,
+  ].filter(Boolean);
+
+  return shell(
+    header(env.APP_NAME || "AswinPrints", "On its way 📦") +
+    `<div style="padding:32px">` +
+    `<h2 style="margin:0 0 8px;font-size:20px">Your order has shipped, ${esc(order.cust_name)}</h2>` +
+    `<p style="color:${MUTED};margin:0 0 8px;line-height:1.6">` +
+    (tracking
+      ? "It's on the way — you can follow it with the tracking details below."
+      : "It's on the way. I'll be in touch if anything changes.") +
+    `</p>` +
+    `<p style="margin:0 0 24px;font-size:14px;color:${MUTED}">Order reference <strong style="color:${ORANGE}">${esc(order.receipt)}</strong></p>` +
+
+    (detail.length
+      ? `<div style="background:${CARD};border-radius:10px;padding:20px;margin-bottom:24px">` +
+        `<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Tracking</p>` +
+        rows(detail) + `</div>`
+      : "") +
+
+    `<div style="background:${CARD};border-radius:10px;padding:20px;margin-bottom:8px">` +
+    `<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Shipping To</p>` +
+    `<p style="margin:0;font-size:14px;line-height:1.6">${esc(order.cust_name)}<br>` +
+    `${esc(order.addr_line)}<br>${esc(order.addr_city)}, ${esc(order.addr_state)} ${esc(order.addr_pin)}</p>` +
+    `</div>` +
+
+    // The courier's own tracking page when one was given, otherwise the receipt.
+    // safeHref inside button() drops anything that is not https, so a mistyped
+    // url degrades to no button rather than a broken or dangerous link.
+    (trackingUrl
+      ? button(trackingUrl, "Track your parcel")
+      : button(base + "/?receipt=" + encodeURIComponent(order.receipt), "View Order")) +
+    `</div>` + footer()
+  );
+}
+
 // ── order notification → owner ────────────────────────────────────
 export function orderOwnerEmail(env, order, items) {
   const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";

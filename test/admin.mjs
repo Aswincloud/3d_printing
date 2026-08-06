@@ -30,7 +30,26 @@ const BASE_ENV = {
   ACCESS_MODE: "owners",
   RAZORPAY_KEY_ID: "rzp_test_x",
   RAZORPAY_KEY_SECRET: "secret_x",
+  // Set, or updateOrder skips the shipped notification entirely and the email
+  // assertions would pass by never running.
+  RESEND_API_KEY: "re_fake_for_tests",
 };
+
+// Captures what Resend was asked to send. Returns the array so a test can assert
+// on the count as well as the content — "sends exactly one email" is the whole
+// point of the re-save case.
+function stubResend() {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes("api.resend.com")) {
+      calls.push(JSON.parse(init.body || "{}"));
+      return new Response(JSON.stringify({ id: "email_stub" }), { status: 200 });
+    }
+    throw new Error("unexpected fetch in admin test: " + u);
+  };
+  return calls;
+}
 
 // ══ INVARIANT 6 ══════════════════════════════════════════════════
 // @aswincloud/auth's isOwner() treats an EMPTY allowlist as "allow anyone":
@@ -229,8 +248,20 @@ function makeDB(seed = {}) {
     if (s.startsWith("SELECT id, status, receipt FROM orders WHERE id = ?")) {
       return { first: db.orders.find((o) => o.id === a[0]) || null };
     }
+    // updateOrder reads the whole row now: the shipped email needs the customer's
+    // name, email and address, and listing those columns would mean editing the
+    // query every time the template wants another field.
+    if (s.startsWith("SELECT * FROM orders WHERE id = ?")) {
+      return { first: db.orders.find((o) => o.id === a[0]) || null };
+    }
     if (s.startsWith("SELECT id, receipt, status, total_paise, rzp_payment_id FROM orders WHERE id = ?")) {
       return { first: db.orders.find((o) => o.id === a[0]) || null };
+    }
+    // Projected, not the whole row: a test asserting a column is NOT returned
+    // must not pass because the fake handed back everything.
+    if (s.startsWith("SELECT id, receipt, status, notes, shipped_at, courier, tracking_id FROM orders WHERE id = ?")) {
+      const o = db.orders.find((x) => x.id === a[0]);
+      return { first: o ? project(o, ["id", "receipt", "status", "notes", "shipped_at", "courier", "tracking_id"]) : null };
     }
     if (s.startsWith("SELECT id, receipt, status, notes, shipped_at FROM orders WHERE id = ?")) {
       const o = db.orders.find((x) => x.id === a[0]);
@@ -454,6 +485,74 @@ section("admin orders — status transitions");
   const [status] = await read(await updateOrder(env, ORDER.id, { status: "shipped" }));
   ok("paid → shipped allowed", status === 200);
   ok("shipped_at stamped", typeof env.DB._db.orders[0].shipped_at === "number");
+}
+
+// ── the shipped notification ──────────────────────────────────────
+// The confirmation email promises "I'll email you again when it ships". Until
+// now nothing kept that promise; these assert that it is kept, once, with
+// whatever tracking detail was supplied.
+section("marking shipped emails the customer");
+{
+  const env = envDB({ orders: [ORDER] });
+  const calls = stubResend();
+  const [status, out] = await read(
+    await updateOrder(env, ORDER.id, { status: "shipped", courier: "Blue Dart", tracking_id: "BD123456789" }));
+  ok("200", status === 200);
+  ok("reports that it emailed", out.emailed === true);
+  ok("one email sent", calls.length === 1, String(calls.length));
+  ok("addressed to the customer", [].concat(calls[0]?.to || []).includes(ORDER.cust_email), JSON.stringify(calls[0]?.to));
+  ok("subject names the receipt", (calls[0]?.subject || "").includes(ORDER.receipt), calls[0]?.subject);
+  ok("body carries the courier", (calls[0]?.html || "").includes("Blue Dart"));
+  ok("body carries the tracking id", (calls[0]?.html || "").includes("BD123456789"));
+  ok("courier stored", env.DB._db.orders[0].courier === "Blue Dart");
+  ok("tracking stored", env.DB._db.orders[0].tracking_id === "BD123456789");
+  // A recognised courier gets a direct tracking link.
+  ok("links to the courier's tracking page", (calls[0]?.html || "").includes("bluedart.com"));
+}
+{
+  // Both optional: a parcel handed to a local courier with no tracking number is
+  // still shipped, and the customer should still be told.
+  const env = envDB({ orders: [ORDER] });
+  const calls = stubResend();
+  const [status, out] = await read(
+    await updateOrder(env, ORDER.id, { status: "shipped", courier: "", tracking_id: "" }));
+  ok("shipping with no tracking detail still works", status === 200);
+  ok("and still emails", out.emailed === true && calls.length === 1);
+  ok("no empty Tracking block in the email", !(calls[0]?.html || "").includes("Tracking</td>"));
+  ok("blank courier stored as null", env.DB._db.orders[0].courier === null);
+}
+{
+  // Re-saving an order that is ALREADY shipped — to fix a typo'd tracking
+  // number — must not send a second "your order has shipped".
+  const env = envDB({ orders: [{ ...ORDER, status: "shipped" }] });
+  const calls = stubResend();
+  const [status, out] = await read(
+    await updateOrder(env, ORDER.id, { status: "shipped", tracking_id: "CORRECTED99" }));
+  ok("re-saving a shipped order is allowed", status === 200);
+  ok("but sends NO second email", out.emailed === false && calls.length === 0, String(calls.length));
+  ok("and still updates the tracking id", env.DB._db.orders[0].tracking_id === "CORRECTED99");
+}
+{
+  // An unrecognised courier must not produce a guessed link — a wrong tracking
+  // url is worse than none, because the customer clicks it and gets an error.
+  const env = envDB({ orders: [ORDER] });
+  const calls = stubResend();
+  await updateOrder(env, ORDER.id, { status: "shipped", courier: "Ramesh Transport", tracking_id: "XYZ1" });
+  const html = calls[0]?.html || "";
+  ok("unknown courier still named in the email", html.includes("Ramesh Transport"));
+  // The email always has a button; with no recognised courier it must fall back
+  // to the receipt on our own domain rather than a guessed courier url.
+  ok("falls back to the receipt link", /href="https:\/\/3d-prints[^"]*receipt=/.test(html));
+  ok("no guessed courier tracking url", !/bluedart|delhivery|dtdc|xpressbees|ecomexpress/i.test(html));
+}
+{
+  // A failing Resend must not fail the status change: the order IS shipped, and
+  // an error would suggest otherwise.
+  const env = envDB({ orders: [ORDER] });
+  globalThis.fetch = async () => new Response("nope", { status: 500 });
+  const [status] = await read(await updateOrder(env, ORDER.id, { status: "shipped" }));
+  ok("a failed email does not fail the transition", status === 200);
+  ok("order is still marked shipped", env.DB._db.orders[0].status === "shipped");
 }
 {
   const env = envDB({ orders: [{ ...ORDER, status: "pending" }] });

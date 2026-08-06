@@ -205,7 +205,9 @@ async function api(request, env, url, ctx) {
     if (p === "/api/admin/orders" && m === "GET") return adminListOrders(env, url);
 
     const ord = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})$/);
-    if (ord && m === "PATCH") return adminUpdateOrder(env, ord[1], body);
+    // ctx so the shipped-notification email can go out via waitUntil rather than
+    // holding the dashboard's response open on a Resend round trip.
+    if (ord && m === "PATCH") return adminUpdateOrder(env, ord[1], body, ctx);
 
     const refund = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/refund$/);
     if (refund && m === "POST") return adminRefundOrder(env, refund[1], body);

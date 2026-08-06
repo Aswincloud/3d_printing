@@ -231,10 +231,17 @@ function orderCard(o) {
   if (o.delivery !== 'pickup') {
     pair('Address', [o.addr_line, o.addr_city, o.addr_state, o.addr_pin].filter(Boolean).join(', '));
   }
+  // A discounted order otherwise showed only a smaller total with no explanation
+  // of why — the coupon columns were being stored but never surfaced here.
+  if (o.discount_paise > 0) pair('Promo', `${o.coupon_code || ''} −${rupees(o.discount_paise)}`);
   pair('Shipping', rupees(o.shipping_paise));
   pair('Payment id', o.rzp_payment_id);
   pair('Paid at', o.paid_at ? when(o.paid_at) : null);
   pair('Shipped at', o.shipped_at ? when(o.shipped_at) : null);
+  // Shown here because this is where you look when a customer asks "where is my
+  // parcel?" a week later — the email that carried it was sent once.
+  pair('Courier', o.courier);
+  pair('Tracking', o.tracking_id);
   pair('Notes', o.notes);
   card.appendChild(grid);
 
@@ -242,10 +249,28 @@ function orderCard(o) {
 
   if (o.status === 'paid') {
     actions.appendChild(actionBtn('Mark shipped', 'admin-btn', async () => {
-      await api(`/api/admin/orders/${o.id}`, {
-        method: 'PATCH', body: JSON.stringify({ status: 'shipped' }),
+      // Both optional. A print handed to a local courier with no tracking number
+      // is still shipped, so cancelling out of either prompt continues rather
+      // than aborting — only Cancel on the FIRST prompt abandons the whole thing.
+      const courier = prompt(
+        `Mark ${o.receipt} shipped and email ${o.cust_email}.\n\n` +
+        `Courier (optional — leave blank to skip):`
+      );
+      if (courier === null) return;   // cancelled the whole action
+
+      const tracking = prompt('Tracking number (optional — leave blank to skip):');
+      if (tracking === null) return;
+
+      const out = await api(`/api/admin/orders/${o.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: 'shipped',
+          courier: courier.trim(),
+          tracking_id: tracking.trim(),
+        }),
       });
-      flash(`${o.receipt} marked shipped.`);
+      flash(`${o.receipt} marked shipped` +
+        (out.emailed ? ` — ${o.cust_email} notified.` : '.'));
       await Promise.all([loadOrders(), loadStats()]);
     }));
   }

@@ -2,10 +2,12 @@
 // authenticated by the positional gate in index.js — these functions never
 // check auth themselves, so the gate must stay above them in the router.
 
-import { json, bad, uid, now } from "./lib.js";
+import { json, bad, uid, now, sendEmail } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
+import { orderShippedEmail } from "./emails.js";
 
-const MAXLEN = { name: 120, slug: 80, desc: 2000, image: 300, images: 2000, category: 40, note: 500 };
+const MAXLEN = { name: 120, slug: 80, desc: 2000, image: 300, images: 2000, category: 40, note: 500,
+  courier: 60, tracking: 80 };
 const clip = (v, n) => String(v ?? "").trim().slice(0, n);
 
 // Prices arrive from a form. Reject anything that isn't a whole number of
@@ -235,9 +237,9 @@ export async function listOrders(env, url) {
 
   const { results: orders } = await env.DB.prepare(
     `SELECT id, receipt, rzp_order_id, rzp_payment_id, status, subtotal_paise,
-            shipping_paise, total_paise, delivery, cust_name, cust_email,
-            cust_phone, addr_line, addr_city, addr_state, addr_pin, notes,
-            created_at, paid_at, shipped_at
+            discount_paise, coupon_code, shipping_paise, total_paise, delivery,
+            cust_name, cust_email, cust_phone, addr_line, addr_city, addr_state,
+            addr_pin, notes, created_at, paid_at, shipped_at, courier, tracking_id
        FROM orders ${where} ORDER BY created_at DESC LIMIT ?`
   ).bind(...bindArgs).all();
 
@@ -280,14 +282,18 @@ const ALLOWED_TRANSITIONS = {
   failed: ["cancelled"],
 };
 
-export async function updateOrder(env, id, body) {
+export async function updateOrder(env, id, body, ctx = null) {
+  // SELECT * because the shipped email needs the customer's name, email and
+  // address, and listing them here would mean editing this query every time the
+  // template wants another field.
   const order = await env.DB.prepare(
-    `SELECT id, status, receipt FROM orders WHERE id = ?`
+    `SELECT * FROM orders WHERE id = ?`
   ).bind(id).first();
   if (!order) return bad("Order not found.", 404);
 
   const sets = [];
   const args = [];
+  let justShipped = false;
 
   if ("status" in body) {
     const next = clip(body.status, 20);
@@ -303,10 +309,21 @@ export async function updateOrder(env, id, body) {
       return bad(`Cannot go from "${order.status}" to "${next}".`, 409);
     }
     sets.push("status = ?"); args.push(next);
-    if (next === "shipped") { sets.push("shipped_at = ?"); args.push(now()); }
+    if (next === "shipped") {
+      sets.push("shipped_at = ?"); args.push(now());
+      // Only on the TRANSITION into shipped. Re-saving an order that is already
+      // shipped — to correct a typo'd tracking number, say — must not send the
+      // customer a second "your order has shipped" email.
+      justShipped = order.status !== "shipped";
+    }
   }
 
   if ("notes" in body) { sets.push("notes = ?"); args.push(clip(body.notes, MAXLEN.note)); }
+
+  // Both optional, and both stored rather than only emailed: the tracking number
+  // is what a customer asks about a week later, and it has to be findable then.
+  if ("courier" in body) { sets.push("courier = ?"); args.push(clip(body.courier, MAXLEN.courier) || null); }
+  if ("tracking_id" in body) { sets.push("tracking_id = ?"); args.push(clip(body.tracking_id, MAXLEN.tracking) || null); }
 
   if (!sets.length) return bad("Nothing to update.");
 
@@ -314,9 +331,59 @@ export async function updateOrder(env, id, body) {
   await env.DB.prepare(`UPDATE orders SET ${sets.join(", ")} WHERE id = ?`).bind(...args).run();
 
   const row = await env.DB.prepare(
-    `SELECT id, receipt, status, notes, shipped_at FROM orders WHERE id = ?`
+    `SELECT id, receipt, status, notes, shipped_at, courier, tracking_id FROM orders WHERE id = ?`
   ).bind(id).first();
-  return json({ ok: true, order: row });
+
+  // Tell the customer. The confirmation email promises "I'll email you again when
+  // it ships" — until now nothing kept that promise.
+  //
+  // Sent through waitUntil so a slow or failing Resend call does not hold up the
+  // dashboard, and a failure is logged rather than surfaced: the order IS shipped
+  // either way, and an error toast would suggest the status change did not stick.
+  if (justShipped && env.RESEND_API_KEY) {
+    const merged = { ...order, ...row };
+    const send = sendEmail(env, {
+      to: merged.cust_email,
+      replyTo: env.OWNER_EMAIL || "aswin@aswincloud.com",
+      subject: `Your order has shipped — ${merged.receipt}`,
+      html: orderShippedEmail(env, merged, {
+        courier: merged.courier,
+        tracking: merged.tracking_id,
+        trackingUrl: trackingUrlFor(merged.courier, merged.tracking_id),
+      }),
+      text: `Your order ${merged.receipt} has shipped.\n`
+        + (merged.courier ? `Courier: ${merged.courier}\n` : "")
+        + (merged.tracking_id ? `Tracking: ${merged.tracking_id}\n` : "")
+        + `\n— Aswin\nhttps://3d-prints.aswincloud.com\n`,
+    }).then((r) => {
+      if (!r.ok) console.error("shipped email failed", merged.receipt, r.status, r.error);
+    });
+    if (ctx?.waitUntil) ctx.waitUntil(send); else await send;
+  }
+
+  return json({ ok: true, order: row, emailed: justShipped });
+}
+
+// A direct tracking link where the courier is one we can recognise, otherwise
+// nothing — the email falls back to the receipt button.
+//
+// Deliberately a small allowlist rather than a guess at a url pattern: a wrong
+// link is worse than none, because the customer clicks it, gets an error page,
+// and concludes the parcel is lost. Matched loosely so "Blue Dart", "bluedart"
+// and "BLUEDART courier" all resolve.
+function trackingUrlFor(courier, tracking) {
+  if (!courier || !tracking) return "";
+  const key = String(courier).toLowerCase().replace(/[^a-z]/g, "");
+  const id = encodeURIComponent(String(tracking).trim());
+  if (key.includes("bluedart")) return `https://www.bluedart.com/tracking?trackingNo=${id}`;
+  if (key.includes("delhivery")) return `https://www.delhivery.com/track/package/${id}`;
+  if (key.includes("dtdc")) return `https://www.dtdc.in/tracking.asp?strCnno=${id}`;
+  if (key.includes("indiapost") || key.includes("speedpost")) {
+    return `https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx`;
+  }
+  if (key.includes("xpressbees")) return `https://www.xpressbees.com/shipment/tracking?awb=${id}`;
+  if (key.includes("ecom")) return `https://ecomexpress.in/tracking/?awb_field=${id}`;
+  return "";
 }
 
 // ── refunds ───────────────────────────────────────────────────────

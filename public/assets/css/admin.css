@@ -297,12 +297,26 @@
 .admin-btn:hover:not(:disabled) { background: var(--orange); border-color: var(--orange); color: var(--white); }
 .admin-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* Self-sufficient, not a colour-only modifier.
+   It used to set just background/border-color/color, which relied on every
+   caller also passing .admin-btn — the Orders panel does ("admin-btn
+   admin-btn-danger"), the coupon Delete did not, so it rendered with no padding,
+   no radius and no font sizing. A modifier that silently breaks when used alone
+   is a trap; the shared properties are repeated here so either form works. */
 .admin-btn-danger {
   background: var(--red-glow);
-  border-color: rgba(248,113,113,0.3);
+  border: 1px solid rgba(248,113,113,0.3);
+  border-radius: 8px;
   color: var(--red);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  transition: all var(--transition);
 }
 .admin-btn-danger:hover:not(:disabled) { background: var(--red); border-color: var(--red); color: var(--white); }
+.admin-btn-danger:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── products ──────────────────────────────────────────────────── */
 .products-list { display: flex; flex-direction: column; gap: 0.75rem; }
