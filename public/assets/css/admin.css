@@ -455,3 +455,104 @@
   border-left: 3px solid var(--orange);
   padding-left: calc(1rem - 3px);
 }
+
+/* ── coupons ───────────────────────────────────────────────────── */
+
+/* The create form. auto-fit rather than a fixed column count so it collapses to
+   one column on a phone without its own media query. */
+.coupon-form {
+  background: var(--dark-3);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.cf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.cf-field { display: flex; flex-direction: column; gap: 0.35rem; }
+.cf-field[hidden] { display: none; }
+
+.cf-field > span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cf-field input,
+.cf-field select {
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.55rem 0.7rem;
+  width: 100%;
+}
+
+.cf-field input:focus,
+.cf-field select:focus { outline: none; border-color: var(--orange); }
+
+/* The code is typed in caps and stored in caps; showing it lowercase mid-typing
+   would look like it had not registered. */
+#cpCode { text-transform: uppercase; }
+
+.cf-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  align-self: end;
+  padding-bottom: 0.55rem;
+}
+
+.cf-check input { accent-color: var(--orange); width: 16px; height: 16px; }
+
+.coupons-list { display: flex; flex-direction: column; gap: 0.6rem; }
+
+.coupon-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto auto;
+  align-items: center;
+  gap: 1rem;
+  background: var(--dark-3);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+}
+
+/* Paused, expired or exhausted. Dimmed rather than hidden — knowing a code has
+   run out is exactly what you look at this list for. */
+.coupon-row.is-off { opacity: 0.55; }
+
+.cr-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--orange);
+  letter-spacing: 0.5px;
+}
+
+.cr-what { font-size: 0.88rem; color: var(--text); margin-top: 0.15rem; }
+.cr-limits { font-size: 0.76rem; color: var(--text-muted); margin-top: 0.25rem; }
+.cr-actions { display: flex; gap: 0.5rem; }
+
+@media (max-width: 640px) {
+  .coupon-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "main state" "actions actions";
+    row-gap: 0.75rem;
+  }
+  .cr-main { grid-area: main; }
+  .cr-state { grid-area: state; }
+  .cr-actions { grid-area: actions; }
+}

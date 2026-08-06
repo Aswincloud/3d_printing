@@ -107,7 +107,7 @@ async function boot() {
   who.textContent = me.email;
   who.hidden = false;
 
-  await Promise.all([loadStats(), loadOrders(), loadProducts()]);
+  await Promise.all([loadStats(), loadOrders(), loadProducts(), loadCoupons()]);
 }
 
 async function loadProviders() {
@@ -505,18 +505,195 @@ window.addEventListener('beforeunload', (e) => {
   e.returnValue = '';
 });
 
-/* ── tabs ──────────────────────────────────────────────────────── */
-function selectTab(which) {
-  const isOrders = which === 'orders';
-  $('tabOrders').classList.toggle('active', isOrders);
-  $('tabProducts').classList.toggle('active', !isOrders);
-  $('tabOrders').setAttribute('aria-selected', String(isOrders));
-  $('tabProducts').setAttribute('aria-selected', String(!isOrders));
-  $('ordersPanel').hidden = !isOrders;
-  $('productsPanel').hidden = isOrders;
+/* ── coupons ───────────────────────────────────────────────────── */
+
+const onlyDate = (ms) => new Date(Number(ms))
+  .toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+// Rupees in the form, paise on the wire — the same convention as the product
+// price editor, and the server rejects anything non-integer either way.
+const toPaise = (v) => {
+  const n = Number(String(v ?? '').trim());
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+};
+
+// What a coupon is worth, in words. The dashboard shows this rather than raw
+// kind/value columns so a glance answers "what does this code do".
+function couponSummary(c) {
+  if (c.kind === 'shipping') return 'Free shipping';
+  if (c.kind === 'percent') {
+    const cap = c.max_discount_paise ? ` (max ${rupees(c.max_discount_paise)})` : '';
+    return `${c.value}% off${cap}`;
+  }
+  return `${rupees(c.value)} off`;
 }
 
-$('tabOrders')?.addEventListener('click', () => selectTab('orders'));
-$('tabProducts')?.addEventListener('click', () => selectTab('products'));
+// Why a coupon is not currently usable, or null if it is. Checked in the same
+// order as applyCoupon on the server so the dashboard never claims a code works
+// when checkout would reject it.
+function couponBlockedReason(c) {
+  if (!c.active) return 'inactive';
+  if (c.expires_at && Date.now() > c.expires_at) return 'expired';
+  if (c.max_uses !== null && c.uses >= c.max_uses) return 'fully claimed';
+  return null;
+}
+
+async function loadCoupons() {
+  const box = $('couponsList');
+  if (!box) return;
+  box.innerHTML = '';
+  box.appendChild(el('p', 'admin-muted', 'Loading…'));
+  let data;
+  try {
+    data = await api('/api/admin/coupons');
+  } catch (e) {
+    box.innerHTML = '';
+    box.appendChild(el('p', 'admin-muted', e.message));
+    return;
+  }
+  box.innerHTML = '';
+  if (!data.coupons.length) {
+    box.appendChild(el('p', 'admin-muted', 'No promo codes yet. Create one above.'));
+    return;
+  }
+  for (const c of data.coupons) box.appendChild(couponRow(c));
+}
+
+function couponRow(c) {
+  const blocked = couponBlockedReason(c);
+  const row = el('div', 'coupon-row' + (blocked ? ' is-off' : ''));
+
+  const left = el('div', 'cr-main');
+  left.appendChild(el('div', 'cr-code', c.code));
+  left.appendChild(el('div', 'cr-what', couponSummary(c)));
+
+  // The conditions, only when set. Listing "no minimum / never expires /
+  // unlimited" on every row would bury the ones that actually have limits.
+  const bits = [];
+  if (c.min_order_paise > 0) bits.push(`min ${rupees(c.min_order_paise)}`);
+  // Date only. when() appends a time, which is right for an order but noise for
+  // an expiry — and the stored value is 23:59:59 of the chosen day, so showing
+  // "04:16 am" (the local rendering of that UTC instant) would be actively
+  // misleading about when the code stops working.
+  if (c.expires_at) bits.push(`until ${onlyDate(c.expires_at)}`);
+  if (c.max_uses !== null) bits.push(`${c.uses}/${c.max_uses} used`);
+  else if (c.uses > 0) bits.push(`${c.uses} used`);
+  if (c.once_per_customer) bits.push('one per customer');
+  if (bits.length) left.appendChild(el('div', 'cr-limits', bits.join(' · ')));
+
+  const state = el('div', 'cr-state');
+  state.appendChild(el('span', 'badge badge-' + (blocked ? 'cancelled' : 'paid'),
+    blocked || 'active'));
+
+  const actions = el('div', 'cr-actions');
+
+  // Pause/resume rather than only delete: the common case is ending a promo, and
+  // deleting would lose the redemption history that once-per-customer relies on.
+  actions.appendChild(actionBtn(c.active ? 'Pause' : 'Resume', 'admin-btn-ghost', async () => {
+    await api(`/api/admin/coupons/${c.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ active: !c.active }),
+    });
+    flash(`${c.code} ${c.active ? 'paused' : 'resumed'}.`);
+    await loadCoupons();
+  }));
+
+  actions.appendChild(actionBtn('Delete', 'admin-btn-danger', async () => {
+    if (!confirm(`Delete ${c.code}? A code that has been used is deactivated instead, so its history survives.`)) return;
+    const out = await api(`/api/admin/coupons/${c.id}`, { method: 'DELETE' });
+    flash(out.message || `${c.code} deleted.`);
+    await loadCoupons();
+  }));
+
+  row.append(left, state, actions);
+  return row;
+}
+
+// The value field means something different per kind, and "Max discount" only
+// applies to a percentage. Relabelling beats a help text nobody reads.
+function syncCouponForm() {
+  const kind = $('cpKind')?.value;
+  const label = $('cpValueLabel');
+  const valueField = $('cpValueField');
+  const capField = $('cpCapField');
+  if (!kind) return;
+  if (kind === 'shipping') {
+    valueField.hidden = true;
+    capField.hidden = true;
+  } else if (kind === 'percent') {
+    valueField.hidden = false;
+    capField.hidden = false;
+    label.textContent = 'Percent off';
+    $('cpValue').placeholder = '10';
+  } else {
+    valueField.hidden = false;
+    capField.hidden = true;
+    label.textContent = 'Amount off (₹)';
+    $('cpValue').placeholder = '100';
+  }
+}
+
+$('cpKind')?.addEventListener('change', syncCouponForm);
+syncCouponForm();
+
+$('couponForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('cpCreate');
+  const kind = $('cpKind').value;
+
+  // Percent is sent as a whole number; the two money fields are rupees→paise.
+  const rawValue = $('cpValue').value.trim();
+  let value = 0;
+  if (kind === 'percent') value = Number(rawValue);
+  else if (kind === 'fixed') value = toPaise(rawValue);
+
+  const body = {
+    code: $('cpCode').value.trim(),
+    kind,
+    value,
+    min_order_paise: toPaise($('cpMin').value.trim() || '0'),
+    max_discount_paise: kind === 'percent' && $('cpCap').value.trim()
+      ? toPaise($('cpCap').value.trim()) : null,
+    expires_at: $('cpExpires').value || null,
+    max_uses: $('cpMaxUses').value.trim() ? Number($('cpMaxUses').value.trim()) : null,
+    once_per_customer: $('cpOnce').checked,
+  };
+
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = 'Creating…';
+  try {
+    const out = await api('/api/admin/coupons', { method: 'POST', body: JSON.stringify(body) });
+    flash(`${out.coupon.code} created — ${couponSummary(out.coupon)}.`);
+    $('couponForm').reset();
+    syncCouponForm();
+    await loadCoupons();
+  } catch (err) {
+    flash(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+
+/* ── tabs ──────────────────────────────────────────────────────── */
+// Driven by each tab's data-panel attribute rather than a boolean. The previous
+// version was `const isOrders = …` with four negated toggles, which worked for
+// exactly two tabs and needed rewriting to add a third — so it is written once
+// here to iterate instead.
+function selectTab(panelId) {
+  for (const tab of document.querySelectorAll('.admin-tab')) {
+    const target = tab.dataset.panel;
+    const active = target === panelId;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+    const panel = $(target);
+    if (panel) panel.hidden = !active;
+  }
+}
+
+for (const tab of document.querySelectorAll('.admin-tab')) {
+  tab.addEventListener('click', () => selectTab(tab.dataset.panel));
+}
 
 boot();

@@ -225,6 +225,12 @@ function validateCouponBody(body, { partial = false } = {}) {
       // Accept either epoch ms or a yyyy-mm-dd from a date input. A bare date is
       // read as END of that day so a coupon "valid until the 15th" works ON the
       // 15th — the intuitive reading, and the one a customer will assume.
+      //
+      // Parsed as UTC, which in IST (+5:30) means the code actually stops at
+      // 05:29 the NEXT morning. Checked deliberately: erring long is the right
+      // direction here. Someone reading "valid until the 15th" who redeems at
+      // 11pm on the 15th succeeds, where a UTC-midnight cutoff would have
+      // rejected them five and a half hours early with no explanation.
       let ms = null;
       if (typeof raw === "number") ms = raw;
       else if (/^\d{4}-\d{2}-\d{2}$/.test(String(raw).trim())) {

@@ -57,9 +57,16 @@
 
   <div class="stat-row" id="statRow"></div>
 
+  <!-- data-panel pairs each tab with its section, so selectTab can iterate rather
+       than branch on a boolean. It was hardcoded to two panels; a third would
+       have meant another `isOrders`-style flag for every tab added after. -->
   <div class="admin-tabs" role="tablist">
-    <button class="admin-tab active" id="tabOrders" role="tab" type="button" aria-selected="true">Orders</button>
-    <button class="admin-tab" id="tabProducts" role="tab" type="button" aria-selected="false">Products</button>
+    <button class="admin-tab active" id="tabOrders" role="tab" type="button"
+            aria-selected="true" data-panel="ordersPanel">Orders</button>
+    <button class="admin-tab" id="tabProducts" role="tab" type="button"
+            aria-selected="false" data-panel="productsPanel">Products</button>
+    <button class="admin-tab" id="tabCoupons" role="tab" type="button"
+            aria-selected="false" data-panel="couponsPanel">Coupons</button>
   </div>
 
   <div class="admin-alert admin-alert-err" id="adminError" hidden></div>
@@ -98,6 +105,59 @@
         <button type="button" class="admin-btn" id="bulkSave">Save all changes</button>
       </div>
     </div>
+  </section>
+
+  <!-- Coupons -->
+  <section class="admin-panel" id="couponsPanel" hidden>
+    <div class="panel-head">
+      <h2>Promo codes</h2>
+      <span class="admin-muted">Discounts apply before the free-shipping threshold.</span>
+    </div>
+
+    <form class="coupon-form" id="couponForm">
+      <div class="cf-grid">
+        <label class="cf-field">
+          <span>Code</span>
+          <input type="text" id="cpCode" name="code" placeholder="SAVE10"
+                 autocapitalize="characters" autocomplete="off" spellcheck="false" required />
+        </label>
+        <label class="cf-field">
+          <span>Type</span>
+          <select id="cpKind" name="kind" class="admin-select">
+            <option value="percent">% off</option>
+            <option value="fixed">₹ off</option>
+            <option value="shipping">Free shipping</option>
+          </select>
+        </label>
+        <label class="cf-field" id="cpValueField">
+          <span id="cpValueLabel">Percent off</span>
+          <input type="text" id="cpValue" name="value" inputmode="decimal" placeholder="10" />
+        </label>
+        <label class="cf-field">
+          <span>Min order (₹)</span>
+          <input type="text" id="cpMin" name="min" inputmode="decimal" placeholder="0" />
+        </label>
+        <label class="cf-field" id="cpCapField">
+          <span>Max discount (₹)</span>
+          <input type="text" id="cpCap" name="cap" inputmode="decimal" placeholder="no cap" />
+        </label>
+        <label class="cf-field">
+          <span>Expires</span>
+          <input type="date" id="cpExpires" name="expires" />
+        </label>
+        <label class="cf-field">
+          <span>Total uses</span>
+          <input type="text" id="cpMaxUses" name="maxUses" inputmode="numeric" placeholder="unlimited" />
+        </label>
+        <label class="cf-check">
+          <input type="checkbox" id="cpOnce" name="once" />
+          <span>One use per customer</span>
+        </label>
+      </div>
+      <button type="submit" class="admin-btn" id="cpCreate">Create code</button>
+    </form>
+
+    <div id="couponsList" class="coupons-list"><p class="admin-muted">Loading…</p></div>
   </section>
 
 </main>
