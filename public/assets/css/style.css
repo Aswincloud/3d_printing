@@ -1287,6 +1287,37 @@ footer {
   color: var(--white);
 }
 
+/* Not-yet-priced photos.
+   Quieter than a real price — this is an invitation to ask, not a number to
+   compare. Using the same orange at full weight would make an unpriced card
+   shout louder than the products that actually earn. */
+/* Not-yet-priced cards put two long strings on a row sized for "₹899" plus a
+   button. Left to themselves the price wraps to "Price on / request"; forced to
+   one line, the button runs off the card. So the row stacks instead — label
+   above, button below, full width. */
+.product-foot:has(.product-price.is-quote) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.product-price.is-quote {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* Asking IS the call to action here, so the button takes the full width rather
+   than sitting at whatever size the text happens to need. */
+.product-add.is-quote {
+  width: 100%;
+  white-space: nowrap;
+  padding: 0.55rem 0.9rem;
+}
+
 /* Momentary confirmation after adding, so the click has visible feedback even
    if the drawer is closed. */
 .product-add.added {

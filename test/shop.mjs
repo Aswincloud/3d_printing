@@ -4,7 +4,7 @@
 // These are the tests that matter most in the whole project: priceCart() is the
 // only thing between a tampered cart and a wrong charge.
 
-import { priceCart, shippingFor, shippingConfig, MAX_QTY } from "../src/shop.js";
+import { priceCart, shippingFor, shippingConfig, MAX_QTY, listProducts } from "../src/shop.js";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -15,11 +15,16 @@ const section = (s) => console.log(`\n${s}`);
 
 const ENV = { FLAT_SHIP_PAISE: "9900", FREE_SHIP_THRESHOLD_PAISE: "200000" };
 
-// Fake catalogue: two visible products, one hidden.
+// Fake catalogue: two visible products, one hidden, one visible-but-unpriced.
+//
+// p-quote is the interesting one. A price of 0 means "in the shop but not priced
+// yet" — every pushed photo is auto-listed that way. It is visible = 1, so
+// without the price guard in priceCart it would be perfectly buyable for free.
 const CATALOGUE = [
   { id: "p-small", name: "Kingfisher",  price_paise: 34900, visible: 1 },
   { id: "p-large", name: "Elephant",    price_paise: 89900, visible: 1 },
   { id: "p-hidden", name: "Spider-Man", price_paise: 54900, visible: 0 },
+  { id: "p-quote", name: "Unpriced Photo", price_paise: 0,  visible: 1 },
 ];
 
 // Minimal D1 stand-in. Records every query so tests can assert on what was
@@ -34,9 +39,19 @@ function fakeDB(rows = CATALOGUE) {
       return {
         bind(...args) { q.args = args; return this; },
         async all() {
-          // Mirror the real WHERE: visible = 1 AND id IN (...)
+          // Mirror the real WHERE, INCLUDING the price guard.
+          //
+          // Read off the SQL rather than hardcoded, so removing `price_paise > 0`
+          // from the query changes what this fake returns and the zero-price
+          // tests fail. A fake that always filtered would make those tests pass
+          // no matter what the real query said — which is the failure mode this
+          // whole file exists to avoid.
+          const guarded = /price_paise\s*>\s*0/.test(sql);
           const wanted = new Set(q.args);
-          return { results: rows.filter((r) => r.visible === 1 && wanted.has(r.id)) };
+          return {
+            results: rows.filter((r) =>
+              r.visible === 1 && wanted.has(r.id) && (!guarded || r.price_paise > 0)),
+          };
         },
       };
     },
@@ -173,6 +188,66 @@ section("priceCart() — unavailable products");
   ok("no items returned on partial failure", r.items === undefined);
 }
 
+// ══ AN UNPRICED PRODUCT CANNOT BE BOUGHT ═════════════════════════
+//
+// Every photo pushed to the repo is auto-listed as a "Price on request" card, so
+// the catalogue now contains VISIBLE products with price_paise = 0. Those are
+// exactly one missing WHERE clause away from being free.
+//
+// Hiding the Add-to-cart button is not the control — a stale tab, a scripted
+// POST, or a hand-edited localStorage all bypass the UI entirely. The control is
+// `AND price_paise > 0` in priceCart, and this is what proves it is there.
+section("priceCart() — a quote-only product is unbuyable (invariant)");
+{
+  const r = await priceCart(envWith(), [{ product_id: "p-quote", qty: 1 }], "ship");
+  ok("unpriced product rejected", !!r.error, JSON.stringify(r));
+  ok("no total is produced", r.total_paise === undefined);
+  // Same message as a hidden item: the customer does not need to know why, and
+  // a distinct message would leak which ids exist but are unpriced.
+  ok("refused the same way as an unavailable item", /no longer available/i.test(r.error || ""),
+     r.error);
+}
+{
+  // The dangerous variant, again: a real product plus an unpriced one. If only
+  // the unpriced item were dropped, the customer would be charged for a basket
+  // they did not assemble — and if it were kept at 0, they would get it free.
+  const r = await priceCart(envWith(), [
+    { product_id: "p-small", qty: 1 },
+    { product_id: "p-quote", qty: 2 },
+  ], "ship");
+  ok("mixed cart rejected entirely", !!r.error);
+  ok("the real item is not charged for alone", r.total_paise === undefined);
+  ok("no line items leak", r.items === undefined);
+}
+{
+  // A cart of nothing but unpriced items must not become a ₹0 order, or an order
+  // for the shipping alone — which is the shape a naive fix produces.
+  const r = await priceCart(envWith(), [
+    { product_id: "p-quote", qty: 1 },
+    { product_id: "p-quote", qty: 3 },
+  ], "ship");
+  ok("an all-unpriced cart is refused", !!r.error);
+  ok("never a shipping-only charge", r.total_paise === undefined,
+     "an order for ₹99 shipping and no goods would still be a real charge");
+}
+{
+  // A coupon must not be able to launder an unpriced item into a cart: the
+  // product lookup happens before any discount is applied, so this should fail
+  // for the same reason, not with a coupon error.
+  const r = await priceCart(envWith(), [{ product_id: "p-quote", qty: 1 }], "ship", "SAVE10");
+  ok("a coupon does not make it buyable", !!r.error);
+  ok("and it fails on availability, not on the coupon",
+     /no longer available/i.test(r.error || ""), r.error);
+}
+{
+  // 1 paise is a real price. The guard must be `> 0`, not a truthiness check on
+  // something that could treat a small value as absent.
+  const rows = [{ id: "p-cheap", name: "One Paisa", price_paise: 1, visible: 1 }];
+  const r = await priceCart(envWith(rows), [{ product_id: "p-cheap", qty: 1 }], "ship");
+  ok("a 1-paise product is still buyable", !r.error, r.error || "");
+  ok("and priced exactly", r.subtotal_paise === 1, String(r.subtotal_paise));
+}
+
 // ── malformed input ───────────────────────────────────────────────
 section("priceCart() — malformed input");
 for (const [label, items] of [
@@ -287,6 +362,118 @@ section("integer amounts");
   }
   ok("no floating point in line totals",
      r.items.every((i) => Number.isInteger(i.price_paise * i.qty)));
+}
+
+// ── the public catalogue ──────────────────────────────────────────
+//
+// listProducts() decides what a customer sees, and it now synthesises cards for
+// photos that have no product row at all. Nothing tested it before this change.
+section("listProducts() — what reaches the shop");
+
+// A D1 that answers both the visible-products query and the hidden-images one,
+// plus an ASSETS binding serving a manifest. Throws on anything else, so a new
+// query has to be added here deliberately.
+function catalogueEnv({ products = [], manifest = null } = {}) {
+  return {
+    ...ENV,
+    ASSETS: manifest === null ? undefined : {
+      fetch: async () => new Response(JSON.stringify({
+        count: manifest.length,
+        images: manifest.map((f) => ({ file: f, bytes: 1000 })),
+      }), { status: 200 }),
+    },
+    DB: {
+      prepare(sql) {
+        const s = sql.replace(/\s+/g, " ").trim();
+        return {
+          bind() { return this; },
+          async all() {
+            if (s.includes("WHERE visible = 1 ORDER BY")) {
+              return { results: products.filter((p) => p.visible === 1) };
+            }
+            if (s.includes("WHERE visible = 0")) {
+              return { results: products.filter((p) => p.visible === 0) };
+            }
+            throw new Error("unhandled SQL in catalogue fake: " + s.slice(0, 70));
+          },
+        };
+      },
+    },
+  };
+}
+
+const row = (o) => ({
+  id: o.id, slug: o.slug || o.id, name: o.name || o.id, description: "",
+  price_paise: o.price_paise ?? 34900, image: `assets/images/${o.image}`,
+  images: o.images || "", category: "figurine", sort: o.sort ?? 10,
+  visible: o.visible ?? 1,
+});
+
+{
+  const env = catalogueEnv({
+    products: [
+      row({ id: "a", image: "a.jpg", price_paise: 34900 }),
+      row({ id: "b", image: "b.jpg", price_paise: 0 }),          // priced at zero
+      row({ id: "c", image: "c.jpg", visible: 0 }),              // hidden
+      row({ id: "d", image: "d.jpg", images: "extra.jpg" }),     // has a second view
+    ],
+    manifest: ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "extra.jpg", "brand-new.jpg"],
+  });
+  const out = await (await listProducts(env)).json();
+  const byName = (n) => out.products.find((p) => p.name === n);
+
+  ok("hidden products are not returned", !out.products.some((p) => p.id === "c"));
+  ok("a priced product is not quote_only", byName("a").quote_only === false);
+  ok("a zero-priced product IS quote_only", byName("b").quote_only === true);
+
+  const synth = out.products.filter((p) => p.id === null);
+  ok("exactly one photo is synthesised", synth.length === 1,
+     synth.map((s) => s.image).join(","));
+  ok("and it is the new one", synth[0].image === "assets/images/brand-new.jpg", synth[0].image);
+
+  // The three ways a photo is already spoken for.
+  ok("a photo used as a primary image is not synthesised",
+     !synth.some((s) => /a\.jpg|b\.jpg|d\.jpg/.test(s.image)));
+  ok("a photo used only as a SECONDARY view is not synthesised",
+     !synth.some((s) => /extra\.jpg/.test(s.image)),
+     "it would appear twice: once inside product d, once as its own card");
+  ok("a HIDDEN product's photo is not resurrected",
+     !synth.some((s) => /c\.jpg/.test(s.image)),
+     "hiding a product must not bring it back as a quote-only card");
+
+  // Synthesised cards must be inert.
+  ok("synthesised cards have no id", synth.every((s) => s.id === null));
+  ok("synthesised cards have no slug", synth.every((s) => s.slug === null));
+  ok("synthesised cards are quote_only", synth.every((s) => s.quote_only === true));
+  ok("synthesised cards cost nothing", synth.every((s) => s.price_paise === 0));
+  ok("synthesised cards still get a name", synth.every((s) => s.name.length > 1));
+
+  // Buyable first: a customer should meet what they can purchase before what
+  // they have to ask about.
+  const firstQuote = out.products.findIndex((p) => p.quote_only);
+  const lastBuyable = out.products.map((p) => p.quote_only).lastIndexOf(false);
+  ok("buyable products are listed before quote-only ones", lastBuyable < firstQuote,
+     `last buyable at ${lastBuyable}, first quote-only at ${firstQuote}`);
+}
+{
+  // No manifest: degrade to the old behaviour rather than breaking the shop.
+  const env = catalogueEnv({
+    products: [row({ id: "a", image: "a.jpg" })],
+    manifest: null,
+  });
+  const out = await (await listProducts(env)).json();
+  ok("no ASSETS binding → no synthesised cards, shop still works",
+     out.products.length === 1 && out.products[0].id === "a");
+  ok("and shipping config is still returned", out.shipping.flat_paise === 9900);
+}
+{
+  // Every photo already listed: nothing synthesised, no empty cards.
+  const env = catalogueEnv({
+    products: [row({ id: "a", image: "a.jpg" })],
+    manifest: ["a.jpg"],
+  });
+  const out = await (await listProducts(env)).json();
+  ok("nothing synthesised when every photo is listed", out.products.length === 1);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

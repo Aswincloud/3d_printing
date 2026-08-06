@@ -498,6 +498,18 @@ function cartCount(cart = readCart()) {
 }
 
 function addToCart(id) {
+  // Nothing unpriced reaches the cart.
+  //
+  // Belt and braces with priceCart(), which refuses it server-side — that is the
+  // control. This one matters for a stale tab: a catalogue loaded before a
+  // product was unpriced would still render an Add to cart button, and without
+  // this the item would sit in the cart until checkout refused the whole basket.
+  //
+  // A null id (a synthesised card) has no row at all, so it can never be priced.
+  if (!id) return false;
+  const known = catalogue.find((p) => p.id === id);
+  if (known && known.quote_only) return false;
+
   const cart = readCart();
   const line = cart.find((it) => it.id === id);
   if (line) {
@@ -745,29 +757,56 @@ function renderProducts() {
 
     const price = document.createElement('div');
     price.className = 'product-price';
-    price.textContent = rupees(p.price_paise);
 
-    const add = document.createElement('button');
-    add.className = 'product-add';
-    add.type = 'button';
-    add.textContent = 'Add to cart';
-    add.setAttribute('aria-label', 'Add ' + p.name + ' to cart');
-    add.addEventListener('click', () => {
-      if (!addToCart(p.id)) {
-        add.textContent = 'Max ' + MAX_QTY;
-      } else {
-        add.textContent = 'Added ✓';
-        add.classList.add('added');
-      }
-      setTimeout(() => {
-        add.textContent = 'Add to cart';
-        add.classList.remove('added');
-      }, 1200);
-    });
+    // A photo that has been pushed but not priced. Every image in the repo is
+    // listed automatically, so most of these are pieces Aswin has printed and
+    // not yet decided a price for — the customer can still ask.
+    //
+    // The server refuses to price one of these into a cart (priceCart), so this
+    // branch is presentation; it is not what makes it unbuyable.
+    if (p.quote_only) {
+      price.textContent = 'Price on request';
+      price.classList.add('is-quote');
 
-    foot.append(price, add);
+      const askNow = document.createElement('button');
+      askNow.className = 'product-add is-quote';
+      askNow.type = 'button';
+      askNow.textContent = 'Request a quote';
+      askNow.setAttribute('aria-label', 'Request a quote for ' + p.name);
+      askNow.addEventListener('click', () => {
+        startQuoteFor({ name: p.name, image: p.image });
+      });
+
+      foot.append(price, askNow);
+    } else {
+      price.textContent = rupees(p.price_paise);
+
+      const add = document.createElement('button');
+      add.className = 'product-add';
+      add.type = 'button';
+      add.textContent = 'Add to cart';
+      add.setAttribute('aria-label', 'Add ' + p.name + ' to cart');
+      add.addEventListener('click', () => {
+        if (!addToCart(p.id)) {
+          add.textContent = 'Max ' + MAX_QTY;
+        } else {
+          add.textContent = 'Added ✓';
+          add.classList.add('added');
+        }
+        setTimeout(() => {
+          add.textContent = 'Add to cart';
+          add.classList.remove('added');
+        }, 1200);
+      });
+
+      foot.append(price, add);
+    }
 
     // For a variation on something we do sell — another colour, another size.
+    //
+    // Omitted entirely on a quote-only card: its main button is already "Request
+    // a quote", so this would be a second button doing the same thing, under a
+    // heading that implies the piece has a standard version to vary from.
     const ask = document.createElement('button');
     ask.type = 'button';
     ask.className = 'product-ask';
@@ -780,19 +819,25 @@ function renderProducts() {
     // per-product Open Graph tags so a WhatsApp paste previews this photo and
     // price. `card.dataset.slug` is what openSharedProduct() looks up.
     card.dataset.slug = p.slug || '';
-    const share = document.createElement('button');
-    share.type = 'button';
-    share.className = 'product-share';
-    share.title = 'Copy link to this product';
-    share.setAttribute('aria-label', 'Share ' + p.name);
-    share.textContent = 'Share';
-    share.addEventListener('click', (e) => {
-      e.stopPropagation();
-      shareProduct(p, share);
-    });
-    media.appendChild(share);
+    // A synthesised card has no row and therefore no slug, so /p/<slug> would
+    // 404 and the share button would copy a dead link. Shown only when there is
+    // something to share.
+    if (p.slug) {
+      const share = document.createElement('button');
+      share.type = 'button';
+      share.className = 'product-share';
+      share.title = 'Copy link to this product';
+      share.setAttribute('aria-label', 'Share ' + p.name);
+      share.textContent = 'Share';
+      share.addEventListener('click', (e) => {
+        e.stopPropagation();
+        shareProduct(p, share);
+      });
+      media.appendChild(share);
+    }
 
-    body.append(name, desc, foot, ask);
+    body.append(name, desc, foot);
+    if (!p.quote_only) body.appendChild(ask);
     card.append(media, body);
     productGrid.appendChild(card);
   }
@@ -1537,6 +1582,15 @@ function updateLightboxBuy() {
     // non-product image surface is ever added, hide the buy controls rather than
     // showing buttons that would fail.
     priceEl.textContent = '';
+    addBtn.hidden = buyBtn.hidden = true;
+    return;
+  }
+
+  // The case that branch anticipated has arrived: photos that are in the shop
+  // but not priced. Buy controls off, and say why — an empty price next to a
+  // hidden button reads as a broken card rather than an invitation to ask.
+  if (p.quote_only) {
+    priceEl.textContent = 'Price on request';
     addBtn.hidden = buyBtn.hidden = true;
     return;
   }

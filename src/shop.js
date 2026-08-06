@@ -6,19 +6,110 @@
 
 import { json } from "./lib.js";
 import { applyCoupon } from "./coupons.js";
+// Shared with the dashboard's unlisted-photos panel, so a synthesised card and
+// the admin form suggest the same name for the same file.
+import { suggestName } from "./admin.js";
 
 // ── products ──────────────────────────────────────────────────────
 // Public listing. Only visible rows, and deliberately no internal columns.
+//
+// Returns two kinds of card:
+//
+//   1. Product rows, as always. price_paise > 0 means buyable; 0 means the photo
+//      is in the shop but not priced yet.
+//   2. SYNTHESISED cards for photos in assets/images.json that no product row
+//      points at — pushed but never listed.
+//
+// (2) is what makes "push a photo and it appears" work. Doing it at request time
+// rather than in a migration is the point: a migration runs once, and the whole
+// value here is that FUTURE photos appear without anyone doing anything.
 export async function listProducts(env) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category, sort
        FROM products WHERE visible = 1 ORDER BY sort ASC, name ASC`
   ).all();
 
+  const rows = results || [];
+  const products = rows.map(shape);
+
+  // Ordering: buyable first, then priced-at-zero, then synthesised.
+  //
+  // Someone browsing a shop should meet the things they can actually buy before
+  // the things they have to ask about. Within each group the existing
+  // sort/name order from the query is preserved.
+  products.sort((a, b) => Number(a.quote_only) - Number(b.quote_only));
+
   return json({
-    products: (results || []).map(shape),
+    products: [...products, ...(await synthesised(env, rows))],
     shipping: shippingConfig(env),
   });
+}
+
+// Photos with no product row, as quote-only cards.
+//
+// `id: null` is deliberate and load-bearing. These have no database row, so
+// there is nothing to add to a cart even if the frontend tried: the cart keys on
+// product id, priceCart looks the id up in `products`, and null resolves to
+// nothing. The card is a picture and a quote button, not a half-built product.
+async function synthesised(env, rows) {
+  const manifest = await readImageManifest(env);
+  if (!manifest) return [];
+
+  // Every path the catalogue already uses — primary image AND each entry of the
+  // comma-separated `images` column. Without the second, a photo used only as a
+  // secondary view of an existing product would be synthesised as a separate
+  // card: the same object appearing twice, once buyable and once not.
+  const used = new Set();
+  for (const r of rows) {
+    const add = (p) => { const f = String(p || "").trim(); if (f) used.add(f.replace(/^.*\//, "")); };
+    add(r.image);
+    for (const extra of String(r.images || "").split(",")) add(extra);
+  }
+
+  // Hidden products count as used too, or hiding one would resurrect it as a
+  // synthesised card on the very next request — the opposite of what hiding
+  // means. This query is separate from the visible one above precisely because
+  // that one filters them out.
+  const { results: hidden } = await env.DB.prepare(
+    `SELECT image, images FROM products WHERE visible = 0`
+  ).all();
+  for (const r of hidden || []) {
+    const add = (p) => { const f = String(p || "").trim(); if (f) used.add(f.replace(/^.*\//, "")); };
+    add(r.image);
+    for (const extra of String(r.images || "").split(",")) add(extra);
+  }
+
+  return manifest.images
+    .filter((i) => !used.has(i.file))
+    .map((i) => ({
+      // No row, no id, no slug — so no product page and no cart entry.
+      id: null,
+      slug: null,
+      name: suggestName(i.file) || "Custom piece",
+      description: "",
+      price_paise: 0,
+      quote_only: true,
+      image: `assets/images/${i.file}`,
+      images: [],
+      category: "",
+    }));
+}
+
+// The manifest is the only record of what photos exist — a Worker cannot list a
+// directory. Read through the ASSETS binding so a new photo needs no code change.
+// Any failure yields no synthesised cards, which degrades to today's behaviour
+// rather than breaking the shop.
+async function readImageManifest(env) {
+  if (!env.ASSETS?.fetch) return null;
+  try {
+    const res = await env.ASSETS.fetch(new Request("https://assets.local/assets/images.json"));
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data?.images) ? data : null;
+  } catch (e) {
+    console.error("image manifest unreadable", e?.message || e);
+    return null;
+  }
 }
 
 // `images` is stored comma-separated; the API hands back an array so the
@@ -30,6 +121,13 @@ function shape(r) {
     name: r.name,
     description: r.description || "",
     price_paise: r.price_paise,
+    // 0 means "not priced yet", not "free". Surfaced as a flag so the frontend
+    // reads intent rather than inferring meaning from a magic number — and so
+    // that a future real change to the sentinel touches one line.
+    //
+    // Enforced server-side in priceCart(): a quote_only product cannot be
+    // bought, whatever the UI does.
+    quote_only: !(r.price_paise > 0),
     image: r.image,
     images: r.images ? r.images.split(",").filter(Boolean) : [],
     category: r.category || "",
@@ -106,9 +204,25 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
 
   const ids = [...wanted.keys()];
   const placeholders = ids.map(() => "?").join(",");
+  // `price_paise > 0` is a SECURITY control, not a display rule.
+  //
+  // A price of 0 means "not priced yet": the shop auto-lists every pushed photo
+  // as a quote-only card, and those carry 0 until a real price is set. Without
+  // this clause such a row is visible = 1 and therefore priceable — addable to a
+  // cart and checkoutable for ₹0, or for the shipping alone, producing a real
+  // Razorpay order for a real product at no charge.
+  //
+  // Hiding the Add-to-cart button does NOT close that. There is a live precedent
+  // in this file: `delivery: "pickup"` used to reach shippingFor() and return 0
+  // shipping, and removing the radio from the form would not have fixed it —
+  // hardcoding the value server-side did. Same shape of risk, same shape of fix.
+  //
+  // An unpriced id then falls into the `missing` branch below and the whole cart
+  // is refused, which is the right answer: better than silently dropping an item
+  // the customer believed they were buying.
   const { results } = await env.DB.prepare(
     `SELECT id, name, price_paise FROM products
-      WHERE visible = 1 AND id IN (${placeholders})`
+      WHERE visible = 1 AND price_paise > 0 AND id IN (${placeholders})`
   ).bind(...ids).all();
 
   const found = new Map((results || []).map((r) => [r.id, r]));
