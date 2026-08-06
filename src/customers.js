@@ -64,7 +64,8 @@ export async function currentCustomer(request, env) {
   const userId = await verifyToken(env.SESSION_SECRET, raw, USER_PURPOSE);
   if (!userId) return null;
   const user = await env.DB.prepare(
-    `SELECT id, email, name, created_at FROM users WHERE id = ?`
+    `SELECT id, email, name, created_at, phone, addr_line, addr_city, addr_state, addr_pin
+       FROM users WHERE id = ?`
   ).bind(userId).first();
   // A deleted account must not keep a working session.
   return user || null;
@@ -276,6 +277,14 @@ export function whoami(user, isAdmin = false) {
     email: user.email,
     name: user.name || null,
     is_admin: Boolean(isAdmin),
+    // The saved delivery details, so checkout can prefill without a second
+    // round trip. Only ever the signed-in user's own row — `user` comes from the
+    // verified session cookie, never from anything in the request.
+    phone: user.phone || null,
+    addr_line: user.addr_line || null,
+    addr_city: user.addr_city || null,
+    addr_state: user.addr_state || null,
+    addr_pin: user.addr_pin || null,
   });
 }
 
@@ -320,10 +329,46 @@ export async function myOrders(env, user) {
 }
 
 // ── PATCH /api/me ─────────────────────────────────────────────────
+// Account settings. PATCH semantics like updateProduct: only the fields present
+// in the body are touched, so the settings form can save just an address without
+// clearing a name it never showed.
+//
+// Every field is optional and blank is meaningful — clearing a saved address has
+// to be possible, so "" stores NULL rather than being ignored.
+const PROFILE_FIELDS = {
+  name: 80,
+  phone: 30,
+  addr_line: 200,
+  addr_city: 80,
+  addr_state: 80,
+  addr_pin: 10,
+};
+
 export async function updateMe(env, user, body) {
-  if (!("name" in (body || {}))) return bad("Nothing to update.");
-  const name = clip(body.name, 80);
-  await env.DB.prepare(`UPDATE users SET name = ? WHERE id = ?`)
-    .bind(name || null, user.id).run();
-  return json({ ok: true, name: name || null });
+  const sets = [];
+  const args = [];
+  const out = {};
+
+  for (const [col, max] of Object.entries(PROFILE_FIELDS)) {
+    if (!(col in (body || {}))) continue;
+    const v = clip(body[col], max);
+    // Validated, not just clipped: a saved PIN that is not six digits would
+    // prefill checkout with something its own validation then rejects, which
+    // reads as the site being broken rather than the data being wrong.
+    if (col === "addr_pin" && v && !/^\d{6}$/.test(v)) {
+      return bad("PIN code must be 6 digits.");
+    }
+    if (col === "phone" && v && v.replace(/\D/g, "").length < 10) {
+      return bad("Please enter a valid phone number.");
+    }
+    sets.push(`${col} = ?`);
+    args.push(v || null);
+    out[col] = v || null;
+  }
+
+  if (!sets.length) return bad("Nothing to update.");
+
+  args.push(user.id);
+  await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).bind(...args).run();
+  return json({ ok: true, ...out });
 }

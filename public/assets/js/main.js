@@ -1682,18 +1682,11 @@ function applySignedInState(me) {
   const navDash = document.getElementById('navDashboard');
   if (navDash) navDash.hidden = !me.is_admin;
 
-  // Kept in the menu as well. Costs nothing, and on a narrow phone the header
-  // button is the first thing to be squeezed out.
-  if (me.is_admin && !document.getElementById('menuDashboard')) {
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.id = 'menuDashboard';
-    item.className = 'account-menu-item is-admin';
-    item.setAttribute('role', 'menuitem');
-    item.textContent = 'Dashboard';
-    item.addEventListener('click', () => { location.href = '/shop'; });
-    accountMenu.insertBefore(item, document.getElementById('menuOrders'));
-  }
+  // NOT duplicated into the menu. Dashboard has its own header button, and the
+  // same destination in two places made the menu read as though it held two
+  // different things. Removed defensively rather than just not-added: a page
+  // cached from before this change may already carry the injected entry.
+  document.getElementById('menuDashboard')?.remove();
 
   // Orders tab in the drawer becomes available.
   const tabs = document.getElementById('drawerTabs');
@@ -1727,6 +1720,114 @@ document.getElementById('menuOrders')?.addEventListener('click', () => {
   accountMenu.hidden = true;
   openCart();
   selectDrawerTab('orders');
+});
+
+/* ── account settings ──────────────────────────────────────────── */
+/* The saved delivery details. Checkout still asks for everything — this only
+   prefills it, and the ORDER keeps its own snapshot, so changing an address here
+   never rewrites where a past parcel was sent. */
+
+const settingsModal = document.getElementById('settingsModal');
+const settingsOverlay = document.getElementById('settingsOverlay');
+const settingsForm = document.getElementById('settingsForm');
+
+const SETTINGS_FIELDS = [
+  ['set_name', 'name'],
+  ['set_phone', 'phone'],
+  ['set_line', 'addr_line'],
+  ['set_city', 'addr_city'],
+  ['set_state', 'addr_state'],
+  ['set_pin', 'addr_pin'],
+];
+
+function setClearErrors() {
+  for (const [field] of SETTINGS_FIELDS) {
+    const el = settingsForm?.querySelector(`[name="${field}"]`);
+    const slot = document.getElementById(field + 'Error');
+    if (el) { el.classList.remove('invalid'); el.removeAttribute('aria-invalid'); }
+    if (slot) { slot.textContent = ''; slot.classList.remove('show'); }
+  }
+  const err = document.getElementById('settingsError');
+  if (err) { err.hidden = true; err.textContent = ''; }
+  const ok = document.getElementById('settingsOk');
+  if (ok) { ok.hidden = true; ok.textContent = ''; }
+}
+
+function openSettings() {
+  if (!settingsModal || !currentUser) return;
+  setClearErrors();
+
+  const who = document.getElementById('settingsWho');
+  if (who) who.textContent = `Signed in as ${currentUser.email}`;
+
+  // Populated from the session we already have — no extra round trip, and the
+  // values are whatever the server last confirmed rather than a local guess.
+  for (const [field, key] of SETTINGS_FIELDS) {
+    const el = settingsForm?.querySelector(`[name="${field}"]`);
+    if (el) el.value = currentUser[key] || '';
+  }
+
+  settingsModal.hidden = false;
+  settingsOverlay.hidden = false;
+  settingsModal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('setName')?.focus();
+}
+
+function closeSettings() {
+  if (!settingsModal) return;
+  settingsModal.hidden = true;
+  settingsOverlay.hidden = true;
+  settingsModal.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+}
+
+document.getElementById('menuSettings')?.addEventListener('click', () => {
+  accountMenu.hidden = true;
+  openSettings();
+});
+document.getElementById('settingsClose')?.addEventListener('click', closeSettings);
+settingsOverlay?.addEventListener('click', closeSettings);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsModal && !settingsModal.hidden) closeSettings();
+});
+
+settingsForm?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  setClearErrors();
+
+  const v = (n) => (settingsForm.querySelector(`[name="${n}"]`)?.value || '').trim();
+  const body = {};
+  for (const [field, key] of SETTINGS_FIELDS) body[key] = v(field);
+
+  const btn = document.getElementById('settingsSave');
+  const label = document.getElementById('settingsSaveLabel');
+  btn.disabled = true;
+  const original = label.textContent;
+  label.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/me', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not save your details.');
+
+    // Keep the in-memory session in step, or reopening the modal would show the
+    // old values until a reload.
+    Object.assign(currentUser, data);
+
+    const ok = document.getElementById('settingsOk');
+    if (ok) { ok.textContent = 'Saved — checkout will fill these in for you.'; ok.hidden = false; }
+    setTimeout(closeSettings, 1200);
+  } catch (err) {
+    const box = document.getElementById('settingsError');
+    if (box) { box.textContent = err.message; box.hidden = false; }
+  } finally {
+    btn.disabled = false;
+    label.textContent = original;
+  }
 });
 
 /* ── sign-in modal ─────────────────────────────────────────────── */
@@ -2038,12 +2139,25 @@ function syncCartUp() {
 
 // Prefill checkout for a signed-in customer. The server still validates
 // everything, and still reads user_id from the cookie rather than these fields.
+// Fills checkout from the saved account details. The whole point of Account
+// settings: a returning customer should not retype an address they have already
+// given, which is the most common reason a repeat order is abandoned on a phone.
+//
+// Only ever fills an EMPTY field, so anything typed this session wins — someone
+// sending a gift to a different address must not have it overwritten by their own.
 function prefillCheckout() {
   if (!currentUser) return;
-  const email = document.getElementById('coEmail');
-  const name = document.getElementById('coName');
-  if (email && !email.value) email.value = currentUser.email || '';
-  if (name && !name.value) name.value = currentUser.name || '';
+  const fill = (id, value) => {
+    const el = document.getElementById(id);
+    if (el && !el.value && value) el.value = value;
+  };
+  fill('coEmail', currentUser.email);
+  fill('coName', currentUser.name);
+  fill('coPhone', currentUser.phone);
+  fill('coLine', currentUser.addr_line);
+  fill('coCity', currentUser.addr_city);
+  fill('coState', currentUser.addr_state);
+  fill('coPin', currentUser.addr_pin);
 }
 
 /* ── provider buttons ──────────────────────────────────────────── */

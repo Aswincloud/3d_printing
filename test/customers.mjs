@@ -56,6 +56,14 @@ function makeDB(seed = {}) {
     const lc = (v) => String(v ?? "").toLowerCase();
 
     // users
+    // The session lookup now carries the saved delivery details too, so whoami
+    // can return them without a second query. Projected, so a test asserting a
+    // column is NOT exposed cannot pass because the fake handed back the row.
+    if (s.startsWith("SELECT id, email, name, created_at, phone, addr_line, addr_city, addr_state, addr_pin")) {
+      const u = db.users.find((x) => x.id === a[0]);
+      return { first: u ? project(u, ["id", "email", "name", "created_at",
+        "phone", "addr_line", "addr_city", "addr_state", "addr_pin"]) : null };
+    }
     if (s.startsWith("SELECT id, email, name, created_at FROM users WHERE id = ?")) {
       const u = db.users.find((x) => x.id === a[0]);
       return { first: u ? project(u, ["id", "email", "name", "created_at"]) : null };
@@ -73,9 +81,15 @@ function makeDB(seed = {}) {
       if (u) u.last_seen = a[0];
       return { meta: { changes: u ? 1 : 0 } };
     }
-    if (s.startsWith("UPDATE users SET name")) {
-      const u = db.users.find((x) => x.id === a[1]);
-      if (u) u.name = a[0];
+    // updateMe builds its SET clause dynamically from whichever profile fields
+    // were sent, so this parses the clause rather than assuming one column. The
+    // previous version handled only `name` and would have silently written a
+    // phone number into the name column once more fields existed.
+    if (s.startsWith("UPDATE users SET ")) {
+      const clause = s.slice("UPDATE users SET ".length, s.indexOf(" WHERE "));
+      const cols = clause.split(",").map((c) => c.split("=")[0].trim());
+      const u = db.users.find((x) => x.id === a[a.length - 1]);
+      if (u) cols.forEach((col, i) => { u[col] = a[i]; });
       return { meta: { changes: u ? 1 : 0 } };
     }
 
@@ -499,6 +513,77 @@ section("GET /api/me and PATCH /api/me");
   // A long name must be clipped, not rejected or stored whole.
   await updateMe(env, USER_A, { name: "z".repeat(200) });
   ok("long name clipped to 80", env.DB._db.users[0].name.length === 80);
+}
+
+// ── saved delivery details ────────────────────────────────────────
+// The point of Account settings: a returning customer should not retype an
+// address they have already given.
+section("PATCH /api/me — saved address");
+{
+  const env = ENV({ users: [{ ...USER_A }] });
+  const [status, out] = await read(await updateMe(env, USER_A, {
+    phone: "9876543210", addr_line: "12 Main Street",
+    addr_city: "Chennai", addr_state: "Tamil Nadu", addr_pin: "600001",
+  }));
+  ok("200", status === 200, String(status));
+  const u = env.DB._db.users[0];
+  ok("phone stored", u.phone === "9876543210");
+  ok("address stored", u.addr_line === "12 Main Street" && u.addr_city === "Chennai");
+  ok("pin stored", u.addr_pin === "600001");
+  ok("response echoes what was saved", out.addr_city === "Chennai");
+  // PATCH semantics: the name was not in the body and must be untouched.
+  ok("absent field left alone", u.name === "Alice", u.name);
+}
+{
+  // Clearing has to be possible — "" stores NULL rather than being ignored,
+  // or a saved address could never be removed.
+  const env = ENV({ users: [{ ...USER_A, addr_line: "Old Place", addr_city: "Madurai" }] });
+  await updateMe(env, USER_A, { addr_line: "", addr_city: "" });
+  const u = env.DB._db.users[0];
+  ok("blank clears the field", u.addr_line === null && u.addr_city === null);
+}
+{
+  // Validated, not just clipped. A saved PIN that checkout's own validation then
+  // rejects would prefill a form that refuses to submit — reads as the site being
+  // broken rather than the data being wrong.
+  const env = ENV({ users: [{ ...USER_A }] });
+  ok("3-digit pin rejected", (await read(await updateMe(env, USER_A, { addr_pin: "600" })))[0] === 400);
+  ok("non-numeric pin rejected", (await read(await updateMe(env, USER_A, { addr_pin: "60000A" })))[0] === 400);
+  ok("valid pin accepted", (await read(await updateMe(env, USER_A, { addr_pin: "605001" })))[0] === 200);
+  ok("short phone rejected", (await read(await updateMe(env, USER_A, { phone: "12345" })))[0] === 400);
+  ok("a rejected patch writes nothing", env.DB._db.users[0].phone === undefined || env.DB._db.users[0].phone === null,
+     String(env.DB._db.users[0].phone));
+}
+{
+  // whoami must carry the saved details, or checkout has nothing to prefill from.
+  const saved = { ...USER_A, phone: "9876543210", addr_line: "12 Main Street",
+    addr_city: "Chennai", addr_state: "Tamil Nadu", addr_pin: "600001" };
+  const [, me] = await read(whoami(saved));
+  ok("whoami returns the phone", me.phone === "9876543210");
+  ok("whoami returns the address", me.addr_line === "12 Main Street");
+  ok("whoami returns the pin", me.addr_pin === "600001");
+  // A fresh account has none of it, and must report null rather than undefined —
+  // the client does `currentUser[key] || ''` and undefined would work, but null
+  // is what the column actually holds.
+  const [, fresh] = await read(whoami(USER_A));
+  ok("a fresh account reports nulls", fresh.addr_line === null && fresh.phone === null);
+}
+{
+  // INVARIANT: a customer can only ever write their OWN row. `user` comes from
+  // the verified session cookie; nothing in the body selects whose profile is
+  // updated. Assert a second user's row is untouched.
+  const env = ENV({ users: [{ ...USER_A }, { ...USER_B }] });
+  await updateMe(env, USER_A, {
+    // All of these are ignored — updateMe only reads the PROFILE_FIELDS keys.
+    id: USER_B.id, user_id: USER_B.id, email: "attacker@evil.com",
+    addr_city: "Chennai",
+  });
+  const a = env.DB._db.users.find((u) => u.id === USER_A.id);
+  const b = env.DB._db.users.find((u) => u.id === USER_B.id);
+  ok("own row updated", a.addr_city === "Chennai");
+  ok("another user's row untouched", b.addr_city === undefined || b.addr_city === null);
+  ok("email cannot be changed through the profile", a.email === USER_A.email);
+  ok("id cannot be changed", a.id === USER_A.id);
 }
 
 

@@ -168,6 +168,36 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
 
   await env.DB.batch(batch);
 
+  // Remember the delivery details on the account, so the next order prefills.
+  //
+  // Done here rather than only in the settings form because almost nobody visits
+  // a settings page — they just check out. Doing it at the moment the address is
+  // known means the second order is prefilled without the customer having taken
+  // any action at all.
+  //
+  // Deliberately NOT awaited into the response path and wrapped in its own catch:
+  // a failure to remember an address must never fail an order that Razorpay has
+  // already accepted.
+  if (sessionUserId) {
+    try {
+      await env.DB.prepare(
+        `UPDATE users SET
+           name       = COALESCE(NULLIF(?, ''), name),
+           phone      = COALESCE(NULLIF(?, ''), phone),
+           addr_line  = COALESCE(NULLIF(?, ''), addr_line),
+           addr_city  = COALESCE(NULLIF(?, ''), addr_city),
+           addr_state = COALESCE(NULLIF(?, ''), addr_state),
+           addr_pin   = COALESCE(NULLIF(?, ''), addr_pin)
+         WHERE id = ?`
+      ).bind(
+        customer.cust_name, customer.cust_phone, customer.addr_line,
+        customer.addr_city, customer.addr_state, customer.addr_pin, sessionUserId,
+      ).run();
+    } catch (e) {
+      console.error("could not save address to profile", e?.message || e);
+    }
+  }
+
   // The browser needs the key id (public), the Razorpay order id, and the
   // amount to display. The amount is ours, not something it told us.
   return json({

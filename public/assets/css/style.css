@@ -1830,7 +1830,11 @@ footer {
   padding: 0.5rem 0.7rem 0.55rem;
   border-bottom: 1px solid var(--dark-4);
   margin-bottom: 0.3rem;
-  word-break: break-all;
+  /* anywhere, not break-all: break-all splits at any character and rendered
+     "aswinclou / d.com", which reads as a typo. `anywhere` breaks only when a
+     word genuinely cannot fit, and prefers the existing break opportunities in
+     an address (@ and .) first. */
+  overflow-wrap: anywhere;
 }
 
 .account-menu-item {

@@ -79,12 +79,13 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span class="account-dot" id="accountDot" hidden></span>
       </button>
-      <!-- Shown only when signed in. The Dashboard entry is added by main.js
-           when /api/me reports is_admin, and is the ONLY way to reach the
-           dashboard — it isn't linked anywhere else. -->
+      <!-- Shown only when signed in. Dashboard is NOT duplicated here — it has
+           its own header button, and listing it twice made the menu look like it
+           held two different things. This slot is the customer's own settings. -->
       <div class="account-menu" id="accountMenu" hidden role="menu">
         <div class="account-menu-who" id="accountMenuWho"></div>
         <button type="button" class="account-menu-item" id="menuOrders" role="menuitem">My orders</button>
+        <button type="button" class="account-menu-item" id="menuSettings" role="menuitem">Account settings</button>
         <button type="button" class="account-menu-item" id="menuSignOut" role="menuitem">Sign out</button>
       </div>
     </div>
@@ -401,6 +402,70 @@
       <span id="coSubmitLabel">Pay securely</span>
     </button>
     <p class="cart-fineprint">Payments handled by Razorpay. Cards, UPI and net banking accepted.</p>
+  </form>
+</div>
+
+<!-- ===== ACCOUNT SETTINGS ===== -->
+<!-- Reuses the checkout modal's shell and field markup deliberately: these are
+     the same seven fields, and a customer who has filled one should recognise
+     the other. Saving here is a convenience — checkout still asks, and the ORDER
+     keeps its own snapshot, so editing this never rewrites where a past parcel
+     was sent. -->
+<div class="checkout-overlay" id="settingsOverlay" hidden></div>
+<div class="checkout-modal" id="settingsModal" role="dialog" aria-modal="true"
+     aria-labelledby="settingsTitle" aria-hidden="true" hidden>
+  <div class="cart-head">
+    <h3 id="settingsTitle">Account settings</h3>
+    <button class="cart-close" id="settingsClose" type="button" aria-label="Close settings">✕</button>
+  </div>
+
+  <form class="checkout-form" id="settingsForm" novalidate>
+    <p class="co-delivery-note" id="settingsWho"></p>
+
+    <div class="co-field">
+      <label for="setName">Name</label>
+      <input type="text" id="setName" name="set_name" autocomplete="name" />
+      <span class="field-error" id="set_nameError"></span>
+    </div>
+
+    <div class="co-field">
+      <label for="setPhone">Phone</label>
+      <input type="tel" id="setPhone" name="set_phone" autocomplete="tel" />
+      <span class="field-error" id="set_phoneError"></span>
+    </div>
+
+    <div class="co-field">
+      <label for="setLine">Address</label>
+      <input type="text" id="setLine" name="set_line" autocomplete="street-address" />
+      <span class="field-error" id="set_lineError"></span>
+    </div>
+
+    <div class="co-row">
+      <div class="co-field">
+        <label for="setCity">City</label>
+        <input type="text" id="setCity" name="set_city" autocomplete="address-level2" />
+        <span class="field-error" id="set_cityError"></span>
+      </div>
+      <div class="co-field">
+        <label for="setState">State</label>
+        <input type="text" id="setState" name="set_state" autocomplete="address-level1" />
+        <span class="field-error" id="set_stateError"></span>
+      </div>
+    </div>
+
+    <div class="co-field">
+      <label for="setPin">PIN code</label>
+      <input type="text" id="setPin" name="set_pin" inputmode="numeric" autocomplete="postal-code" />
+      <span class="field-error" id="set_pinError"></span>
+    </div>
+
+    <div class="co-error" id="settingsError" hidden></div>
+    <span class="co-promo-ok" id="settingsOk" hidden></span>
+
+    <button type="submit" class="btn-primary co-submit" id="settingsSave">
+      <span id="settingsSaveLabel">Save details</span>
+    </button>
+    <p class="cart-fineprint">Saved on your account to speed up checkout. Your past orders keep the address they were sent to.</p>
   </form>
 </div>
 
