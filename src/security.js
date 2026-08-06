@@ -192,6 +192,16 @@ const RULES = [
   // messages are already written so unknown and deactivated codes are
   // indistinguishable; this bounds how fast someone can guess regardless.
   { test: (p, m) => p === "/api/coupon/check" && m === "POST", limiter: "RL_COUPON" },
+  // Mints a real discount code. Note what this limiter is and is not: every
+  // legitimate call comes from the ONE bot container, so per-IP counting does not
+  // separate visitors and is nearly useless as a business control. The real
+  // per-visitor limit lives in issueChatCoupon() (one live code per Chatwoot
+  // contact) with an hourly global cap behind it.
+  //
+  // This exists for the case where CHAT_BOT_SECRET leaks: it bounds how fast a
+  // single attacker IP can drain the hourly cap. Set high enough that the bot's
+  // own bursts never trip it.
+  { test: (p, m) => p === "/api/chat/coupon" && m === "POST", limiter: "RL_CHATCOUPON" },
 ];
 
 export async function rateLimit(request, env, url) {

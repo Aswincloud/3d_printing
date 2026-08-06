@@ -16,6 +16,7 @@ import {
   updateCoupon as adminUpdateCoupon, deleteCoupon as adminDeleteCoupon,
   couponRedemptions as adminCouponRedemptions,
 } from "./coupons.js";
+import { chatCouponHandler } from "./chatcoupons.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
 } from "./orders.js";
@@ -86,6 +87,12 @@ async function api(request, env, url, ctx) {
   // Razorpay's webhook HMAC is computed over the exact bytes sent, so
   // re-serialising a parsed object breaks verification.
   if (p === "/api/webhook/razorpay" && m === "POST") return razorpayWebhook(request, env, ctx);
+
+  // Same reason: the chat bot signs the exact bytes it sends. This route is
+  // service-to-service and carries its OWN auth (HMAC + a timestamp replay
+  // window) rather than sitting behind the owner or customer gates below — it is
+  // called by the bot container, which is neither.
+  if (p === "/api/chat/coupon" && m === "POST") return chatCouponHandler(request, env);
 
   const body = (m === "POST" || m === "PUT" || m === "PATCH")
     ? await request.json().catch(() => ({}))

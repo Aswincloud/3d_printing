@@ -82,6 +82,17 @@ namespace_id = "3004"
   limit = 15
   period = 60
 
+# Mints a discount code, so it costs real money to abuse. Only the bot container
+# calls it, which means this is keyed on effectively one IP — it bounds an
+# attacker who has the secret, not visitors. The per-visitor limit is in
+# issueChatCoupon(). 30/min is far above the bot's real rate.
+[[ratelimits]]
+name = "RL_CHATCOUPON"
+namespace_id = "3005"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
 [vars]
 APP_NAME = "AswinPrints"
 APP_BASE_URL = "https://3d-prints.aswincloud.com"
@@ -91,7 +102,17 @@ ACCESS_MODE = "owners"
 FLAT_SHIP_PAISE = "9900"
 FREE_SHIP_THRESHOLD_PAISE = "200000"
 
+# Kill switch for chat-issued discount codes. Set to "false" and deploy to stop
+# the promo immediately — no bot rebuild, no Chatwoot change. The endpoint 503s
+# and writes nothing. The terms themselves (10%, ₹300 cap, 30 min) are constants
+# in src/chatcoupons.js, deliberately NOT vars: the fewer inputs that decide what
+# a discount is worth, the fewer things can move it.
+CHAT_COUPONS_ENABLED = "true"
+
 # Secrets (NOT here — set via `wrangler secret put`, never committed):
 #   RESEND_API_KEY
 #   RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET
 #   SESSION_SECRET, RELAY_SECRET, AUTH_BROKER_URL
+#   CHAT_BOT_SECRET   — shared with the Chatwoot bot container; signs
+#                       POST /api/chat/coupon. Must match the value in
+#                       /home/aswin/chatwoot/offhours-bot/secrets.env.
