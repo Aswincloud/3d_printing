@@ -63,6 +63,16 @@ namespace_id = "3003"
   limit = 10
   period = 60
 
+# Coupon validation. Unauthenticated and it reveals whether a code is real, so
+# without this it is a code-guessing oracle. 15/min is generous for a human
+# retyping a code from an Instagram caption and useless for enumeration.
+[[ratelimits]]
+name = "RL_COUPON"
+namespace_id = "3004"
+  [ratelimits.simple]
+  limit = 15
+  period = 60
+
 [vars]
 APP_NAME = "AswinPrints"
 APP_BASE_URL = "https://3d-prints.aswincloud.com"

@@ -171,6 +171,11 @@ const RULES = [
   // Guessing a 6-digit code. The per-code attempt cap (OTP_MAX_ATTEMPTS) is the
   // real defence; this stops an attacker cycling fresh codes quickly.
   { test: (p) => p === "/api/auth/code/verify", limiter: "RL_AUTH" },
+  // Unauthenticated, and it answers "is this a real coupon?" — which makes it an
+  // enumeration oracle. Cheap to call, so nothing else bounds it. The error
+  // messages are already written so unknown and deactivated codes are
+  // indistinguishable; this bounds how fast someone can guess regardless.
+  { test: (p, m) => p === "/api/coupon/check" && m === "POST", limiter: "RL_COUPON" },
 ];
 
 export async function rateLimit(request, env, url) {

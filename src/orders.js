@@ -15,6 +15,7 @@
 
 import { json, bad, uid, now, randToken, isEmail, sendEmail } from "./lib.js";
 import { priceCart } from "./shop.js";
+import { recordRedemption } from "./coupons.js";
 import {
   createOrder, paymentsConfigured, publicKeyId,
   verifyCallbackSignature, verifyWebhookSignature,
@@ -87,7 +88,14 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
   if (errors.length) return json({ error: errors[0], errors }, 400);
 
   // Prices come from D1. This is the whole security model.
-  const priced = await priceCart(env, body?.items, delivery);
+  //
+  // Only the coupon CODE is taken from the body — a string. Everything the code
+  // is worth is read from the coupons table inside priceCart. The customer's
+  // email comes from the already-validated `customer`, not raw from the body, so
+  // a once-per-customer check can't be dodged by sending a different one here.
+  const priced = await priceCart(
+    env, body?.items, delivery, body?.coupon_code ?? null, customer.cust_email,
+  );
   if (priced.error) return bad(priced.error, 400);
 
   const receipt = makeReceipt();
@@ -134,8 +142,8 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       `INSERT INTO orders (id, receipt, rzp_order_id, status, subtotal_paise,
          shipping_paise, total_paise, currency, delivery, cust_name, cust_email,
          cust_phone, addr_line, addr_city, addr_state, addr_pin, notes, created_at,
-         user_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         user_id, coupon_code, discount_paise)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       orderId, receipt, rzp.order.id, "pending",
       priced.subtotal_paise, priced.shipping_paise, priced.total_paise, "INR", delivery,
@@ -145,6 +153,9 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       // Null for a guest. Comes from the verified session, never from the body —
       // a request can't claim to belong to someone else's account.
       sessionUserId ?? null,
+      // Snapshot, so a receipt reprinted after the coupon is edited or deleted
+      // still shows what was actually charged.
+      priced.coupon_code ?? null, priced.discount_paise ?? 0,
     ),
   ];
 
@@ -166,6 +177,8 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
     currency: "INR",
     receipt,
     subtotal_paise: priced.subtotal_paise,
+    discount_paise: priced.discount_paise ?? 0,
+    coupon_code: priced.coupon_code ?? null,
     shipping_paise: priced.shipping_paise,
     total_paise: priced.total_paise,
     prefill: {
@@ -220,8 +233,8 @@ export async function getOrderHandler(env, receipt) {
   if (!/^AP-[0-9a-f]{8}$/.test(r)) return bad("Order not found.", 404);
 
   const order = await env.DB.prepare(
-    `SELECT receipt, status, subtotal_paise, shipping_paise, total_paise,
-            delivery, cust_name, created_at, paid_at
+    `SELECT receipt, status, subtotal_paise, discount_paise, coupon_code,
+            shipping_paise, total_paise, delivery, cust_name, created_at, paid_at
        FROM orders WHERE receipt = ?`
   ).bind(r).first();
 
@@ -320,6 +333,23 @@ async function handleOrderPaid(env, ctx, evt) {
   ).bind(now(), payment.id || null, order.id).run();
 
   if (upd.meta?.changes === 0) return; // already paid — don't email twice
+
+  // Count the coupon HERE, not at order creation. Most orders never reach paid
+  // (abandoned checkouts, cancelled payments), so counting earlier would let
+  // people who never bought anything burn through a limited code.
+  //
+  // Inside the changes===0 guard above, so a webhook redelivery cannot reach
+  // this — and recordRedemption is independently idempotent via the UNIQUE index
+  // on coupon_redemptions(order_id), because relying on one guard for money is
+  // one guard too few.
+  if (order.coupon_code) {
+    await recordRedemption(env, {
+      couponCode: order.coupon_code,
+      orderId: order.id,
+      email: order.cust_email,
+      userId: order.user_id,
+    });
+  }
 
   const { results: items } = await env.DB.prepare(
     `SELECT name, price_paise, qty FROM order_items WHERE order_id = ? ORDER BY pos`

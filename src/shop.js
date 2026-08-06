@@ -5,6 +5,7 @@
 // thing standing between a tampered cart and a wrong charge.
 
 import { json } from "./lib.js";
+import { applyCoupon } from "./coupons.js";
 
 // ── products ──────────────────────────────────────────────────────
 // Public listing. Only visible rows, and deliberately no internal columns.
@@ -71,11 +72,16 @@ export function shippingFor(subtotalPaise, delivery, env) {
 // returns amounts derived entirely from D1. Any `price` field on the input is
 // ignored — it is never read, so a tampered cart cannot change the charge.
 //
-// Returns { items, subtotal_paise, shipping_paise, total_paise } or
-// { error }.
+// `couponCode` extends that rule rather than breaking it: the client sends a
+// CODE and nothing else. The percentage, the amount, the minimum and the expiry
+// are all read from the coupons table here. A `discount_paise` in the request is
+// ignored exactly as `price_paise` is.
+//
+// Returns { items, subtotal_paise, discount_paise, coupon_code, shipping_paise,
+// total_paise } or { error }.
 export const MAX_QTY = 100;
 
-export async function priceCart(env, rawItems, delivery) {
+export async function priceCart(env, rawItems, delivery, couponCode = null, email = null) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return { error: "Your cart is empty." };
   }
@@ -132,11 +138,35 @@ export async function priceCart(env, rawItems, delivery) {
     });
   }
 
-  const shipping = shippingFor(subtotal, delivery, env);
+  // Discount BEFORE shipping is decided. A ₹2,100 cart with 10% off becomes
+  // ₹1,890, which is under the ₹2,000 free-shipping threshold, so ₹99 shipping
+  // applies. Deciding shipping on the pre-discount subtotal instead would let a
+  // coupon give away shipping as well as the discount — a deliberate choice, and
+  // the one asserted in test/coupons.mjs so a refactor can't silently flip it.
+  let discount = 0;
+  let couponRow = null;
+  let freeShipping = false;
+
+  if (couponCode) {
+    const r = await applyCoupon(env, couponCode, subtotal, email);
+    // Refuse the order rather than dropping an invalid code silently: the
+    // customer was shown a discounted total, and charging them the full amount
+    // instead is the same class of bug as charging for a different basket.
+    if (r.error) return { error: r.error };
+    discount = r.discount_paise;
+    couponRow = r.coupon;
+    freeShipping = r.free_shipping;
+  }
+
+  const discounted = subtotal - discount;
+  const shipping = freeShipping ? 0 : shippingFor(discounted, delivery, env);
+
   return {
     items,
     subtotal_paise: subtotal,
+    discount_paise: discount,
+    coupon_code: couponRow?.code ?? null,
     shipping_paise: shipping,
-    total_paise: subtotal + shipping,
+    total_paise: discounted + shipping,
   };
 }

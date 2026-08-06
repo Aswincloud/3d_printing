@@ -8,7 +8,13 @@ import { json, bad, isEmail, sendEmail } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
-import { listProducts } from "./shop.js";
+import { listProducts, priceCart } from "./shop.js";
+// Aliased like the admin.js imports below: coupons.js exports its own CRUD names
+// that would otherwise read ambiguously next to the product ones.
+import {
+  listCoupons as adminListCoupons, createCoupon as adminCreateCoupon,
+  updateCoupon as adminUpdateCoupon, deleteCoupon as adminDeleteCoupon,
+} from "./coupons.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
 } from "./orders.js";
@@ -100,6 +106,33 @@ async function api(request, env, url, ctx) {
   const receiptMatch = p.match(/^\/api\/orders\/(AP-[0-9a-f]{8})$/);
   if (receiptMatch && m === "GET") return getOrderHandler(env, receiptMatch[1]);
 
+  // Coupon preview, so checkout can show the discount before the customer pays.
+  // Public by necessity — a guest must be able to apply a code — which makes it a
+  // code-enumeration oracle, so it is rate limited in security.js. It reprices the
+  // cart through priceCart rather than returning the coupon row: the customer
+  // never needs to know a code is 15%-capped-at-₹200, only what it takes off THIS
+  // cart, and returning the row would leak the whole coupon table one guess at a
+  // time.
+  if (p === "/api/coupon/check" && m === "POST") {
+    const buyer = await currentCustomer(request, env);
+    const priced = await priceCart(
+      env, body?.items, "ship", body?.code ?? null,
+      // Their own email if signed in; otherwise whatever the checkout form has so
+      // far, for the once-per-customer check. Either way the real check happens
+      // again at order time against the validated address.
+      buyer?.email || clip(body?.email, 160),
+    );
+    if (priced.error) return bad(priced.error, 400);
+    return json({
+      ok: true,
+      code: priced.coupon_code,
+      subtotal_paise: priced.subtotal_paise,
+      discount_paise: priced.discount_paise,
+      shipping_paise: priced.shipping_paise,
+      total_paise: priced.total_paise,
+    });
+  }
+
   if (p === "/api/quote" && m === "POST") return quote(request, env, ctx, body);
   if (p === "/api/health" && m === "GET") return json({ ok: true, app: env.APP_NAME });
 
@@ -175,6 +208,13 @@ async function api(request, env, url, ctx) {
 
     const refund = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/refund$/);
     if (refund && m === "POST") return adminRefundOrder(env, refund[1], body);
+
+    if (p === "/api/admin/coupons" && m === "GET") return adminListCoupons(env);
+    if (p === "/api/admin/coupons" && m === "POST") return adminCreateCoupon(env, body);
+
+    const coup = p.match(/^\/api\/admin\/coupons\/([0-9a-f-]{36})$/);
+    if (coup && m === "PATCH") return adminUpdateCoupon(env, coup[1], body);
+    if (coup && m === "DELETE") return adminDeleteCoupon(env, coup[1]);
 
     return bad("not found", 404);
   }
