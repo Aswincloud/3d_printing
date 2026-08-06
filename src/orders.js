@@ -21,6 +21,7 @@ import {
   verifyCallbackSignature, verifyWebhookSignature,
 } from "./razorpay.js";
 import { orderCustomerEmail, orderOwnerEmail } from "./emails.js";
+import { sendOrderInvoice } from "./invoicing.js";
 
 const MAX = { name: 100, email: 160, phone: 30, line: 200, city: 80, state: 80, pin: 10, notes: 500 };
 const clip = (v, n) => String(v ?? "").trim().slice(0, n);
@@ -404,5 +405,18 @@ async function handleOrderPaid(env, ctx, evt) {
       html: orderOwnerEmail(env, paid, items || []),
       text: `New paid order ${paid.receipt} from ${paid.cust_name} <${paid.cust_email}>\n`,
     }).then((r) => { if (!r.ok) console.error("owner order email failed", r.status, r.error); }),
+
+    // Raise the invoice at invoicer.aswincloud.com. The email above is a
+    // receipt; this is the document with a number on it.
+    //
+    // Sits inside the changes===0 guard along with everything else here, so a
+    // redelivered webhook does not re-invoice — belt and braces with the UNIQUE
+    // index on invoices(source_ref) at the other end, because one guard is one
+    // guard too few when the failure mode is emailing a customer twice.
+    //
+    // sendOrderInvoice never throws (see the note at the top of invoicing.js):
+    // an invoicing outage must not fail this webhook and trigger Razorpay
+    // retries on a payment that already succeeded.
+    sendOrderInvoice(env, paid, items || []),
   ]));
 }

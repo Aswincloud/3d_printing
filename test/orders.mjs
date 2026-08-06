@@ -18,6 +18,10 @@ const section = (s) => console.log(`\n${s}`);
 
 const KEY_SECRET = "test_key_secret_value";
 const WEBHOOK_SECRET = "test_webhook_secret_value";
+// Distinct from the two above on purpose: the shop now holds three secrets that
+// sign three different things, and a test that reused one would not notice if
+// the code signed an invoice with the Razorpay key.
+const INGEST_SECRET = "test_ingest_secret_value";
 
 const PRODUCTS = [
   { id: "p-small", name: "Kingfisher", price_paise: 34900, visible: 1 },
@@ -40,7 +44,8 @@ const columnsOf = (sql) =>
   sql.slice(6, sql.indexOf(" FROM ")).split(",").map((c) => c.trim().split(/\s+/).pop());
 
 function makeDB() {
-  const db = { products: [...PRODUCTS], orders: [], order_items: [], webhook_events: [] };
+  const db = { products: [...PRODUCTS], orders: [], order_items: [], webhook_events: [],
+               coupons: [{ id: "c-1", code: "CHAT-ABC123", uses: 0 }], coupon_redemptions: [] };
 
   const run = (sql, args) => {
     const s = sql.replace(/\s+/g, " ").trim();
@@ -105,6 +110,25 @@ function makeDB() {
       // query never selects it.
       return { first: o ? project(o, columnsOf(s)) : null };
     }
+    // The coupon redemption path, reached when a paid order carries a code.
+    // Minimal on purpose — test/coupons.mjs owns the redemption logic; this fake
+    // only has to let handleOrderPaid() get past it to the invoicing that this
+    // file is testing.
+    if (s.startsWith("SELECT id FROM coupons WHERE code = ?")) {
+      const c = db.coupons?.find((x) => x.code.toUpperCase() === String(args[0]).toUpperCase());
+      return { first: c ? { id: c.id } : null };
+    }
+    if (s.startsWith("INSERT OR IGNORE INTO coupon_redemptions")) {
+      db.coupon_redemptions = db.coupon_redemptions || [];
+      if (db.coupon_redemptions.some((r) => r.order_id === args[2])) return { meta: { changes: 0 } };
+      db.coupon_redemptions.push({ id: args[0], coupon_id: args[1], order_id: args[2] });
+      return { meta: { changes: 1 } };
+    }
+    if (s.startsWith("UPDATE coupons SET uses = uses + 1")) {
+      const c = db.coupons?.find((x) => x.id === args[1]);
+      if (c) c.uses = (c.uses || 0) + 1;
+      return { meta: { changes: c ? 1 : 0 } };
+    }
     throw new Error("unhandled SQL in fake D1: " + s.slice(0, 90));
   };
 
@@ -130,6 +154,9 @@ const ENV = () => ({
   OWNER_EMAIL: "owner@example.com",
   FLAT_SHIP_PAISE: "9900",
   FREE_SHIP_THRESHOLD_PAISE: "200000",
+  INVOICE_ENABLED: "true",
+  INVOICER_URL: "https://invoicer.example",
+  SHOP_INGEST_SECRET: INGEST_SECRET,
   DB: makeDB(),
 });
 
@@ -140,10 +167,21 @@ const CUSTOMER = {
 };
 
 // Stub Razorpay + Resend at the fetch boundary; record what each is sent.
-function stubFetch() {
-  const calls = { razorpay: [], resend: [] };
+function stubFetch({ invoicerStatus = 200, invoicerBody = null } = {}) {
+  const calls = { razorpay: [], resend: [], invoicer: [] };
   globalThis.fetch = async (url, init) => {
     const u = String(url);
+    if (u.includes("/api/ingest/order")) {
+      calls.invoicer.push({
+        url: u,
+        body: JSON.parse(init.body || "{}"),
+        signature: init.headers?.["x-shop-signature"] || "",
+        raw: init.body,
+      });
+      return new Response(
+        JSON.stringify(invoicerBody ?? { ok: true, id: "inv-1", number: "AP-2026-STUB", emailed: true }),
+        { status: invoicerStatus, headers: { "content-type": "application/json" } });
+    }
     if (u.includes("api.razorpay.com")) {
       const body = JSON.parse(init.body || "{}");
       calls.razorpay.push({ url: u, body, headers: init.headers });
@@ -474,6 +512,159 @@ section("webhook — idempotency (invariant 5)");
   ok("still exactly 2 emails", calls.resend.length === after1 && after1 === 2, String(calls.resend.length));
   ok("one webhook_events row", env.DB._db.webhook_events.length === 1);
   ok("order still paid once", env.DB._db.orders[0].status === "paid");
+  // A second invoice means a second invoice email and a duplicate document in
+  // the books. Invoicer has its own UNIQUE index, but the shop must not be
+  // relying on that — this asserts the shop's own guard.
+  ok("invoicer called exactly once", calls.invoicer.length === 1, String(calls.invoicer.length));
+}
+
+// ── invoicing ─────────────────────────────────────────────────────
+//
+// The shop asks invoicer.aswincloud.com to raise a real invoice. What matters
+// here is (a) it happens exactly once per payment, (b) the numbers handed over
+// are the ones actually charged, and (c) it can NEVER break the webhook — the
+// money has already moved by the time this runs.
+section("webhook — invoicing");
+{
+  const { env, calls, order } = await seedPaidOrder();
+  const ctx = makeCtx();
+  const raw = JSON.stringify({
+    event: "order.paid",
+    payload: { order: { entity: { id: order.rzp_order_id } },
+               payment: { entity: { id: "pay_INV1" } } },
+  });
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  await razorpayWebhook(webhookReq(raw, sig, "evt_inv"), env, ctx);
+  await settle(ctx);
+
+  ok("invoicer called once", calls.invoicer.length === 1, String(calls.invoicer.length));
+  const sent = calls.invoicer[0];
+  ok("posted to the ingest endpoint", /\/api\/ingest\/order$/.test(sent.url), sent.url);
+  ok("signed", /^[0-9a-f]{64}$/.test(sent.signature), sent.signature.slice(0, 20));
+
+  // Signed with the INGEST secret, not one of the Razorpay ones. Three secrets
+  // now sign three different things; using the wrong one would authenticate
+  // nothing and be invisible without this check.
+  const expect = await hmacHex(sent.raw, INGEST_SECRET);
+  ok("signed with the ingest secret", sent.signature === expect);
+  ok("NOT signed with the razorpay key", sent.signature !== await hmacHex(sent.raw, KEY_SECRET));
+
+  // THE numbers. These end up on a document the customer keeps, next to a bank
+  // statement showing what was actually taken.
+  ok("receipt sent", sent.body.receipt === order.receipt, sent.body.receipt);
+  ok("total is the amount charged", sent.body.total_paise === order.total_paise,
+     `${sent.body.total_paise} vs ${order.total_paise}`);
+  ok("subtotal sent", sent.body.subtotal_paise === order.subtotal_paise);
+  ok("shipping sent", sent.body.shipping_paise === order.shipping_paise);
+  ok("amounts are integer paise, never floats",
+     Number.isInteger(sent.body.total_paise) && Number.isInteger(sent.body.subtotal_paise));
+  ok("customer email sent", sent.body.customer.email === "buyer@example.com");
+  ok("address sent", sent.body.customer.addr_pin === "605001");
+  ok("items sent", sent.body.items.length > 0 && sent.body.items[0].price_paise > 0);
+  ok("a timestamp is included", typeof sent.body.ts === "number");
+
+  // No secret may travel in the body — it is only ever a signature header.
+  const asText = JSON.stringify(sent.body);
+  ok("no secrets in the payload",
+     !asText.includes(INGEST_SECRET) && !asText.includes(KEY_SECRET) && !asText.includes(WEBHOOK_SECRET));
+}
+{
+  // Invoicer down. The payment already succeeded — this must not fail the
+  // webhook, because Razorpay would retry and a retry storm caused by an
+  // INVOICING outage would be a self-inflicted incident on the payment path.
+  const { env, calls, order } = await seedPaidOrder();
+  stubFetch({ invoicerStatus: 500, invoicerBody: { error: "boom" } });
+  const ctx = makeCtx();
+  const raw = JSON.stringify({
+    event: "order.paid",
+    payload: { order: { entity: { id: order.rzp_order_id } },
+               payment: { entity: { id: "pay_INV2" } } },
+  });
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const res = await razorpayWebhook(webhookReq(raw, sig, "evt_inv_fail"), env, ctx);
+  let threw = false;
+  try { await settle(ctx); } catch { threw = true; }
+
+  ok("webhook still 200s when invoicing fails", res.status === 200, String(res.status));
+  ok("nothing throws into the webhook", !threw);
+  ok("the order is still marked paid", env.DB._db.orders[0].status === "paid");
+}
+{
+  // Same, for a network-level failure rather than an HTTP error.
+  const { env, order } = await seedPaidOrder();
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("/api/ingest/order")) throw new Error("ECONNREFUSED");
+    if (String(url).includes("api.resend.com")) return new Response("{}", { status: 200 });
+    throw new Error("unexpected fetch: " + url);
+  };
+  const ctx = makeCtx();
+  const raw = JSON.stringify({
+    event: "order.paid",
+    payload: { order: { entity: { id: order.rzp_order_id } },
+               payment: { entity: { id: "pay_INV3" } } },
+  });
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const res = await razorpayWebhook(webhookReq(raw, sig, "evt_inv_net"), env, ctx);
+  let threw = false;
+  try { await settle(ctx); } catch { threw = true; }
+
+  ok("an unreachable invoicer does not break the webhook", res.status === 200 && !threw);
+  ok("the order is still paid", env.DB._db.orders[0].status === "paid");
+}
+{
+  // Kill switch: no call at all, and the rest of the webhook is unaffected.
+  const { env, calls, order } = await seedPaidOrder();
+  env.INVOICE_ENABLED = "false";
+  const ctx = makeCtx();
+  const raw = JSON.stringify({
+    event: "order.paid",
+    payload: { order: { entity: { id: order.rzp_order_id } },
+               payment: { entity: { id: "pay_INV4" } } },
+  });
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  await razorpayWebhook(webhookReq(raw, sig, "evt_inv_off"), env, ctx);
+  await settle(ctx);
+
+  ok("disabled → invoicer not called", calls.invoicer.length === 0, String(calls.invoicer.length));
+  ok("emails still sent", calls.resend.length === 2, String(calls.resend.length));
+}
+{
+  // Missing secret must not send an UNSIGNED request — that would be rejected at
+  // the far end anyway, but attempting it means the shop is willing to.
+  const { env, calls, order } = await seedPaidOrder();
+  env.SHOP_INGEST_SECRET = "";
+  const ctx = makeCtx();
+  const raw = JSON.stringify({
+    event: "order.paid",
+    payload: { order: { entity: { id: order.rzp_order_id } },
+               payment: { entity: { id: "pay_INV5" } } },
+  });
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  await razorpayWebhook(webhookReq(raw, sig, "evt_inv_nosec"), env, ctx);
+  await settle(ctx);
+  ok("no secret → no request at all", calls.invoicer.length === 0, String(calls.invoicer.length));
+}
+{
+  // A discounted order: the coupon code must reach the invoice, since it appears
+  // on the document as a named line.
+  const { env, calls, order } = await seedPaidOrder();
+  env.DB._db.orders[0].discount_paise = 10000;
+  env.DB._db.orders[0].coupon_code = "CHAT-ABC123";
+  order.discount_paise = 10000;
+  order.coupon_code = "CHAT-ABC123";
+  const ctx = makeCtx();
+  const raw = JSON.stringify({
+    event: "order.paid",
+    payload: { order: { entity: { id: order.rzp_order_id } },
+               payment: { entity: { id: "pay_INV6" } } },
+  });
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  await razorpayWebhook(webhookReq(raw, sig, "evt_inv_disc"), env, ctx);
+  await settle(ctx);
+
+  const sent = calls.invoicer[0];
+  ok("discount amount sent", sent.body.discount_paise === 10000, String(sent.body.discount_paise));
+  ok("coupon code sent", sent.body.coupon_code === "CHAT-ABC123", String(sent.body.coupon_code));
 }
 
 section("webhook — a new event id still can't double-pay");

@@ -109,6 +109,15 @@ FREE_SHIP_THRESHOLD_PAISE = "200000"
 # a discount is worth, the fewer things can move it.
 CHAT_COUPONS_ENABLED = "true"
 
+# Invoicing. On payment the shop asks invoicer.aswincloud.com to raise a real
+# invoice and email it to the customer — a document with a number, distinct from
+# the "Order confirmed" receipt the shop sends itself.
+#
+# Kill switch: "false" + deploy stops it. Worth having on the payment path, even
+# though sendOrderInvoice() already swallows every failure.
+INVOICE_ENABLED = "true"
+INVOICER_URL = "https://invoicer.aswincloud.com"
+
 # Secrets (NOT here — set via `wrangler secret put`, never committed):
 #   RESEND_API_KEY
 #   RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET
@@ -116,3 +125,6 @@ CHAT_COUPONS_ENABLED = "true"
 #   CHAT_BOT_SECRET   — shared with the Chatwoot bot container; signs
 #                       POST /api/chat/coupon. Must match the value in
 #                       /home/aswin/chatwoot/offhours-bot/secrets.env.
+#   SHOP_INGEST_SECRET — shared with the Invoicer Worker; signs the invoice
+#                       request. Must match the secret of the same name on
+#                       invoicer.aswincloud.com.
