@@ -33,6 +33,7 @@ import {
 import { getCart, putCart, mergeCart } from "./cart.js";
 import {
   listProducts as adminListProducts, createProduct as adminCreateProduct,
+  unlistedImages as adminUnlistedImages,
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
   listOrders as adminListOrders, updateOrder as adminUpdateOrder,
   refundOrder as adminRefundOrder, stats as adminStats,
@@ -204,6 +205,12 @@ async function api(request, env, url, ctx) {
     // Bulk price/visibility pass. Plural path, so it can't collide with the
     // single-row /api/admin/products/:id below.
     if (p === "/api/admin/products" && m === "PATCH") return adminBulkUpdateProducts(env, body);
+
+    // Photos in the repo that no product points at yet — what Aswin just pushed
+    // and has not priced. Above the /:id route below: that pattern only matches
+    // a 36-char uuid so there is no real collision, but a literal path sitting
+    // under a wildcard is the kind of thing that becomes one later.
+    if (p === "/api/admin/products/unlisted" && m === "GET") return adminUnlistedImages(env);
 
     const prod = p.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/);
     if (prod && m === "PATCH") return adminUpdateProduct(env, prod[1], body);

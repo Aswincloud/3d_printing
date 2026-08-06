@@ -94,6 +94,16 @@
       <h2>Products</h2>
       <span class="admin-muted" id="productHint">Prices are in rupees. Seeded values are placeholders.</span>
     </div>
+    <!-- Photos pushed to the repo that no product points at yet. Hidden when
+         there are none, which is the normal state. -->
+    <div class="unlisted-panel" id="unlistedPanel" hidden>
+      <div class="panel-head">
+        <h3 id="unlistedHead">Not yet listed</h3>
+        <span class="admin-muted">Pushed to <code>assets/images/</code> but not in the shop. Set a price to list one.</span>
+      </div>
+      <div id="unlistedList"></div>
+    </div>
+
     <div id="productsList" class="products-list"><p class="admin-muted">Loading…</p></div>
 
     <!-- Appears only when something is edited. Saves every changed row in one
@@ -111,8 +121,17 @@
   <section class="admin-panel" id="couponsPanel" hidden>
     <div class="panel-head">
       <h2>Promo codes</h2>
-      <span class="admin-muted">Discounts apply before the free-shipping threshold.</span>
+      <div class="coupon-head-right">
+        <span class="admin-muted">Discounts apply before the free-shipping threshold.</span>
+        <!-- Chat-issued codes expire every 30 minutes, so without this the list
+             grows by a dead row per visitor who asks for a discount. -->
+        <label class="cr-check">
+          <input type="checkbox" id="hideExpired" checked>
+          <span>Hide expired</span>
+        </label>
+      </div>
     </div>
+    <p class="admin-muted" id="couponHiddenNote"></p>
 
     <form class="coupon-form" id="couponForm">
       <div class="cf-grid">

@@ -27,6 +27,22 @@
   align-items: center;
   gap: 1rem;
   font-size: 0.85rem;
+  /* Wrap rather than push the page wider. The email address is the widest item
+     and does not shrink, so at 390px this block used to run ~64px past the
+     viewport and make the WHOLE dashboard scroll sideways — pre-existing, found
+     while checking the new listing panel on a phone. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* The email is informational; the buttons are not. On a narrow screen the
+   address truncates instead of forcing the actions off-screen. */
+.admin-nav-right .admin-who {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-who { color: var(--text-muted); font-size: 0.82rem; }
@@ -334,6 +350,86 @@
 
 .product-row.is-hidden { opacity: 0.55; }
 
+/* ── photos pushed but not yet listed ──────────────────────────────
+   Visually separated from the catalogue below with a dashed border: these are
+   not products yet, and they should not read as broken rows in the live list. */
+.unlisted-panel {
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--dark-4);
+}
+.unlisted-panel .panel-head { margin-bottom: 0.9rem; }
+.unlisted-panel h3 { font-size: 1rem; font-weight: 700; color: var(--orange); }
+
+.unlisted-row {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  grid-template-areas: "thumb form actions" "thumb meta actions" "err err err";
+  align-items: start;
+  gap: 0.65rem 1rem;
+  background: var(--dark-2);
+  border: 1px dashed var(--dark-4);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.7rem;
+}
+
+.unlisted-row .pr-thumb {
+  grid-area: thumb;
+  width: 72px; height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--dark-4);
+}
+
+.ul-form {
+  grid-area: form;
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) 110px 120px minmax(140px, 1.6fr);
+  gap: 0.6rem;
+}
+.ul-field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.ul-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.ul-input {
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.55rem;
+  min-width: 0;
+}
+.ul-input:focus-visible { outline: 2px solid var(--orange); outline-offset: 1px; }
+.ul-field .price-input { padding: 0 0.5rem; }
+
+.ul-actions { grid-area: actions; display: flex; align-items: center; }
+.ul-meta { grid-area: meta; font-size: 0.72rem; color: var(--text-muted); }
+.ul-file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ul-error {
+  grid-area: err;
+  margin: 0;
+  font-size: 0.78rem;
+  color: #ff8a7a;
+}
+
+/* One column per line on a phone — four inputs side by side at 390px would be
+   unusable, and this is a screen Aswin will use from his phone after a print. */
+@media (max-width: 720px) {
+  .unlisted-row {
+    grid-template-columns: 56px 1fr;
+    grid-template-areas: "thumb meta" "form form" "actions actions" "err err";
+  }
+  .unlisted-row .pr-thumb { width: 56px; height: 56px; }
+  .ul-form { grid-template-columns: 1fr 1fr; }
+  .ul-actions button { width: 100%; }
+}
+
 .product-row img {
   width: 56px; height: 56px;
   object-fit: cover;
@@ -576,6 +672,45 @@
   color: var(--text);
 }
 .coupon-group-head p { margin: 0.15rem 0 0; font-size: 0.78rem; }
+
+/* ── coupon filter + inline editor ─────────────────────────────── */
+.coupon-head-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.cr-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.cr-check input { accent-color: var(--orange); cursor: pointer; }
+
+#couponHiddenNote { margin: -0.75rem 0 1rem; font-size: 0.78rem; }
+
+/* The editor opens inside the row it belongs to, so there is never any doubt
+   about which code is being changed. */
+.cr-editor {
+  grid-column: 1 / -1;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--dark-4);
+}
+.cr-edit-note { margin: 0 0 0.75rem; font-size: 0.78rem; color: var(--text-muted); }
+.cr-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 0.75rem;
+}
+.cr-hint { font-size: 0.68rem; color: var(--text-muted); }
+.cr-edit-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
 @media (max-width: 640px) {
   .coupon-row {

@@ -7,7 +7,7 @@
 
 import { ownerAllowed, ssoConfigured, currentOwner } from "../src/auth.js";
 import {
-  listProducts, createProduct, updateProduct, deleteProduct,
+  listProducts, createProduct, updateProduct, deleteProduct, unlistedImages,
   listOrders, updateOrder, refundOrder, stats, bulkUpdateProducts,
 } from "../src/admin.js";
 import { signToken } from "@aswincloud/auth";
@@ -188,6 +188,12 @@ function makeDB(seed = {}) {
     if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort, created_at, updated_at FROM products")) {
       return { results: [...db.products].sort((x, y) => x.sort - y.sort) };
     }
+    // Every image path the catalogue uses — for the unlisted-photos diff.
+    // Projected to exactly these two columns, so a test asserting that nothing
+    // else leaks cannot pass because the fake handed back the whole row.
+    if (s.startsWith("SELECT image, images FROM products")) {
+      return { results: db.products.map((p) => project(p, ["image", "images"])) };
+    }
     if (s.startsWith("SELECT id FROM products WHERE slug = ? AND id != ?")) {
       return { first: db.products.find((p) => p.slug === a[0] && p.id !== a[1]) || null };
     }
@@ -339,7 +345,23 @@ const ORDER = {
   addr_line: "1 St", addr_city: "Pondicherry", addr_state: "PY", addr_pin: "605001",
   notes: "", created_at: 1000, paid_at: 2000, shipped_at: null,
 };
-const envDB = (seed) => ({ ...BASE_ENV, DB: makeDB(seed) });
+// The image manifest, served through the ASSETS binding exactly as Cloudflare
+// does. createProduct() now checks every image path against it — a Worker cannot
+// list a directory, so this file is the only record of what exists.
+const MANIFEST_FILES = ["n.jpg", "i.jpg", "kingfisher.jpg", "dragon.jpg", "extra1.jpg", "extra2.jpg"];
+
+const makeAssets = (files = MANIFEST_FILES) => ({
+  fetch: async (req) => {
+    if (!String(req.url).endsWith("/assets/images.json")) return new Response("", { status: 404 });
+    return new Response(JSON.stringify({
+      generated_at: 1786000000000,
+      count: files.length,
+      images: files.map((f) => ({ file: f, bytes: 1000 })),
+    }), { status: 200 });
+  },
+});
+
+const envDB = (seed) => ({ ...BASE_ENV, DB: makeDB(seed), ASSETS: makeAssets() });
 const read = async (res) => [res.status, await res.json()];
 
 // ── products ──────────────────────────────────────────────────────
@@ -422,6 +444,138 @@ section("admin products — create");
   // A name of only punctuation yields an empty slug.
   ok("unsluggable name → 400",
      (await read(await createProduct(envDB(), { name: "!!!", price_paise: 1000, image: "i.jpg" })))[0] === 400);
+}
+
+// ── the image must be a file that actually exists ─────────────────
+//
+// THE tampering block for this feature. `image` is a client-controlled string,
+// so without a check against the manifest a product could point at an external
+// URL (the shop would render a stranger's image and leak referrer traffic), at a
+// path traversal, or at a file that simply is not there — producing a listing
+// with a broken image that looks live.
+//
+// Same rule as priceCart: the client NAMES a thing, the server decides whether
+// it is real.
+section("admin products — the image path cannot be forged");
+{
+  const attempts = [
+    ["external URL", "https://evil.com/x.jpg"],
+    ["protocol-relative URL", "//evil.com/x.jpg"],
+    ["http URL", "http://evil.com/x.jpg"],
+    ["path traversal", "../../etc/passwd"],
+    ["traversal ending in a real name", "assets/images/../../../n.jpg"],
+    ["a file that does not exist", "assets/images/not-a-real-photo.jpg"],
+    ["a plausible but absent name", "IMG20260101_nope.jpg"],
+    ["empty string", ""],
+  ];
+  for (const [label, image] of attempts) {
+    const env = envDB();
+    const [status] = await read(await createProduct(env, {
+      name: "Attack " + label, price_paise: 9900, image,
+    }));
+    ok(`${label} → refused`, status === 400, String(status));
+    ok(`${label} → no row written`, env.DB._db.products.length === 0);
+  }
+}
+{
+  // A real file is accepted with or without the assets/images/ prefix, and is
+  // stored canonically either way — so a valid filename with a strange prefix
+  // cannot reach the database verbatim.
+  for (const [label, image] of [
+    ["full path", "assets/images/n.jpg"],
+    ["bare filename", "n.jpg"],
+    ["a leading slash", "/assets/images/n.jpg"],
+  ]) {
+    const env = envDB();
+    const [status, out] = await read(await createProduct(env, {
+      name: "Real " + label, price_paise: 9900, image,
+    }));
+    ok(`${label} → accepted`, status === 201, String(status));
+    ok(`${label} → stored canonically`, out.image === "assets/images/n.jpg", out.image);
+  }
+}
+{
+  // Secondary views are rendered on the product page exactly like the primary
+  // image, so they get the same check.
+  const env = envDB();
+  const [okStatus] = await read(await createProduct(env, {
+    name: "With extras", price_paise: 9900, image: "n.jpg", images: "extra1.jpg, extra2.jpg",
+  }));
+  ok("valid extra images accepted", okStatus === 201, String(okStatus));
+  ok("extras stored canonically",
+     env.DB._db.products[0].images === "assets/images/extra1.jpg,assets/images/extra2.jpg",
+     env.DB._db.products[0].images);
+
+  const env2 = envDB();
+  const [badStatus] = await read(await createProduct(env2, {
+    name: "Bad extras", price_paise: 9900, image: "n.jpg", images: "extra1.jpg,https://evil.com/x.jpg",
+  }));
+  ok("a forged extra image → refused", badStatus === 400, String(badStatus));
+  ok("and no row written", env2.DB._db.products.length === 0);
+}
+{
+  // Without a manifest the server cannot tell a real photo from an invented one.
+  // Fails CLOSED — creating products that may render broken is worse than
+  // refusing until `npm run images` has been run.
+  const env = { ...BASE_ENV, DB: makeDB(), ASSETS: { fetch: async () => new Response("", { status: 404 }) } };
+  const [status] = await read(await createProduct(env, {
+    name: "No manifest", price_paise: 9900, image: "n.jpg",
+  }));
+  ok("missing manifest → 503, not a guess", status === 503, String(status));
+  ok("and no row written", env.DB._db.products.length === 0);
+}
+
+// ── which photos still need listing ───────────────────────────────
+section("admin products — unlisted photos");
+{
+  // Two products between them use three files; the manifest has six.
+  const env = envDB({
+    products: [
+      { id: "p1", slug: "a", name: "A", price_paise: 100, image: "assets/images/n.jpg",
+        images: "", category: "figurine", visible: 1, sort: 10, created_at: 1, updated_at: 1 },
+      { id: "p2", slug: "b", name: "B", price_paise: 100, image: "assets/images/dragon.jpg",
+        images: "assets/images/extra1.jpg", category: "decor", visible: 1, sort: 20,
+        created_at: 1, updated_at: 1 },
+    ],
+  });
+  const [status, out] = await read(await unlistedImages(env));
+  ok("200", status === 200, String(status));
+
+  const files = out.images.map((i) => i.file).sort();
+  ok("returns exactly the unused files",
+     files.join(",") === "extra2.jpg,i.jpg,kingfisher.jpg", files.join(","));
+
+  // The one that is easy to get wrong: a photo used only as a SECONDARY view is
+  // not unlisted, and offering to list it would create a duplicate product from
+  // a photo of one that already exists.
+  ok("a secondary-view image is not offered as unlisted", !files.includes("extra1.jpg"));
+  ok("the primary image is not offered", !files.includes("n.jpg"));
+  ok("counts are reported", out.total_images === 6 && out.listed === 3,
+     `${out.total_images}/${out.listed}`);
+  ok("each entry carries a usable path",
+     out.images.every((i) => i.path === `assets/images/${i.file}`));
+  ok("each entry carries a suggested name",
+     out.images.every((i) => typeof i.suggested_name === "string"));
+}
+{
+  // Listing one removes it from the next response.
+  const env = envDB();
+  const before = (await read(await unlistedImages(env)))[1].images.length;
+  await createProduct(env, { name: "Kingfisher", price_paise: 34900, image: "kingfisher.jpg" });
+  const after = (await read(await unlistedImages(env)))[1];
+  ok("listing a photo removes it from unlisted", after.images.length === before - 1,
+     `${before} → ${after.images.length}`);
+  ok("and it is specifically that photo",
+     !after.images.some((i) => i.file === "kingfisher.jpg"));
+}
+{
+  // No manifest: say so rather than claiming every photo is listed, which would
+  // read as "nothing to do".
+  const env = { ...BASE_ENV, DB: makeDB(), ASSETS: { fetch: async () => new Response("", { status: 404 }) } };
+  const [status, out] = await read(await unlistedImages(env));
+  ok("missing manifest → reported, not silently empty",
+     status === 200 && out.manifest_missing === true, JSON.stringify(out).slice(0, 60));
+  ok("and the error names the fix", /npm run images/.test(out.error || ""));
 }
 
 // Deleting a sold product must not destroy order history.
