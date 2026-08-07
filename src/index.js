@@ -7,6 +7,7 @@
 import { json, bad, isEmail, sendEmail } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
+import { sitemap, robots, rewriteHome } from "./seo.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
 import { listProducts, priceCart } from "./shop.js";
 // Aliased like the admin.js imports below: coupons.js exports its own CRUD names
@@ -61,6 +62,34 @@ export default {
         return withSecurityHeaders(bad("Something went wrong. Please try again.", 500));
       }
     }
+    // ── search engines ────────────────────────────────────────────
+    //
+    // Public by necessity: a crawler has no session. Above every auth gate, and
+    // deliberately serving nothing an anonymous visitor could not already see —
+    // the sitemap lists only visible, priced products.
+    if (url.pathname === "/sitemap.xml" && (request.method === "GET" || request.method === "HEAD")) {
+      try {
+        return withSecurityHeaders(await sitemap(env));
+      } catch (e) {
+        console.error("sitemap error", e?.stack || e);
+        return withSecurityHeaders(new Response("", { status: 500 }));
+      }
+    }
+    if (url.pathname === "/robots.txt" && (request.method === "GET" || request.method === "HEAD")) {
+      return withSecurityHeaders(robots(env));
+    }
+
+    // Google Search Console's HTML-file verification. Serves the token only when
+    // GOOGLE_SITE_VERIFICATION is set and the filename matches it exactly, so
+    // this is inert until Aswin pastes his token into wrangler.toml — no code
+    // change needed then.
+    const gsv = String(env.GOOGLE_SITE_VERIFICATION || "").trim();
+    if (gsv && url.pathname === `/google${gsv}.html`) {
+      return withSecurityHeaders(new Response(`google-site-verification: google${gsv}.html`, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }));
+    }
+
     // Shareable product links. Served by the Worker rather than the assets
     // binding because the Open Graph tags have to be per-product, and link
     // crawlers (WhatsApp, Slack, Facebook) do not run JavaScript — a preview is
@@ -72,6 +101,50 @@ export default {
         // Never fail a shared link; fall back to the shop.
         console.error("product page error", url.pathname, e?.stack || e);
         return Response.redirect(new URL("/#shop", url.origin).toString(), 302);
+      }
+    }
+
+    // The homepage, with the catalogue rendered into the HTML.
+    //
+    // Without this a crawler receives a page containing no product: the grid is
+    // filled by JavaScript. Google does run JS, but on a slower second pass that
+    // is not guaranteed, and most other crawlers do not run it at all.
+    //
+    // Wrapped and non-fatal. This is a crawler optimisation on the page every
+    // visitor loads, so a D1 error must serve the page unchanged rather than
+    // fail it — same discipline as the product-page fallback above.
+    if ((url.pathname === "/" || url.pathname === "/index.html")
+        && (request.method === "GET" || request.method === "HEAD")) {
+      const page = await env.ASSETS.fetch(request);
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT slug, name, description, price_paise, image
+             FROM products WHERE visible = 1 ORDER BY sort ASC, name ASC`
+        ).all();
+
+        const rendered = rewriteHome(env, page, results || [], url);
+
+        // Edge-cached, because this added a D1 query to the hot path.
+        //
+        // Measured: TTFB went from ~6ms to ~12ms with the query, and the
+        // homepage is the one page every visitor loads. s-maxage lets
+        // Cloudflare serve the rendered HTML from the edge so the origin runs
+        // the query once per minute rather than once per visitor.
+        //
+        // 60s, not longer: prices and visibility are edited in the dashboard and
+        // the change should show up while Aswin is still looking at it. Same
+        // trade-off as the product page, which uses 300s for the same reason.
+        return withSecurityHeaders(new Response(rendered.body, {
+          status: 200,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "public, max-age=0, must-revalidate",
+            "cdn-cache-control": "public, s-maxage=60",
+          },
+        }));
+      } catch (e) {
+        console.error("home render failed, serving plain", e?.message || e);
+        return withSecurityHeaders(page);
       }
     }
 

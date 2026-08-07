@@ -16,6 +16,7 @@
 // (articulated-dino-skeleton, ganesha-veena).
 
 import { esc } from "./lib.js";
+import { productJsonLd, jsonLdScript } from "./seo.js";
 
 // Slugs are lowercase words and dashes — see slugify() in admin.js. Anything else
 // cannot be a real slug, so it is rejected before the query rather than becoming
@@ -71,7 +72,7 @@ async function loadProduct(env, slug) {
 // <head> for the ones it does not. Doing it this way (rather than templating a
 // separate file) means index.html stays the single source of the page: a change to
 // the markup, the CSS link or the icons is picked up here for free.
-function rewriteHead(response, { product, pageUrl, imageUrl, title, description }) {
+function rewriteHead(response, { product, pageUrl, imageUrl, title, description, jsonLd }) {
   const setContent = { element(el) { el.setAttribute("content", description); } };
 
   return new HTMLRewriter()
@@ -126,7 +127,12 @@ function rewriteHead(response, { product, pageUrl, imageUrl, title, description 
           // Consumed by main.js on load to scroll to and open this product. Read
           // from the DOM rather than the URL so the client does not have to parse
           // the path a second time and agree with the server about what is valid.
-          `<meta name="ap:product" content="${esc(product.slug)}" />`,
+          `<meta name="ap:product" content="${esc(product.slug)}" />` +
+          // Product structured data — what lets a search result show the price
+          // and "in stock" instead of a bare blue link. Returns null for an
+          // unpriced item, since an Offer with price 0 is invalid rather than
+          // free; jsonLd is then omitted entirely.
+          (jsonLd || ""),
           { html: true },
         );
       },
@@ -168,12 +174,20 @@ export async function productPage(request, env, url) {
     product.description || `${product.name}, 3D printed to order and shipped across India.`
   );
 
+  const pageUrl = absolute(env, "/p/" + product.slug, url);
+  const imageUrl = absolute(env, product.image, url);
+  const ld = productJsonLd(env, product, { pageUrl, imageUrl });
+
   const rewritten = rewriteHead(page, {
     product,
-    pageUrl: absolute(env, "/p/" + product.slug, url),
-    imageUrl: absolute(env, product.image, url),
+    pageUrl,
+    imageUrl,
     title,
     description,
+    // Empty string rather than undefined: an unpriced product gets no Product
+    // markup at all, and appending "undefined" into <head> would be worse than
+    // appending nothing.
+    jsonLd: ld ? jsonLdScript(ld) : "",
   });
 
   return new Response(rewritten.body, {

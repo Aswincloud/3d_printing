@@ -109,6 +109,11 @@ FREE_SHIP_THRESHOLD_PAISE = "200000"
 # a discount is worth, the fewer things can move it.
 CHAT_COUPONS_ENABLED = "true"
 
+# Google Search Console HTML-file verification. Paste the token from the
+# verification file's NAME (google<TOKEN>.html) — not the whole filename — and
+# deploy. Empty means the route is inert.
+GOOGLE_SITE_VERIFICATION = ""
+
 # Invoicing. On payment the shop asks invoicer.aswincloud.com to raise a real
 # invoice and email it to the customer — a document with a number, distinct from
 # the "Order confirmed" receipt the shop sends itself.

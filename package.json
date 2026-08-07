@@ -1,7 +1,7 @@
 {
   "name": "3d-prints",
   "version": "0.1.0",
-  "description": "AswinPrints — 3D printing portfolio and online shop. Cloudflare Worker + D1.",
+  "description": "AswinPrints \u2014 3D printing portfolio and online shop. Cloudflare Worker + D1.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply 3dprints-db --remote",
     "deploy": "wrangler deploy",
     "images": "node scripts/build-image-manifest.mjs",
-    "test": "node test/run.mjs && node test/shop.mjs && node test/payments.mjs && node test/orders.mjs && node test/admin.mjs && node test/customers.mjs && node test/cart.mjs && node test/coupons.mjs && node test/chatcoupons.mjs && node test/manifest.mjs"
+    "test": "node test/run.mjs && node test/shop.mjs && node test/payments.mjs && node test/orders.mjs && node test/admin.mjs && node test/customers.mjs && node test/cart.mjs && node test/coupons.mjs && node test/chatcoupons.mjs && node test/manifest.mjs && node test/seo.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.118.0"
