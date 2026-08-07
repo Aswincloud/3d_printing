@@ -37,6 +37,20 @@ run_worker_first = [
   "/sitemap.xml", "/robots.txt",
 ]
 
+# Workers Cache. Without this, Cache-Control and CDN-Cache-Control on a Worker
+# response are INERT — Cloudflare does not cache Worker output by default, and
+# no cf-cache-status header appears at all. Confirmed against production: the
+# homepage sent s-maxage=60 and was still executing the Worker on every request.
+#
+# Needed because the homepage now runs a D1 query to render the catalogue into
+# the HTML for crawlers, which took TTFB from ~6ms to ~12ms. With this, the edge
+# serves the rendered page and the origin runs that query once a minute rather
+# than once per visitor.
+#
+# Zone-level Cache Rules have no effect on Workers; this setting is the switch.
+[cache]
+enabled = true
+
 [[d1_databases]]
 binding = "DB"
 database_name = "3dprints-db"

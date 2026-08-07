@@ -272,6 +272,15 @@ export async function resendCode(request, env, ctx, body) {
 // It grants nothing: /api/admin/* calls currentAdmin() and re-checks the
 // allowlist itself, so a client that fakes this flag still gets 401.
 export function whoami(user, isAdmin = false) {
+  // Explicitly uncacheable.
+  //
+  // This returns one customer's name, email, phone and delivery address. It has
+  // never carried a Cache-Control header, which means "do not store" by default
+  // — but with Workers Cache now enabled ([cache] in wrangler.toml), relying on
+  // a default for a response like this is the wrong way round. State it.
+  //
+  // `private` alone would be enough for a shared cache; no-store is belt and
+  // braces and costs nothing on a route that must never be reused.
   return json({
     signedIn: true,
     email: user.email,
@@ -285,7 +294,7 @@ export function whoami(user, isAdmin = false) {
     addr_city: user.addr_city || null,
     addr_state: user.addr_state || null,
     addr_pin: user.addr_pin || null,
-  });
+  }, 200, { "cache-control": "private, no-store" });
 }
 
 export function logout() {
