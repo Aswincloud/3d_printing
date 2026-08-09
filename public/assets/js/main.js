@@ -588,6 +588,31 @@ async function loadProducts() {
 
 let shopQuery = '';
 let shopCategory = 'all';
+let shopPriceBand = 'all';
+
+// Price bands for the sidebar filter.
+//
+// Chosen from the actual catalogue rather than round numbers: prices run ₹99 to
+// ₹12,000 with most between ₹299 and ₹899, so bands of ₹0–500 / ₹500–1000 /
+// ₹1000+ split it usefully. Even thirds by count would be more balanced but
+// would move as prices change, and a filter whose meaning shifts is worse than
+// one that is slightly uneven.
+const PRICE_BANDS = [
+  { id: 'under500', label: 'Under ₹500', min: 1, max: 49999 },
+  { id: '500to1000', label: '₹500 – ₹1,000', min: 50000, max: 100000 },
+  { id: 'over1000', label: 'Over ₹1,000', min: 100001, max: Infinity },
+];
+
+// Quote-only items (price 0) match no band. They are not free, they are
+// unpriced, so putting them in "Under ₹500" would be a lie — and someone
+// filtering by price is looking for something they can buy.
+function inPriceBand(product, bandId) {
+  if (bandId === 'all') return true;
+  const band = PRICE_BANDS.find((b) => b.id === bandId);
+  if (!band) return true;
+  const paise = product.price_paise;
+  return paise > 0 && paise >= band.min && paise <= band.max;
+}
 
 // Display labels for the internal category slugs. Wording matches the Services
 // section above, so the page reads as one thing. An unmapped slug falls back to
@@ -613,7 +638,9 @@ function matchesQuery(p, q) {
 
 function visibleProducts() {
   return catalogue.filter((p) =>
-    (shopCategory === 'all' || p.category === shopCategory) && matchesQuery(p, shopQuery));
+    (shopCategory === 'all' || p.category === shopCategory)
+    && inPriceBand(p, shopPriceBand)
+    && matchesQuery(p, shopQuery));
 }
 
 function updateResultCount(n) {
@@ -662,11 +689,72 @@ function renderFilters() {
   chip('all', 'All', catalogue.length);
   // Biggest categories first; ties alphabetical so the order is stable between
   // loads rather than depending on insertion order.
-  [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .forEach(([slug, n]) => chip(slug, categoryLabel(slug), n));
+  const ordered = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  ordered.forEach(([slug, n]) => chip(slug, categoryLabel(slug), n));
 
   if (controls) controls.hidden = false;
+
+  renderSidebar(ordered, counts);
+}
+
+// ── the desktop sidebar ───────────────────────────────────────────
+//
+// Same filters, laid out as a marketplace sidebar rather than a pill row. At 59
+// products the pills wrap to three lines and push the catalogue below the fold.
+//
+// Deliberately built from the SAME state (shopCategory, shopPriceBand) and
+// calling the SAME render, so the two controls cannot disagree about what is
+// filtered — CSS decides which one is visible, not JavaScript.
+function renderSidebar(ordered) {
+  const cats = document.getElementById('shopSideCats');
+  const prices = document.getElementById('shopSidePrice');
+  const sidebar = document.getElementById('shopSidebar');
+  if (!cats || !prices || !sidebar) return;
+
+  const row = (label, count, isActive, onClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'shop-side-row' + (isActive ? ' is-active' : '');
+    b.setAttribute('aria-pressed', String(isActive));
+    b.appendChild(document.createTextNode(label));
+    if (count !== null) {
+      const c = document.createElement('span');
+      c.className = 'shop-side-count';
+      c.textContent = String(count);
+      b.appendChild(c);
+    }
+    b.addEventListener('click', onClick);
+    return b;
+  };
+
+  cats.innerHTML = '';
+  cats.appendChild(row('All', catalogue.length, shopCategory === 'all', () => {
+    shopCategory = 'all';
+    renderFilters();
+    renderProducts();
+  }));
+  for (const [slug, n] of ordered) {
+    cats.appendChild(row(categoryLabel(slug), n, shopCategory === slug, () => {
+      shopCategory = (shopCategory === slug) ? 'all' : slug;
+      renderFilters();
+      renderProducts();
+    }));
+  }
+
+  // Price bands, with live counts so a band that would return nothing is
+  // visibly empty rather than a dead click.
+  prices.innerHTML = '';
+  for (const band of PRICE_BANDS) {
+    const n = catalogue.filter((p) => inPriceBand(p, band.id)).length;
+    prices.appendChild(row(band.label, n, shopPriceBand === band.id, () => {
+      shopPriceBand = (shopPriceBand === band.id) ? 'all' : band.id;
+      renderFilters();
+      renderProducts();
+    }));
+  }
+
+  sidebar.hidden = false;
 }
 
 const searchInput = document.getElementById('shopSearch');

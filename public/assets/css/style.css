@@ -1151,10 +1151,93 @@ footer {
 
 .shop-note.show { display: flex; }
 
+/* Sidebar + grid. Marketplace layout at desktop widths; below 1100px the
+   sidebar is hidden and the existing pill row takes over, because a fixed
+   240px column on a phone is wasted width. */
+.shop-layout {
+  display: grid;
+  /* 180px, not 220px. The sidebar plus its gap comes out of the grid's width,
+     and at 220px/2rem the denser cards still produced FEWER per row than before
+     (4 vs 5) — the restyle would have shown less of the catalogue, which is the
+     opposite of the point. Measured, not guessed. */
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.shop-sidebar {
+  position: sticky;
+  /* Clears the fixed nav; without this the first heading sits under it. */
+  top: calc(var(--nav-h) + 1rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.shop-side-block h3 {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 0 0 0.6rem;
+}
+
+.shop-side-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.42rem 0.6rem;
+  margin-bottom: 0.15rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.shop-side-row:hover { background: var(--dark-3); }
+.shop-side-row.is-active {
+  background: rgba(255, 107, 0, 0.12);
+  border-color: rgba(255, 107, 0, 0.3);
+  color: var(--orange-light);
+  font-weight: 600;
+}
+.shop-side-row:focus-visible { outline: 2px solid var(--orange); outline-offset: 1px; }
+.shop-side-count { font-size: 0.76rem; color: var(--text-muted); }
+.shop-side-row.is-active .shop-side-count { color: var(--orange-light); }
+
+/* Exactly one set of filters is visible at a time. With both on screen the same
+   control appears twice — the pill row above and the sidebar beside — and
+   clicking one visibly changes the other, which reads as a bug. */
+@media (min-width: 1101px) {
+  #shopFilters { display: none; }
+}
+
+@media (max-width: 1100px) {
+  .shop-layout { grid-template-columns: 1fr; gap: 0; }
+  /* Hidden rather than removed from the DOM: main.js keeps both controls in
+     sync from one piece of state, so the pill row is already correct when the
+     sidebar disappears. */
+  .shop-sidebar { display: none; }
+}
+
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 1.5rem;
+  /* 195px, arrived at by measuring rather than picking a round number.
+     At 1440px the grid is 1092px wide once the sidebar and page padding are
+     taken out. Five cards need (1092 - 4×18.4)/5 = 204px each, so a 210px floor
+     forbids five and auto-fill drops to FOUR — fewer than the 240px original,
+     which would have made the "denser" grid show less. 195px clears 204 with
+     room for the gap, and the photos stay large enough to be the thing you
+     look at. */
+  grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+  gap: 1.15rem;
 }
 
 .shop-loading, .shop-empty, .shop-error {

@@ -207,13 +207,32 @@
               aria-label="Clear search" hidden>✕</button>
     </div>
     <!-- Chips are built by main.js from the categories actually present, so a
-         new category needs no change here. -->
+         new category needs no change here. On desktop they move into the
+         sidebar; the same element serves both, so main.js needs no knowledge of
+         the layout. -->
     <div class="gallery-filter" id="shopFilters" role="group" aria-label="Filter by category"></div>
     <p class="shop-result-count" id="shopResultCount" aria-live="polite"></p>
   </div>
 
-  <div class="product-grid" id="productGrid" aria-live="polite">
-    <div class="shop-loading">Loading the catalogue…</div>
+  <!-- Sidebar + grid. The sidebar is a marketplace convention that earns its
+       place at 59 products: a pill row wraps to three lines and pushes the
+       catalogue below the fold. Below 1100px it collapses back to the pill row,
+       because a fixed sidebar on a phone is just a column of wasted width. -->
+  <div class="shop-layout">
+    <aside class="shop-sidebar" id="shopSidebar" hidden>
+      <div class="shop-side-block">
+        <h3>Category</h3>
+        <div id="shopSideCats" role="group" aria-label="Filter by category"></div>
+      </div>
+      <div class="shop-side-block">
+        <h3>Price</h3>
+        <div id="shopSidePrice" role="group" aria-label="Filter by price"></div>
+      </div>
+    </aside>
+
+    <div class="product-grid" id="productGrid" aria-live="polite">
+      <div class="shop-loading">Loading the catalogue…</div>
+    </div>
   </div>
 </section>
 
