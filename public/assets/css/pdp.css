@@ -1,0 +1,284 @@
+/* Product detail page.
+   Uses the tokens from style.css — same dark palette as the rest of the shop,
+   marketplace structure on top. */
+
+.pdp-body {
+  background: var(--dark);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdp-main {
+  width: min(1180px, 92vw);
+  margin: 0 auto;
+  padding: calc(var(--nav-h) + 1.5rem) 0 3rem;
+  flex: 1;
+}
+
+/* ── breadcrumbs ─────────────────────────────────────────────── */
+/* style.css styles the bare `nav` selector as the fixed top bar — position,
+   height, blur, the lot. A <nav class="pdp-crumbs"> inherits all of it and
+   becomes a second header pinned over the real one, with the crumbs spread
+   across the full width by justify-content: space-between. Every property that
+   rule sets has to be undone here, not just the visible ones. */
+.pdp-crumbs {
+  position: static;
+  height: auto;
+  padding: 0;
+  background: none;
+  backdrop-filter: none;
+  border-bottom: none;
+  z-index: auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+.pdp-crumbs a { color: var(--text-muted); text-decoration: none; }
+.pdp-crumbs a:hover { color: var(--orange); text-decoration: underline; }
+.pdp-crumbs [aria-current] { color: var(--text); font-weight: 600; }
+.pdp-crumb-sep { color: var(--dark-4); }
+
+/* ── the two-column top ──────────────────────────────────────── */
+.pdp-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
+  gap: 2.5rem;
+  align-items: start;
+}
+
+.pdp-hero {
+  background: var(--dark-2);
+  border: 1px solid var(--dark-4);
+  border-radius: var(--radius);
+  overflow: hidden;
+  /* Square, because the photos are not a consistent shape — a fixed box with
+     object-fit stops a portrait shot from making the page twice as tall as a
+     landscape one, which is what makes a grid of them look untidy. */
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pdp-hero img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Thumbnail rail. Rendered only when a product HAS extra images — one product
+   of 59 today, so the common case is this block not existing at all rather than
+   an empty strip under the photo. */
+.pdp-thumbs {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+  flex-wrap: wrap;
+}
+.pdp-thumb {
+  width: 72px; height: 72px;
+  padding: 0;
+  background: var(--dark-2);
+  border: 2px solid var(--dark-4);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+.pdp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pdp-thumb:hover { border-color: var(--text-muted); }
+.pdp-thumb.is-active { border-color: var(--orange); }
+.pdp-thumb:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+
+/* ── the buy column ──────────────────────────────────────────── */
+.pdp-info h1 {
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  font-weight: 800;
+  line-height: 1.2;
+  margin: 0 0 0.9rem;
+}
+
+.pdp-price {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--orange);
+  margin-bottom: 1.25rem;
+}
+/* Quieter for an unpriced item: this is an invitation to ask, not a number to
+   compare, and it should not shout louder than a real price. */
+.pdp-price.is-quote {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pdp-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.pdp-qty {
+  display: flex;
+  align-items: center;
+  background: var(--dark-3);
+  border: 1px solid var(--dark-4);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.pdp-qty button {
+  width: 36px; height: 42px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.pdp-qty button:hover { background: var(--dark-4); }
+.pdp-qty input {
+  width: 44px; height: 42px;
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: center;
+  font: inherit;
+  font-weight: 600;
+}
+.pdp-qty input:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+
+.pdp-btn {
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.92rem;
+  padding: 0.72rem 1.4rem;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background var(--transition), border-color var(--transition);
+  text-decoration: none;
+  display: inline-block;
+}
+.pdp-btn-primary {
+  background: var(--orange);
+  color: var(--white);
+}
+.pdp-btn-primary:hover { background: var(--orange-light); }
+.pdp-btn-ghost {
+  background: rgba(255, 107, 0, 0.12);
+  border-color: rgba(255, 107, 0, 0.3);
+  color: var(--orange-light);
+}
+.pdp-btn-ghost:hover { background: var(--orange); border-color: var(--orange); color: var(--white); }
+.pdp-btn.is-done { background: #2f7d54; border-color: #2f7d54; color: var(--white); }
+
+.pdp-note { font-size: 0.82rem; color: var(--text-muted); margin: 0 0 1.4rem; }
+.pdp-note a { color: var(--orange); }
+
+.pdp-desc {
+  border-top: 1px solid var(--dark-4);
+  padding-top: 1.2rem;
+  margin-bottom: 1.2rem;
+}
+.pdp-desc p { margin: 0; line-height: 1.7; color: var(--text); }
+
+/* The spec list is what keeps a page with one photo and eighty characters of
+   description from reading as unfinished. Every row is true for every product. */
+.pdp-specs {
+  border-top: 1px solid var(--dark-4);
+  padding-top: 1.2rem;
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+  font-size: 0.86rem;
+}
+.pdp-specs > div { display: grid; grid-template-columns: 108px 1fr; gap: 0.75rem; }
+.pdp-specs dt { color: var(--text-muted); }
+.pdp-specs dd { margin: 0; color: var(--text); }
+
+/* ── related ─────────────────────────────────────────────────── */
+.pdp-related {
+  margin-top: 3.5rem;
+  border-top: 1px solid var(--dark-4);
+  padding-top: 2rem;
+}
+.pdp-related h2 { font-size: 1.15rem; font-weight: 700; margin: 0 0 1.2rem; }
+.pdp-related-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 1rem;
+}
+.pdp-rel-card {
+  display: block;
+  background: var(--dark-2);
+  border: 1px solid var(--dark-4);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color var(--transition), transform var(--transition);
+}
+.pdp-rel-card:hover { border-color: var(--orange); transform: translateY(-2px); }
+.pdp-rel-card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+.pdp-rel-name {
+  display: block;
+  padding: 0.7rem 0.8rem 0.2rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.pdp-rel-price {
+  display: block;
+  padding: 0 0.8rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--orange);
+}
+
+/* ── footer ──────────────────────────────────────────────────── */
+.pdp-footer {
+  border-top: 1px solid var(--dark-4);
+  padding: 2rem 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.pdp-footer-links {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+.pdp-footer-links a { color: var(--text-muted); text-decoration: none; }
+.pdp-footer-links a:hover { color: var(--orange); }
+
+/* ── mobile ──────────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .pdp-top { grid-template-columns: 1fr; gap: 1.5rem; }
+  .pdp-main { padding-top: calc(var(--nav-h) + 1rem); }
+  .pdp-price { font-size: 1.7rem; }
+  /* At 390px the stepper plus two buttons leaves each button ~100px, which wraps
+     "Add to cart" onto two lines and makes the row ragged. Stepper keeps its
+     natural width; the buttons share what is left and stay on one line. */
+  .pdp-actions { gap: 0.5rem; }
+  .pdp-actions .pdp-btn {
+    flex: 1;
+    text-align: center;
+    white-space: nowrap;
+    padding: 0.72rem 0.6rem;
+    font-size: 0.86rem;
+  }
+  .pdp-qty { flex: 0 0 auto; }
+  .pdp-specs > div { grid-template-columns: 96px 1fr; }
+}

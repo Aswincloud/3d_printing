@@ -1,15 +1,14 @@
-// Shareable per-product links: GET /p/<slug>
+// The product page: GET /p/<slug>
 //
-// Serves the normal single-page shop with the Open Graph tags rewritten for one
-// product, so a link pasted into WhatsApp, Instagram or Slack previews that
-// product's photo, name and price instead of a generic site card.
+// Loads one product, gathers what the page needs around it (related items), and
+// hands off to src/pdp.js to render. This module owns the ROUTE — slug parsing,
+// the lookup, the not-found behaviour, the meta tags and the cache headers —
+// while pdp.js owns the markup.
 //
-// Why server-side: link crawlers (WhatsApp, Facebook, Twitter, Slack, iMessage)
-// fetch the HTML and read the meta tags. None of them execute JavaScript, so
-// setting og:* from main.js would work for nothing — the preview is built from
-// whatever the first HTML response contains. HTMLRewriter lets us patch the tags
-// on the way out without maintaining a second HTML file that would drift from
-// index.html.
+// It used to serve index.html with rewritten Open Graph tags, which previewed
+// correctly in WhatsApp and Slack but gave a visitor the entire homepage with a
+// lightbox over it. Everything is server-rendered now, so a crawler and a person
+// see the same page.
 //
 // The URL is /p/<slug> rather than ?product=<slug> because a bare path survives
 // copy-paste and truncation better, and slugs are already unique and readable
@@ -17,6 +16,7 @@
 
 import { esc } from "./lib.js";
 import { productJsonLd, jsonLdScript } from "./seo.js";
+import { renderProductPage, breadcrumbJsonLd } from "./pdp.js";
 
 // Slugs are lowercase words and dashes — see slugify() in admin.js. Anything else
 // cannot be a real slug, so it is rejected before the query rather than becoming
@@ -60,90 +60,27 @@ function clampDescription(text, limit = 180) {
 // route — that would reintroduce, via a different door, exactly the exposure the
 // visible flag exists to prevent.
 async function loadProduct(env, slug) {
+  // `category` drives the breadcrumb trail and the related-products query;
+  // `images` is the gallery. Both were unnecessary when this route only rewrote
+  // meta tags on the homepage, and both are required now that it renders a page.
   return env.DB.prepare(
-    `SELECT slug, name, description, price_paise, image
+    `SELECT slug, name, description, price_paise, image, images, category
        FROM products WHERE slug = ? AND visible = 1`
   ).bind(slug).first();
 }
 
-// Rewrites the <head> of index.html for one product.
+// NOTE: rewriteHead() lived here until /p/<slug> became a real page.
 //
-// setAttribute on existing tags where index.html already has them, and append to
-// <head> for the ones it does not. Doing it this way (rather than templating a
-// separate file) means index.html stays the single source of the page: a change to
-// the markup, the CSS link or the icons is picked up here for free.
-function rewriteHead(response, { product, pageUrl, imageUrl, title, description, jsonLd }) {
-  const setContent = { element(el) { el.setAttribute("content", description); } };
-
-  return new HTMLRewriter()
-    // FIRST, before anything else in <head>: index.html references its assets
-    // relatively ("assets/css/style.css", "assets/js/main.js", three hero images).
-    // Served at /p/<slug> the browser resolves those against /p/, requests
-    // /p/assets/… and gets 404s — no CSS, no JS, zero product cards. The page was
-    // completely blank-shell broken for exactly the visitors arriving from a
-    // shared link, which is the whole point of the feature.
-    //
-    // A <base href="/"> fixes all of them at once and keeps index.html as the
-    // single copy of the page. Rewriting each path instead would mean this module
-    // has to know every asset reference in the markup and stay in step with it.
-    // Prepended to <head> because <base> only affects URLs that come after it.
-    .on("head", {
-      element(el) { el.prepend(`<base href="/" />`, { html: true }); },
-    })
-    .on("title", { element(el) { el.setInnerContent(title); } })
-    .on('meta[name="description"]', setContent)
-    .on('meta[property="og:description"]', setContent)
-    .on('meta[property="og:title"]', {
-      element(el) { el.setAttribute("content", title); },
-    })
-    .on('meta[property="og:image"]', {
-      element(el) { el.setAttribute("content", imageUrl); },
-    })
-    // index.html carries homepage og:url and og:type. They must be REWRITTEN, not
-    // appended to: two conflicting og:url values in one document is undefined
-    // behaviour across crawlers, and the first-wins ones would re-crawl a shared
-    // product link as the homepage and preview the wrong thing. Caught by seeing
-    // both pairs in the output.
-    .on('meta[property="og:url"]', {
-      element(el) { el.setAttribute("content", pageUrl); },
-    })
-    .on('meta[property="og:type"]', {
-      element(el) { el.setAttribute("content", "product"); },
-    })
-    .on("head", {
-      element(el) {
-        el.append(
-          `<meta property="og:site_name" content="AswinPrints" />` +
-          // Twitter/X reads its own namespace and ignores og:* for the card type.
-          // twitter:card is already in index.html and is the same value for both,
-          // so it is not repeated here.
-          `<meta name="twitter:title" content="${esc(title)}" />` +
-          `<meta name="twitter:description" content="${esc(description)}" />` +
-          `<meta name="twitter:image" content="${esc(imageUrl)}" />` +
-          // Price, which WhatsApp ignores but Facebook and some others surface.
-          `<meta property="product:price:amount" content="${(product.price_paise / 100).toFixed(2)}" />` +
-          `<meta property="product:price:currency" content="INR" />` +
-          `<link rel="canonical" href="${esc(pageUrl)}" />` +
-          // Consumed by main.js on load to scroll to and open this product. Read
-          // from the DOM rather than the URL so the client does not have to parse
-          // the path a second time and agree with the server about what is valid.
-          `<meta name="ap:product" content="${esc(product.slug)}" />` +
-          // Product structured data — what lets a search result show the price
-          // and "in stock" instead of a bare blue link. Returns null for an
-          // unpriced item, since an Offer with price 0 is invalid rather than
-          // free; jsonLd is then omitted entirely.
-          (jsonLd || ""),
-          { html: true },
-        );
-      },
-    })
-    .transform(response);
-}
+// It fetched index.html and patched its <head> so a shared link previewed the
+// right product. That worked for link crawlers, but the document a visitor got
+// was still the whole homepage — grid, hero, quote form — with a lightbox opened
+// over it. src/pdp.js renders an actual product page instead, so the rewriter and
+// its <base href="/"> workaround are gone rather than left as unreachable code.
 
 // GET /p/<slug>
 //
-// Returns the shop page with product-specific meta tags, or redirects to the shop
-// for an unknown/hidden slug. A redirect rather than a 404 page: the product may
+// Returns a rendered product page, or redirects to the shop for an
+// unknown/hidden slug. A redirect rather than a 404 page: the product may
 // have been delisted after someone shared it, and dropping a visitor on the
 // catalogue is more useful than an error. 302, not 301 — a delisted product can
 // come back, and a permanent redirect would be cached by browsers indefinitely.
@@ -162,14 +99,9 @@ export async function productPage(request, env, url) {
   }
   if (!product) return Response.redirect(absolute(env, "/#shop", url), 302);
 
-  // Fetch index.html through the assets binding so there is one copy of the page.
-  const assetUrl = new URL(url);
-  assetUrl.pathname = "/index.html";
-  assetUrl.search = "";
-  const page = await env.ASSETS.fetch(new Request(assetUrl, { method: "GET" }));
-  if (!page.ok) return page;
-
-  const title = `${product.name} — ${rupees(product.price_paise)} · AswinPrints`;
+  const title = product.price_paise > 0
+    ? `${product.name} — ${rupees(product.price_paise)} · AswinPrints`
+    : `${product.name} · AswinPrints`;
   const description = clampDescription(
     product.description || `${product.name}, 3D printed to order and shipped across India.`
   );
@@ -178,19 +110,66 @@ export async function productPage(request, env, url) {
   const imageUrl = absolute(env, product.image, url);
   const ld = productJsonLd(env, product, { pageUrl, imageUrl });
 
-  const rewritten = rewriteHead(page, {
-    product,
-    pageUrl,
-    imageUrl,
-    title,
-    description,
+  // Other products in the same category, for the "More in…" row.
+  //
+  // Excludes this product and anything hidden. Wrapped: a related-products query
+  // failing must not take down the page someone was actually trying to see — the
+  // row simply does not render.
+  let related = [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT slug, name, price_paise, image FROM products
+        WHERE visible = 1 AND slug != ? AND slug IS NOT NULL AND slug != ''
+          AND category = ?
+        ORDER BY sort ASC LIMIT 4`
+    ).bind(product.slug, product.category || "").all();
+    related = results || [];
+  } catch (e) {
+    console.error("related products failed", product.slug, e?.message || e);
+  }
+
+  // A product with no category, or the only one in its category, would get an
+  // empty row. Fall back to anything else visible rather than showing a heading
+  // with nothing under it.
+  if (!related.length) {
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT slug, name, price_paise, image FROM products
+          WHERE visible = 1 AND price_paise > 0 AND slug != ?
+            AND slug IS NOT NULL AND slug != ''
+          ORDER BY sort ASC LIMIT 4`
+      ).bind(product.slug).all();
+      related = results || [];
+    } catch { /* leave it empty */ }
+  }
+
+  const head =
+    `<title>${esc(title)}</title>` +
+    `<meta name="description" content="${esc(description)}" />` +
+    `<link rel="canonical" href="${esc(pageUrl)}" />` +
+    `<meta property="og:type" content="product" />` +
+    `<meta property="og:site_name" content="AswinPrints" />` +
+    `<meta property="og:title" content="${esc(title)}" />` +
+    `<meta property="og:description" content="${esc(description)}" />` +
+    `<meta property="og:image" content="${esc(imageUrl)}" />` +
+    `<meta property="og:url" content="${esc(pageUrl)}" />` +
+    `<meta name="twitter:card" content="summary_large_image" />` +
+    `<meta name="twitter:title" content="${esc(title)}" />` +
+    `<meta name="twitter:description" content="${esc(description)}" />` +
+    `<meta name="twitter:image" content="${esc(imageUrl)}" />` +
+    (product.price_paise > 0
+      ? `<meta property="product:price:amount" content="${(product.price_paise / 100).toFixed(2)}" />`
+        + `<meta property="product:price:currency" content="INR" />`
+      : "") +
     // Empty string rather than undefined: an unpriced product gets no Product
     // markup at all, and appending "undefined" into <head> would be worse than
     // appending nothing.
-    jsonLd: ld ? jsonLdScript(ld) : "",
-  });
+    (ld ? jsonLdScript(ld) : "") +
+    jsonLdScript(breadcrumbJsonLd(env, product));
 
-  return new Response(rewritten.body, {
+  const html = renderProductPage(env, { product, related, headExtra: head });
+
+  return new Response(html, {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",

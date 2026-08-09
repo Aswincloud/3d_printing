@@ -559,6 +559,20 @@ async function loadProducts() {
     // Must run after renderProducts(): a shared /p/<slug> link needs the cards to
     // exist before it can scroll to one and open its lightbox.
     openSharedProduct();
+
+    // "Buy now" on a product page adds to the cart and sends the visitor here
+    // with #checkout, because checkout and the whole Razorpay flow live in this
+    // file — duplicating them on the product page would mean two implementations
+    // of the payment path.
+    //
+    // After renderProducts() for the same reason as above: openCheckout() prices
+    // the cart against the loaded catalogue and does nothing if it is empty.
+    if (location.hash === '#checkout') {
+      // Drop the hash first, so a refresh does not reopen checkout on a cart the
+      // visitor may since have emptied.
+      history.replaceState({}, '', location.pathname + location.search);
+      openCheckout();
+    }
   } catch (err) {
     productGrid.innerHTML =
       '<p class="shop-error">Couldn\'t load the shop right now. ' +
