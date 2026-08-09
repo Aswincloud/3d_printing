@@ -7,7 +7,7 @@
 import { json, bad, isEmail, sendEmail } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
-import { sitemap, robots, rewriteHome } from "./seo.js";
+import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
 import { listProducts, priceCart } from "./shop.js";
 // Aliased like the admin.js imports below: coupons.js exports its own CRUD names
@@ -101,6 +101,37 @@ export default {
         // Never fail a shared link; fall back to the shop.
         console.error("product page error", url.pathname, e?.stack || e);
         return Response.redirect(new URL("/#shop", url.origin).toString(), 302);
+      }
+    }
+
+    // The local landing page gets LocalBusiness + FAQ structured data.
+    //
+    // Injected here rather than baked into the generated HTML so the address,
+    // phone and business name come from one place (src/seo.js) — the same values
+    // the homepage and product pages use. Two copies of an address is how they
+    // end up disagreeing.
+    if ((url.pathname === "/3d-printing-in-pondicherry"
+         || url.pathname === "/3d-printing-in-pondicherry.html")
+        && (request.method === "GET" || request.method === "HEAD")) {
+      const page = await env.ASSETS.fetch(request);
+      try {
+        const canonical = (env.APP_BASE_URL || "https://3d-prints.aswincloud.com")
+          .replace(/\/$/, "") + "/3d-printing-in-pondicherry";
+        const out = new HTMLRewriter()
+          .on("head", {
+            element(el) {
+              el.append(
+                `<link rel="canonical" href="${canonical}" />`
+                + jsonLdScript(localPageJsonLd(env)),
+                { html: true },
+              );
+            },
+          })
+          .transform(page);
+        return withSecurityHeaders(out);
+      } catch (e) {
+        console.error("local page rewrite failed", e?.message || e);
+        return withSecurityHeaders(page);
       }
     }
 

@@ -11,6 +11,11 @@ import { esc } from "./lib.js";
 // they are here for completeness, not traffic.
 const STATIC_PAGES = [
   { path: "/", priority: "1.0", changefreq: "daily" },
+  // The local landing page. Priority above the policy pages and just under the
+  // homepage: it is the one static page written to be FOUND, targeting the
+  // searches that bring a buyer in ("3d printing pondicherry") rather than the
+  // ones a buyer only reads after arriving.
+  { path: "/3d-printing-in-pondicherry", priority: "0.9", changefreq: "monthly" },
   { path: "/contact", priority: "0.5", changefreq: "monthly" },
   { path: "/shipping", priority: "0.3", changefreq: "yearly" },
   { path: "/refunds", priority: "0.3", changefreq: "yearly" },
@@ -303,6 +308,81 @@ export function rewriteHome(env, response, products, url) {
       element(el) { el.setInnerContent(grid, { html: true }); },
     })
     .transform(response);
+}
+
+// The local landing page's structured data.
+//
+// Two schemas, because they answer different searches:
+//   - LocalBusiness, so "3d printing near me" and map-style queries can match a
+//     business with a real address in Pondicherry.
+//   - FAQPage, which is what can put the turnaround and shipping answers
+//     directly into a search result.
+//
+// Every answer here repeats what the page body says. Structured data that
+// disagrees with the visible page is a Search Console violation, not a shortcut.
+export function localPageJsonLd(env) {
+  const base = baseUrl(env);
+  const url = base + "/3d-printing-in-pondicherry";
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        ...BUSINESS(env),
+        "@type": "LocalBusiness",
+        "@id": url + "#business",
+        description: "Custom 3D printing in Pondicherry — figurines, home decor, "
+          + "functional parts and prototypes, printed on a Bambu Lab A1 and shipped "
+          + "across India.",
+        telephone: "+916380157944",
+      },
+      {
+        "@type": "FAQPage",
+        "@id": url + "#faq",
+        mainEntity: [
+          {
+            "@type": "Question",
+            name: "How long does a 3D print take?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "Items already listed in the shop take 3–5 days, plus delivery. "
+                + "Custom work depends on size and complexity, and you get a specific "
+                + "timeline with your quote.",
+            },
+          },
+          {
+            "@type": "Question",
+            name: "Do you deliver outside Pondicherry?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "Yes — anywhere in India. Shipping is a flat ₹99 and free on "
+                + "orders over ₹2,000, with a tracking ID emailed when the parcel "
+                + "is dispatched.",
+            },
+          },
+          {
+            "@type": "Question",
+            name: "Can you print something custom?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "Yes. Send an idea, a photo or an STL file and you get a free "
+                + "quote covering whether it is printable and what it will cost.",
+            },
+          },
+          {
+            "@type": "Question",
+            name: "Do you take bulk or corporate orders?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "Yes — wedding and event favours, corporate gifts, college "
+                + "project models and promotional pieces. Batch pricing differs, so "
+                + "message with the quantity and deadline before ordering.",
+            },
+          },
+        ],
+      },
+    ],
+  };
 }
 
 // Serialised for injection into <head>.

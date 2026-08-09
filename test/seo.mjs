@@ -12,7 +12,7 @@
 //
 // Neither shows up by looking at the site.
 
-import { sitemap, robots, productJsonLd, homeJsonLd, jsonLdScript } from "../src/seo.js";
+import { sitemap, robots, productJsonLd, homeJsonLd, jsonLdScript, localPageJsonLd } from "../src/seo.js";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -87,6 +87,16 @@ section("sitemap.xml");
   ok("no duplicate URLs", new Set(locs).size === locs.length);
   ok("the homepage is listed", locs.includes("https://3d-prints.aswincloud.com/"));
   ok("policy pages are listed", locs.includes("https://3d-prints.aswincloud.com/contact"));
+
+  // The local landing page. In the sitemap, so a 404 here is a dead URL handed
+  // straight to Google — and it 404'd on production once already, because the
+  // path was missing from run_worker_first.
+  ok("the Pondicherry landing page is listed",
+     locs.includes("https://3d-prints.aswincloud.com/3d-printing-in-pondicherry"));
+  ok("it outranks the policy pages", (() => {
+    const prio = xml.match(/<loc>[^<]*3d-printing-in-pondicherry<\/loc>[\s\S]*?<priority>([\d.]+)<\/priority>/);
+    return prio && Number(prio[1]) >= 0.9;
+  })(), "it is the page written to be found; policies are read after arriving");
 
   // ── THE assertions that matter ──
   //
@@ -196,6 +206,37 @@ section("Product JSON-LD");
       { pageUrl: "https://x/p/x", imageUrl: "https://x/i.jpg" });
     ok(`price ${JSON.stringify(paise)} → no Product markup at all`, ld === null);
   }
+}
+
+// ── the local landing page's structured data ──────────────────────
+section("local landing page JSON-LD");
+{
+  const ld = localPageJsonLd(ENV);
+  const json = JSON.stringify(ld);
+  const graph = ld["@graph"];
+
+  ok("is a graph", Array.isArray(graph));
+  ok("declares a LocalBusiness", graph.some((g) => g["@type"] === "LocalBusiness"));
+  ok("declares an FAQPage", graph.some((g) => g["@type"] === "FAQPage"));
+
+  const biz = graph.find((g) => g["@type"] === "LocalBusiness");
+  // Must match /contact exactly. Two addresses for one business is worse than
+  // none — Google treats a mismatch as a signal the data is unreliable.
+  ok("street address matches /contact", biz.address.streetAddress.includes("Venkata Nagar"));
+  ok("postal code matches", biz.address.postalCode === "605110");
+  ok("phone is E.164", /^\+91\d{10}$/.test(biz.telephone || ""), biz.telephone);
+
+  const faq = graph.find((g) => g["@type"] === "FAQPage");
+  ok("has four questions", faq.mainEntity.length === 4, String(faq.mainEntity.length));
+  ok("every question has an answer",
+     faq.mainEntity.every((q) => q.acceptedAnswer?.text?.length > 20));
+
+  // The answers must repeat what the page says. Structured data that contradicts
+  // the visible page is a Search Console violation, not a shortcut.
+  const answers = faq.mainEntity.map((q) => q.acceptedAnswer.text).join(" ");
+  ok("turnaround answer matches the page", /3.5 days/.test(answers), answers.slice(0, 60));
+  ok("shipping answer matches the page", /₹99/.test(answers) && /₹2,000/.test(answers));
+  ok("bulk orders are covered", /bulk|corporate|favours/i.test(json));
 }
 
 section("homepage JSON-LD");
