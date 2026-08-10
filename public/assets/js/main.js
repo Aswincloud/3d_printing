@@ -85,11 +85,32 @@ lightboxImg.style.transition = 'opacity 0.15s ease';
 // Delegated from the grid, because the cards do not exist yet when this runs and
 // are replaced wholesale on every search keystroke and filter change. Binding to
 // each card at render time would mean re-binding on every one of those.
+// Clicking a product photo goes to that product's page.
+//
+// It used to open the lightbox. That was right when /p/<slug> was just the
+// homepage again — but now that real product pages exist, keeping the overlay
+// meant 59 pages nobody could click through to, and Google seeing links to
+// pages the site itself never linked.
+//
+// The lightbox is still there, and is still the right control on the product
+// page where zooming into one photo is the point. It is just no longer what
+// browsing the grid does.
+//
+// Buttons inside the card (Add to cart, Ask for a quote, Share) call
+// stopPropagation or sit outside .product-media, so this does not hijack them.
 document.getElementById('productGrid')?.addEventListener('click', (e) => {
   const media = e.target.closest('.product-media');
   if (!media) return;
-  const index = lbItems().indexOf(media);
-  if (index >= 0) openLightbox(index);
+  const card = media.closest('.product-card');
+  const slug = card?.dataset.slug;
+  // A synthesised quote-only card has no slug and therefore no page. Falling
+  // back to the lightbox is better than a dead click.
+  if (!slug) {
+    const index = lbItems().indexOf(media);
+    if (index >= 0) openLightbox(index);
+    return;
+  }
+  location.href = '/p/' + slug;
 });
 
 // A div with role="button" does not fire click on Enter/Space the way a real
@@ -100,6 +121,9 @@ document.getElementById('productGrid')?.addEventListener('keydown', (e) => {
   const media = e.target.closest?.('.product-media');
   if (!media) return;
   e.preventDefault();
+  const card = media.closest('.product-card');
+  const slug = card?.dataset.slug;
+  if (slug) { location.href = '/p/' + slug; return; }
   const index = lbItems().indexOf(media);
   if (index >= 0) openLightbox(index);
 });
@@ -836,7 +860,10 @@ function renderProducts() {
     // key press the way a real button does.
     media.setAttribute('role', 'button');
     media.setAttribute('tabindex', '0');
-    media.setAttribute('aria-label', 'View larger photo of ' + p.name);
+    // Announces where the click goes. It said "View larger photo" while the
+    // click opened a lightbox; now it navigates, so the label has to say so or
+    // a screen-reader user is told the wrong thing.
+    media.setAttribute('aria-label', p.slug ? 'View ' + p.name : 'View larger photo of ' + p.name);
     const img = document.createElement('img');
     img.src = p.image;
     img.alt = p.name;
@@ -846,8 +873,19 @@ function renderProducts() {
     const body = document.createElement('div');
     body.className = 'product-body';
 
-    const name = document.createElement('div');
+    // A real link to the product page.
+    //
+    // The name was a plain <div>, which meant the only way to reach /p/<slug>
+    // was to already know the URL: the photo opened the lightbox and nothing on
+    // the card navigated. 59 product pages existed that a visitor could not
+    // click through to.
+    //
+    // An <a> rather than a click handler, so it right-clicks, middle-clicks,
+    // opens in a new tab, and is followed by crawlers — none of which a JS
+    // navigation gives you.
+    const name = p.slug ? document.createElement('a') : document.createElement('div');
     name.className = 'product-name';
+    if (p.slug) name.href = '/p/' + p.slug;
     name.textContent = p.name;
 
     const desc = document.createElement('p');

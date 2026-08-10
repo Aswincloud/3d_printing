@@ -191,9 +191,15 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
 
   <div class="pdp-top">
     <div class="pdp-media">
-      <div class="pdp-hero">
+      <!-- Click to zoom. Grid clicks now navigate here instead of opening an
+           overlay, so without this there is nowhere left to see a photo full
+           size — the product page is the only place a close look still makes
+           sense, and it is the place someone deciding to buy actually wants it. -->
+      <button type="button" class="pdp-hero" id="pdpZoomOpen"
+              aria-label="View ${esc(product.name)} full size">
         <img id="pdpHero" src="/${esc(product.image)}" alt="${esc(product.name)}" width="800" height="800">
-      </div>
+        <span class="pdp-zoom-hint" aria-hidden="true">Click to enlarge</span>
+      </button>
       ${thumbs}
     </div>
 
@@ -213,6 +219,16 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
 
   ${relatedHtml}
 </main>
+
+<!-- Zoom overlay. Deliberately minimal: one image, a close button, and a
+     backdrop that closes on click. The grid's lightbox carried prev/next and
+     buy controls because it WAS the product view; here the page already has all
+     of that, so the overlay only has to show the photo bigger. -->
+<div class="pdp-zoom" id="pdpZoom" hidden role="dialog" aria-modal="true"
+     aria-label="${esc(product.name)} full size">
+  <button type="button" class="pdp-zoom-close" id="pdpZoomClose" aria-label="Close">✕</button>
+  <img id="pdpZoomImg" src="" alt="${esc(product.name)}">
+</div>
 
 <footer class="pdp-footer">
   <div class="pdp-footer-links">

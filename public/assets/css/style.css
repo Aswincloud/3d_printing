@@ -2448,3 +2448,16 @@ footer {
   .gallery-filter { gap: 0.4rem; }
   .filter-btn { font-size: 0.78rem; padding: 0.4rem 0.8rem; }
 }
+
+/* The product name is a link to /p/<slug> now, not a plain div. Without this it
+   inherits the default underline and link colour and stops matching the card. */
+a.product-name {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+a.product-name:hover { color: var(--orange); }
+a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; border-radius: 4px; }
+
+/* The photo navigates, so it should say so on hover. */
+.product-card .product-media { cursor: pointer; }

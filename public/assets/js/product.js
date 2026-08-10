@@ -83,6 +83,47 @@ for (const thumb of document.querySelectorAll('.pdp-thumb')) {
   });
 }
 
+// ── zoom ──────────────────────────────────────────────────────────
+//
+// Grid clicks navigate to this page now instead of opening the old lightbox, so
+// this is the only place left to see a photo full size. Kept minimal on purpose:
+// the grid's lightbox carried prev/next and buy controls because it WAS the
+// product view, and this page already has all of that.
+const zoom = el('pdpZoom');
+const zoomImg = el('pdpZoomImg');
+
+function openZoom() {
+  const hero = el('pdpHero');
+  if (!zoom || !zoomImg || !hero) return;
+  zoomImg.src = hero.src;
+  zoom.hidden = false;
+  // Stop the page behind from scrolling under the overlay.
+  document.body.style.overflow = 'hidden';
+  el('pdpZoomClose')?.focus();
+}
+
+function closeZoom() {
+  if (!zoom) return;
+  zoom.hidden = true;
+  document.body.style.overflow = '';
+  // Return focus to what opened it, or a keyboard user is dumped at the top of
+  // the document with no idea where they were.
+  el('pdpZoomOpen')?.focus();
+}
+
+el('pdpZoomOpen')?.addEventListener('click', openZoom);
+el('pdpZoomClose')?.addEventListener('click', closeZoom);
+
+// Click the backdrop to close, but not the photo itself — clicking the thing you
+// just asked to see closing it is a small, constant annoyance.
+zoom?.addEventListener('click', (e) => {
+  if (e.target === zoom) closeZoom();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && zoom && !zoom.hidden) closeZoom();
+});
+
 // ── quantity ──────────────────────────────────────────────────────
 const qtyInput = el('pdpQty');
 const readQty = () => {

@@ -282,3 +282,67 @@
   .pdp-qty { flex: 0 0 auto; }
   .pdp-specs > div { grid-template-columns: 96px 1fr; }
 }
+
+/* ── zoom overlay ────────────────────────────────────────────────
+   Replaces what the grid lightbox used to do. Grid clicks navigate here now,
+   so this is the only place left to see a photo full size — and the place
+   someone deciding whether to buy actually wants it. */
+.pdp-hero {
+  /* It is a <button> now, so the browser's default button chrome has to go or
+     it renders as a grey box around the photo. */
+  padding: 0;
+  border: 1px solid var(--dark-4);
+  font: inherit;
+  cursor: zoom-in;
+  position: relative;
+  width: 100%;
+}
+.pdp-hero:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+
+.pdp-zoom-hint {
+  position: absolute;
+  right: 0.7rem; bottom: 0.7rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(10, 10, 15, 0.72);
+  color: var(--text);
+  font-size: 0.72rem;
+  opacity: 0;
+  transition: opacity var(--transition);
+  pointer-events: none;
+}
+.pdp-hero:hover .pdp-zoom-hint,
+.pdp-hero:focus-visible .pdp-zoom-hint { opacity: 1; }
+
+.pdp-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(6, 6, 10, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3vh 3vw;
+  cursor: zoom-out;
+}
+.pdp-zoom[hidden] { display: none; }
+.pdp-zoom img {
+  max-width: 100%;
+  max-height: 94vh;
+  object-fit: contain;
+  border-radius: 10px;
+  cursor: default;
+}
+.pdp-zoom-close {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  width: 42px; height: 42px;
+  border-radius: 10px;
+  background: var(--dark-3);
+  border: 1px solid var(--dark-4);
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.pdp-zoom-close:hover { background: var(--dark-4); }
+.pdp-zoom-close:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }

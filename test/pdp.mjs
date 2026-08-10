@@ -112,6 +112,30 @@ section("a quote-only product cannot be bought from the page");
   ok("and says why", /isn't priced yet/.test(h));
 }
 
+// ── zoom ──────────────────────────────────────────────────────────
+//
+// Clicking a grid photo navigates here now instead of opening the old overlay,
+// so this page is the only place left to see a photo full size. Without it there
+// is no way to look closely at what you are buying.
+section("the photo can be enlarged");
+{
+  const h = render(PRODUCT());
+  ok("the hero is a button, not a plain div", h.includes('id="pdpZoomOpen"'));
+  ok("it says what it does", /aria-label="View Dragon Sculpture full size"/.test(h));
+  ok("there is a zoom overlay", h.includes('id="pdpZoom"'));
+  ok("it starts hidden", /id="pdpZoom" hidden/.test(h));
+  ok("it is a dialog", /role="dialog"/.test(h) && /aria-modal="true"/.test(h));
+  ok("it has a close button", h.includes('id="pdpZoomClose"'));
+  // The overlay's <img> src is filled in at open time from the hero, so a
+  // swapped thumbnail zooms the photo actually on screen rather than the first.
+  ok("the overlay image starts empty", /id="pdpZoomImg" src=""/.test(h));
+}
+{
+  // A quote-only product has no buy controls but still has a photo worth seeing.
+  const h = render(PRODUCT({ price_paise: 0 }));
+  ok("zoom works on an unpriced product too", h.includes('id="pdpZoomOpen"'));
+}
+
 // ── breadcrumbs ───────────────────────────────────────────────────
 section("breadcrumbs");
 {
