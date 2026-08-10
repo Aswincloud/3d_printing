@@ -2,33 +2,15 @@
 -- the photos.
 --
 -- 18 of 59 products had no description or a one-liner that undersold them. I
--- opened each photo rather than working from the names, and that turned up three
--- things that are not wording problems. They are listed here because they change
--- what is on sale, not just how it reads, and they need your call:
+-- opened each photo rather than working from the names.
 --
--- ⚠ 1. TEN CARDS ARE NOT PRODUCTS.
+-- This migration is WORDING ONLY. It changes descriptions and two names. It does
+-- not change any price, and it does not change what is on sale. Ten of the 18 are
+-- cards that are not products at all; withdrawing those is held, unapplied, in
+-- migrations/pending/0012_hide_non_products.sql — outside this directory because
+-- `migrations apply` runs everything unapplied and would otherwise sweep it along.
 --
---    Eight "Poster ..." rows are the Instagram marketing graphics — 1080×1350
---    images with "3D Print Hub", "@3dprinthub.offl", a headline, and a "DM for a
---    quote" button burned into them. They are listed as buyable products at ₹129
---    to ₹349, so a customer can put a JPEG of an advert in their cart and pay for
---    it. And the price is the giveaway: Poster Wall Staircase is ₹299 for a
---    picture of the same print that Wall-Mounted Staircase Shelf sells for ₹399.
---
---    "Full Collection" and "Toothless Collection" are group shots of a shelf —
---    Kratos, Batman, an angel, Deadpool, Naruto, two Toothless dragons, a
---    Bluetooth speaker and an Eiffel Tower souvenir. Both priced ₹999, which
---    cannot be right for the whole group and is not defined for one piece.
---
---    This migration HIDES those ten (visible = 0) rather than deleting them, so
---    the decision is reversible and no ids are lost. It does not delete a row you
---    might want back. If you would rather relist some as real products — the
---    keychains and the hexagon wall art have no equivalent listing, and both look
---    genuinely sellable — say so and I will add them with their own photos and
---    prices. Also note the poster graphics say "DM for a quote" and carry a
---    different brand name than the shop, which is its own thing to reconcile.
---
--- ⚠ 2. THREE DESCRIPTIONS WERE FACTUALLY WRONG, not just thin.
+-- ⚠ THREE DESCRIPTIONS WERE FACTUALLY WRONG, not just thin.
 --
 --    White Stork: "in white filament" — it is multi-colour, with a black wing,
 --    orange bill and orange legs. Someone reading that expects a plain print.
@@ -39,7 +21,7 @@
 --    dragon breathes an illuminated flame that lights up. That is the whole
 --    product and it was missing from the listing.
 --
--- ⚠ 3. RED HORSE is a temple horse. Ayyanar-style, fully caparisoned with
+-- ⚠ RED HORSE is a temple horse. Ayyanar-style, fully caparisoned with
 --    beaded harness, saddle blanket and plumed crest. "Stylised standing horse"
 --    reads as generic decor and hides what it actually is, which is the thing a
 --    customer searching for one would recognise.
@@ -101,22 +83,6 @@ UPDATE products SET
   updated_at = 1786060000000
 WHERE slug = 'wall-staircase-shelf';
 
--- ── hide the ten non-products ─────────────────────────────────────
--- visible = 0, not DELETE: reversible, and no ids are lost. See note 1 above.
---
--- Eight Instagram marketing graphics, currently buyable at ₹129–₹349:
-UPDATE products SET visible = 0, updated_at = 1786060000000
-WHERE slug IN (
-  'poster-corner-staircase',
-  'poster-fairy-cottage',
-  'poster-hexart',
-  'poster-keychains',
-  'poster-spiderman',
-  'poster-tree-lantern',
-  'poster-wall-shelf',
-  'poster-wall-staircase'
-);
-
--- Two group shots of a shelf, both priced ₹999 with no defined contents:
-UPDATE products SET visible = 0, updated_at = 1786060000000
-WHERE slug IN ('full-collection', 'toothless-collection');
+-- The ten non-products are NOT touched here. Aswin chose to keep them on sale
+-- for now and decide separately, so hiding them lives in 0012, which can be left
+-- unapplied. This migration changes wording only — nothing about what is on sale.
