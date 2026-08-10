@@ -17,8 +17,9 @@ highest, so the sequence stays monotonic:
 
 ## Currently held
 
-- **0012_hide_non_products.sql** — withdraws 10 cards that are not products
-  (8 Instagram marketing graphics listed as buyable at ₹129–₹349, and 2 group
-  shots of a shelf at ₹999 with no defined contents). Aswin chose to keep them
-  on sale for now and decide separately. Uses `visible = 0`, never `DELETE`, so
-  applying it is reversible and no ids are lost.
+Nothing.
+
+The previous entry proposed hiding the eight "Poster ..." rows as non-products.
+That was wrong: Aswin ships the real print, and the ad graphic was only standing
+in as the product photo. The photos were re-cropped instead, and the rows are
+renamed and described in `0012_poster_products.sql`.
