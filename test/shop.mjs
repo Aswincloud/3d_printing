@@ -456,6 +456,42 @@ const row = (o) => ({
      `last buyable at ${lastBuyable}, first quote-only at ${firstQuote}`);
 }
 {
+  // Retiring a duplicate listing: hide it, never DELETE the row.
+  //
+  // This is the inverse of "a hidden product's photo is not resurrected" above,
+  // and it is the reason 0013 retires the duplicate staircase with visible = 0.
+  // Deleting the row leaves its photo used by nothing, so the shop synthesises a
+  // quote-only card for it on the very next request — the same print back on the
+  // shop as a third listing, seconds after being removed. Asserted from both
+  // directions because the safe option and the destructive one look equally
+  // reasonable in a migration until you know this.
+  const withRow = catalogueEnv({
+    products: [
+      row({ id: "keep", image: "staircase.jpg" }),
+      row({ id: "dupe", image: "staircase-poster.jpg", visible: 0 }),   // retired
+    ],
+    manifest: ["staircase.jpg", "staircase-poster.jpg"],
+  });
+  const a = await (await listProducts(withRow)).json();
+  ok("a retired duplicate is off the shop", !a.products.some((p) => p.id === "dupe"));
+  ok("and its photo is NOT synthesised back",
+     !a.products.some((p) => p.id === null),
+     a.products.filter((p) => p.id === null).map((p) => p.image).join(","));
+
+  // Now the same catalogue with the row deleted outright, which is what a DELETE
+  // migration would leave behind.
+  const rowGone = catalogueEnv({
+    products: [row({ id: "keep", image: "staircase.jpg" })],
+    manifest: ["staircase.jpg", "staircase-poster.jpg"],
+  });
+  const b = await (await listProducts(rowGone)).json();
+  const ghost = b.products.filter((p) => p.id === null);
+  ok("DELETING the row instead brings the photo back as a card", ghost.length === 1,
+     "if this ever fails, the hazard is gone and 0013's reasoning is stale");
+  ok("and the ghost is the retired duplicate's photo",
+     ghost[0]?.image === "assets/images/staircase-poster.jpg", ghost[0]?.image);
+}
+{
   // No manifest: degrade to the old behaviour rather than breaking the shop.
   const env = catalogueEnv({
     products: [row({ id: "a", image: "a.jpg" })],
