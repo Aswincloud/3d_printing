@@ -172,21 +172,118 @@ addBtn?.addEventListener('click', async () => {
 
 // ── buy now ───────────────────────────────────────────────────────
 //
-// Adds to the cart and hands off to the homepage, which owns the checkout modal
-// and the whole Razorpay flow. Duplicating that here would mean two
-// implementations of the payment path — the one thing in this codebase that
-// must have exactly one.
+// Checkout and the whole Razorpay flow live in main.js, so this hands off to the
+// homepage rather than reimplementing them — the payment path is the one thing
+// in this codebase that must have exactly one implementation.
 //
-// #checkout is read by main.js on load to open the modal straight away.
-el('pdpBuy')?.addEventListener('click', async (e) => {
-  const btn = e.currentTarget;
-  btn.disabled = true;
-  btn.textContent = 'Opening…';
-  const ok = await addToCart(readQty());
-  if (!ok) {
-    btn.textContent = 'Try again';
-    btn.disabled = false;
-    return;
+// What it must NOT do is flatten the two meanings of "buy now". With an empty
+// cart it is unambiguous. With other things in the cart it could mean this one
+// piece or the whole basket, and guessing wrong either overcharges someone or
+// silently drops the rest of their order, so the customer is asked. The grid
+// lightbox has asked that question since the shop launched; a product page that
+// just added-and-charged-everything would be a regression in the checkout path,
+// which is the worst place in the site to have one.
+//
+// BUY_NOW_KEY is how "just this" survives the navigation. sessionStorage rather
+// than a URL parameter: the intent is single-use and tab-local, and a URL
+// carrying item ids would be shareable, bookmarkable and forgeable. Being
+// client-side changes no threat model — priceCart prices whatever ids the
+// payload carries, server-side, exactly as it does for the cart itself.
+const BUY_NOW_KEY = 'ap_buynow';
+
+function handOffToCheckout(items) {
+  if (items) {
+    try {
+      sessionStorage.setItem(BUY_NOW_KEY, JSON.stringify(items));
+    } catch {
+      // Private mode or quota. Falling through would charge for the whole cart
+      // when the customer asked for one item, so refuse rather than overcharge.
+      return false;
+    }
   }
   location.href = '/#checkout';
+  return true;
+}
+
+const buyBtn = el('pdpBuy');
+const choiceBox = el('pdpBuyChoice');
+
+function closeChoice() {
+  if (choiceBox) choiceBox.hidden = true;
+  if (buyBtn) { buyBtn.disabled = false; buyBtn.textContent = 'Buy now'; }
+}
+
+buyBtn?.addEventListener('click', async () => {
+  const id = await resolveProductId();
+  if (!id) {
+    buyBtn.textContent = 'Try again';
+    return;
+  }
+  const qty = readQty();
+  const others = readCart().filter((it) => it.id !== id);
+
+  if (!others.length) {
+    // Nothing to confuse it with: add and check the cart out, one code path,
+    // same as the cart button.
+    buyBtn.disabled = true;
+    buyBtn.textContent = 'Opening…';
+    if (!(await addToCart(qty))) { closeChoice(); buyBtn.textContent = 'Try again'; return; }
+    handOffToCheckout(null);
+    return;
+  }
+
+  const otherCount = others.reduce((n, it) => n + it.qty, 0);
+  const text = el('pdpBuyChoiceText');
+  if (text) {
+    text.textContent = `Your cart already has ${otherCount} other item` +
+      (otherCount === 1 ? '' : 's') + '. Check out just this one, or all ' +
+      (otherCount + qty) + '?';
+  }
+  if (choiceBox) {
+    choiceBox.hidden = false;
+    // Scroll it to the middle of the viewport, for two reasons found by measuring
+    // at 390px rather than by guessing.
+    //
+    // The chat bubble is fixed to the bottom-right at z-index 2147483000 and is
+    // 64px square. At 390px the prompt rendered exactly there, and the bubble
+    // covered the label of "Everything in cart" — the more expensive of the two
+    // options, which is the worst one to obscure. Out-z-indexing a third-party
+    // widget at that value is not a fight worth having; moving the question away
+    // from the corner it squats in costs nothing.
+    //
+    // And the prompt can open below the fold on a small screen, which would look
+    // like the button had simply done nothing.
+    choiceBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  el('pdpChoiceJustThis')?.focus();
+});
+
+el('pdpChoiceJustThis')?.addEventListener('click', async () => {
+  const id = await resolveProductId();
+  if (!id) return;
+  if (choiceBox) choiceBox.hidden = true;
+  // The cart is left exactly as it was. Deliberately does NOT call addToCart:
+  // adding then charging only that line would leave the item sitting in the cart
+  // after it had already been paid for.
+  if (!handOffToCheckout([{ id, qty: readQty() }])) {
+    if (buyBtn) buyBtn.textContent = 'Try again';
+  }
+});
+
+el('pdpChoiceEverything')?.addEventListener('click', async () => {
+  if (choiceBox) choiceBox.hidden = true;
+  if (buyBtn) { buyBtn.disabled = true; buyBtn.textContent = 'Opening…'; }
+  if (!(await addToCart(readQty()))) {
+    closeChoice();
+    if (buyBtn) buyBtn.textContent = 'Try again';
+    return;
+  }
+  handOffToCheckout(null);
+});
+
+// Escape and a click outside dismiss the question without choosing, so it is not
+// a trap. Merged into the zoom keydown handler below would couple two unrelated
+// overlays; a separate listener is fine here because they are never both open.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && choiceBox && !choiceBox.hidden) closeChoice();
 });

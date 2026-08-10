@@ -126,6 +126,20 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
          <button type="button" class="pdp-btn pdp-btn-ghost" id="pdpAdd">Add to cart</button>
          <button type="button" class="pdp-btn pdp-btn-primary" id="pdpBuy">Buy now</button>
        </div>
+
+       <!-- "Buy now" is ambiguous once the cart has other things in it: it could
+            mean this one piece or the whole basket, and guessing wrong either
+            overcharges or loses the rest of the order. So it asks. Rendered
+            hidden and shown by product.js only when there IS something else in
+            the cart — with an empty cart there is nothing to disambiguate. -->
+       <div class="pdp-buychoice" id="pdpBuyChoice" hidden>
+         <p id="pdpBuyChoiceText"></p>
+         <div class="pdp-buychoice-btns">
+           <button type="button" class="pdp-btn pdp-btn-ghost" id="pdpChoiceJustThis">Just this item</button>
+           <button type="button" class="pdp-btn pdp-btn-primary" id="pdpChoiceEverything">Everything in cart</button>
+         </div>
+       </div>
+
        <p class="pdp-note"><a href="${base}/#quote">Want it in another colour or size? Ask for a quote</a></p>`;
 
   // Always present, for every product. This is what stops a page with one photo

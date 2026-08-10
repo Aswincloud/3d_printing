@@ -182,6 +182,29 @@
 .pdp-btn-ghost:hover { background: var(--orange); border-color: var(--orange); color: var(--white); }
 .pdp-btn.is-done { background: #2f7d54; border-color: #2f7d54; color: var(--white); }
 
+/* "Just this one, or all 4?" — inline, directly under the buttons, rather than
+   floating in the middle of the viewport like the lightbox version. The lightbox
+   had to overlay because it covered the whole screen and had nowhere else to put
+   it; here the question belongs next to the button that raised it, where it reads
+   as a follow-up rather than as an interruption. */
+.pdp-buychoice {
+  background: var(--dark-2);
+  border: 1px solid rgba(255, 107, 0, 0.35);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  margin: 0 0 1.1rem;
+  max-width: 460px;
+}
+.pdp-buychoice[hidden] { display: none; }
+.pdp-buychoice p {
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 0.85rem;
+}
+.pdp-buychoice-btns { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.pdp-buychoice-btns .pdp-btn { font-size: 0.85rem; padding: 0.55rem 1.05rem; }
+
 .pdp-note { font-size: 0.82rem; color: var(--text-muted); margin: 0 0 1.4rem; }
 .pdp-note a { color: var(--orange); }
 

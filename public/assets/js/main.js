@@ -595,7 +595,7 @@ async function loadProducts() {
       // Drop the hash first, so a refresh does not reopen checkout on a cart the
       // visitor may since have emptied.
       history.replaceState({}, '', location.pathname + location.search);
-      openCheckout();
+      openCheckout(takeBuyNowHandoff());
     }
   } catch (err) {
     productGrid.innerHTML =
@@ -1402,6 +1402,57 @@ checkoutForm?.querySelector('[name="co_promo"]')?.addEventListener('input', () =
 // null = normal checkout, charge the cart.
 let buyNowItems = null;
 const checkoutItems = () => buyNowItems || readCart();
+
+// ── the buy-now handoff from a product page ───────────────────────
+//
+// A product page's "Buy now → just this item" cannot open this modal itself, so
+// it writes its intent to sessionStorage and navigates here with #checkout.
+// Symmetric with the lightbox's buyChoiceJustThis, which passes the same shape
+// to openCheckout() directly because it is already on this page.
+//
+// Read ONCE and removed immediately: leaving it behind would mean a later normal
+// checkout in the same tab silently charging for that one item instead of the
+// cart — the exact bug the lightbox clears buyNowItems on close to avoid.
+const BUY_NOW_KEY = 'ap_buynow';
+
+function takeBuyNowHandoff() {
+  let raw = null;
+  try {
+    raw = sessionStorage.getItem(BUY_NOW_KEY);
+    sessionStorage.removeItem(BUY_NOW_KEY);
+  } catch { return null; }
+  if (!raw) return null;
+
+  // Validated the same way readCart() validates localStorage, and for the same
+  // reason: this is client-side storage, so treat it as input rather than as
+  // something this code wrote. It reaches the order payload, and while the server
+  // prices every id itself — an unknown or unpriced id is refused by priceCart,
+  // and no price is ever sent from here — a malformed entry would otherwise
+  // produce a confusing failure at checkout instead of being ignored now.
+  //
+  // The ids are also checked against the loaded catalogue, which is why this is
+  // called after renderProducts(): a stale id from a deleted product would open
+  // checkout on a summary that renders as empty while the payload still carried
+  // it. Better to fall back to the cart.
+  try {
+    const items = JSON.parse(raw);
+    if (!Array.isArray(items) || !items.length) return null;
+    const clean = [];
+    for (const it of items) {
+      const id = typeof it?.id === 'string' ? it.id : '';
+      const qty = parseInt(it?.qty, 10);
+      if (!id || !Number.isFinite(qty) || qty < 1) continue;
+      const p = catalogue.find((c) => c.id === id);
+      // price_paise > 0 mirrors addToCart and priceCart: an unpriced product
+      // cannot be bought by any route, and this is a route.
+      if (!p || !(p.price_paise > 0)) continue;
+      clean.push({ id, qty: Math.min(MAX_QTY, qty) });
+    }
+    return clean.length ? clean : null;
+  } catch {
+    return null;
+  }
+}
 
 function openCheckout(items = null) {
   if (!checkoutModal) return;

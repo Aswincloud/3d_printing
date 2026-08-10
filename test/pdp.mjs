@@ -112,6 +112,31 @@ section("a quote-only product cannot be bought from the page");
   ok("and says why", /isn't priced yet/.test(h));
 }
 
+// ── buy now: the ambiguity prompt ─────────────────────────────────
+//
+// "Buy now" with other things in the cart could mean this piece or the whole
+// basket. The grid lightbox has asked since the shop launched; the product page
+// must ask too, or moving grid clicks here would have quietly turned every
+// buy-now into "charge me for everything".
+section("buy now can ask which items to charge for");
+{
+  const h = render(PRODUCT());
+  ok("the choice prompt exists", h.includes('id="pdpBuyChoice"'));
+  ok("it starts hidden", /id="pdpBuyChoice" hidden/.test(h),
+     "with an empty cart there is nothing to disambiguate");
+  ok("has a just-this option", h.includes('id="pdpChoiceJustThis"'));
+  ok("has an everything option", h.includes('id="pdpChoiceEverything"'));
+  ok("the question text has a slot", h.includes('id="pdpBuyChoiceText"'));
+  // The count depends on the visitor's cart, which the server has never seen, so
+  // the text must be filled in by the page rather than rendered here.
+  ok("the question is left empty server-side", /id="pdpBuyChoiceText"><\/p>/.test(h));
+}
+{
+  const h = render(PRODUCT({ price_paise: 0 }));
+  ok("no choice prompt on an unpriced product", !h.includes('id="pdpBuyChoice"'),
+     "there is no buy button to raise the question");
+}
+
 // ── zoom ──────────────────────────────────────────────────────────
 //
 // Clicking a grid photo navigates here now instead of opening the old overlay,
