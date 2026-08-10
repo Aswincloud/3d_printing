@@ -112,9 +112,20 @@ section("every listed product points at a real file");
   // reference), and matching quoted SQL values spanned whole blocks, because
   // apostrophes elsewhere in the file broke the quote pairing. The filename is
   // the thing being checked, so match that.
+  // withFileTypes because migrations/ now has a pending/ subdirectory for SQL that
+  // is written but deliberately unapplied — readFileSync on that threw EISDIR.
+  // Held migrations are scanned too: a photo they reference still has to exist, or
+  // applying one later would point a product at a missing file.
+  const sqlFiles = readdirSync("migrations", { withFileTypes: true })
+    .flatMap((e) => e.isDirectory()
+      ? readdirSync("migrations/" + e.name)
+          .filter((f) => f.endsWith(".sql"))
+          .map((f) => `migrations/${e.name}/${f}`)
+      : e.name.endsWith(".sql") ? [`migrations/${e.name}`] : []);
+
   const referenced = [...new Set(
-    readdirSync("migrations")
-      .flatMap((f) => readFileSync("migrations/" + f, "utf8").split("\n"))
+    sqlFiles
+      .flatMap((p) => readFileSync(p, "utf8").split("\n"))
       .filter((l) => !l.trim().startsWith("--"))
       .flatMap((l) => [...l.matchAll(/assets\/images\/([A-Za-z0-9_\-]+\.[a-z0-9]+)/gi)])
       .map((m) => m[1]),
