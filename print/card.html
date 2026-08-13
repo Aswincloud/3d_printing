@@ -6,185 +6,190 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-/* 170 x 70 mm. Every dimension in mm, because this is a physical object — a card
-   laid out in px only lands at the right size if the DPI assumption happens to
+/* 70 x 170 mm, portrait. Every dimension in mm, because this is a physical object —
+   a card laid out in px only lands at the right size if a DPI assumption happens to
    hold, and it never does across a home inkjet and a print shop. */
-@page { size: 170mm 70mm; margin: 0; }
+@page { size: 70mm 170mm; margin: 0; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-html, body {
-  width: 170mm;
-  height: 70mm;
-}
+html, body { width: 70mm; height: 170mm; }
 
 body {
-  /* Without this the dark ground is dropped by the print pipeline and the light
-     text prints onto white paper — invisible. */
+  /* Without this the background wash is dropped by the print pipeline. Harmless on
+     a white card, kept because the wash is part of the design. */
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
   font-family: Inter, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: #0a0a0f;
-  color: #e8e8f0;
+  background: #ffffff;
+  color: #22222e;
   overflow: hidden;
   position: relative;
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
+  align-items: center;
+  padding: 13mm 8mm 12mm;
 }
 
-/* Warm cast behind the wordmark, matching the site's orange glow. Kept low
-   contrast: a busy background is what makes a small card look cheap, and it also
-   costs ink. */
+/* Warm wash behind the wordmark. Low contrast on purpose: heavy colour on a small
+   card reads as cheap, and it costs ink. */
 body::before {
   content: "";
   position: absolute;
-  left: -18mm; top: -22mm;
-  width: 90mm; height: 90mm;
-  background: radial-gradient(circle, rgba(255,107,0,0.20) 0%, rgba(255,107,0,0) 68%);
+  left: 50%;
+  top: -40mm;
+  transform: translateX(-50%);
+  width: 96mm;
+  height: 96mm;
+  background: radial-gradient(circle, rgba(255,107,0,0.11) 0%, rgba(255,107,0,0) 62%);
 }
 
-/* ── left: who this is ─────────────────────────────────────────── */
-.left {
+/* ── brand ─────────────────────────────────────────────────────── */
+.brand {
   position: relative;
-  flex: 1;
-  padding: 8.5mm 0 8mm 10mm;
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
+  gap: 3mm;
 }
-
-.brand { display: flex; align-items: center; gap: 3.4mm; }
 .brand svg { width: 11mm; height: 11mm; display: block; }
 .brand-name {
-  font-size: 7.4mm;
+  font-size: 7.6mm;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   line-height: 1;
-  color: #ffffff;
+  color: #0a0a0f;
+  white-space: nowrap;
 }
 
 .headline {
-  font-size: 4.5mm;
-  font-weight: 600;
-  line-height: 1.32;
-  letter-spacing: -0.01em;
-  max-width: 88mm;
-  color: #e8e8f0;
-}
-.headline em {
-  font-style: normal;
-  color: #ff8c38;
-}
-
-.foot { display: flex; flex-direction: column; gap: 1.8mm; }
-
-/* The URL in text as well as in the QR. A card whose only route to the site is a
-   code that will not scan — bad light, cracked screen, no camera permission — is
-   a dead end, and this costs one line. */
-.url {
-  font-size: 4.3mm;
-  font-weight: 700;
-  letter-spacing: -0.005em;
-  color: #ff6b00;
-}
-.place {
-  font-size: 3.1mm;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: #8888a0;
-}
-
-/* ── right: the QR ─────────────────────────────────────────────── */
-.right {
   position: relative;
-  width: 58mm;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding-right: 9mm;
+  margin-top: 7mm;
+  font-size: 4.2mm;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  text-align: center;
+  text-wrap: balance;
+  max-width: 52mm;
+  color: #22222e;
+}
+/* Darker than the site's #ff8c38: that tone is tuned for a dark ground and is too
+   light to read as body text on white. */
+.subhead {
+  position: relative;
+  margin-top: 2.2mm;
+  font-size: 4.2mm;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  text-align: center;
+  text-wrap: balance;
+  max-width: 52mm;
+  color: #d95a00;
 }
 
-/* Stack the tile and its label vertically, with the label OUTSIDE the tile. */
-.right-stack {
+/* ── the code ──────────────────────────────────────────────────── */
+.qr-wrap {
+  position: relative;
+  margin-top: auto;
+  margin-bottom: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2.6mm;
 }
 
-/* White tile, deliberately. An inverted QR — light modules on a dark ground — is
-   valid per the spec but a real share of phone scanners refuse to read one, and a
-   code that works on some phones is worse than one that looks less integrated.
-
-   The tile holds NOTHING but the code. The caption used to sit inside it, 1.6mm
-   under the last row of modules — which ate the bottom quiet zone down to about
-   1.3 modules. Verification caught the left/right/top margins at 2.5 modules and
-   would not have caught the bottom at all, because the check skipped that edge to
-   avoid measuring the caption. Both are fixed by getting the text out of the tile. */
-.qr-tile {
-  background: #ffffff;
-  border-radius: 3mm;
-  /* 5.2mm against a 1.24mm module is 4.2 modules — the quiet zone the spec asks
-     for, on all four sides now that nothing else is in here. */
-  padding: 5.2mm;
-  display: block;
-}
+/* No tile: the page is already white, so the paper IS the quiet zone. The padding
+   is kept explicitly so the 4-module margin the spec asks for is a stated number
+   rather than a side effect of where the code happens to sit. 7mm against a
+   1.62mm module is 4.3 modules. */
+.qr-tile { padding: 7mm; display: block; }
 .qr-tile svg {
-  /* 36mm across 29 modules is 1.24mm per module, well above the ~0.5mm where phone
-     cameras start to struggle, with room for ink spread on cheap stock. */
-  width: 36mm;
-  height: 36mm;
+  /* 47mm across 29 modules is 1.62mm per module — a third more than the landscape
+     card managed, because a 70mm-wide portrait card has room the 170mm-wide one
+     spent on text. More module width is more tolerance for ink spread. */
+  width: 47mm;
+  height: 47mm;
   display: block;
   fill: #0a0a0f;
 }
 .scan {
-  font-size: 2.8mm;
+  margin-top: 1.5mm;
+  max-width: 40mm;
+  line-height: 1.45;
+  text-wrap: balance;
+  font-size: 3.1mm;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: #8888a0;
+  text-align: center;
+  color: #6b6b80;
 }
 
-/* Thin rule between the two halves, in the brand orange. */
-.right::before {
+/* ── footer ────────────────────────────────────────────────────── */
+.foot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.8mm;
+  text-align: center;
+}
+
+/* The URL in text as well as in the code. A card whose only route to the site is a
+   scan that fails — bad light, no camera permission, a cracked lens — is a dead
+   end, and this costs one line. */
+.url {
+  font-size: 4.1mm;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #d95a00;
+  white-space: nowrap;
+}
+.place {
+  font-size: 3mm;
+  font-weight: 500;
+  letter-spacing: 0.015em;
+  color: #6b6b80;
+}
+
+/* Hairline rule above the footer, in the brand orange. */
+.foot::before {
   content: "";
   position: absolute;
-  left: 0; top: 11mm; bottom: 11mm;
-  width: 0.35mm;
-  background: linear-gradient(180deg, rgba(255,107,0,0) 0%, rgba(255,107,0,0.55) 50%, rgba(255,107,0,0) 100%);
+  top: -6mm;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 26mm;
+  height: 0.35mm;
+  background: linear-gradient(90deg, rgba(255,107,0,0) 0%, rgba(255,107,0,0.6) 50%, rgba(255,107,0,0) 100%);
 }
 </style>
 </head>
 <body>
 
-<div class="left">
-  <div class="brand">
-    <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="8" fill="url(#g)"/>
-      <path d="M8 22V14l8-6 8 6v8M13 22v-5h6v5" stroke="#fff" stroke-width="1.8"
-            stroke-linecap="round" stroke-linejoin="round"/>
-      <defs><linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c38"/>
-      </linearGradient></defs>
-    </svg>
-    <div class="brand-name">AswinPrints</div>
-  </div>
-
-  <div class="headline">
-    3D printed décor, figurines and gifts —<br><em>made to order in Pondicherry.</em>
-  </div>
-
-  <div class="foot">
-    <div class="url">3d-prints.aswincloud.com</div>
-    <div class="place">Order online · Shipped India-wide</div>
-  </div>
+<div class="brand">
+  <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="32" height="32" rx="8" fill="url(#g)"/>
+    <path d="M8 22V14l8-6 8 6v8M13 22v-5h6v5" stroke="#fff" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <defs><linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff6b00"/><stop offset="1" stop-color="#ff8c38"/>
+    </linearGradient></defs>
+  </svg>
+  <div class="brand-name">3D-Prints</div>
 </div>
 
-<div class="right">
-  <div class="right-stack">
-    <div class="qr-tile"><!--QR--></div>
-    <div class="scan">Scan to shop</div>
-  </div>
+<div class="headline">3D printed décor, figurines and gifts</div>
+<div class="subhead">Made to order in Pondicherry</div>
+
+<div class="qr-wrap">
+  <div class="qr-tile"><!--QR--></div>
+  <div class="scan">Scan to browse all collections</div>
+</div>
+
+<div class="foot">
+  <div class="url">3d-prints.aswincloud.com</div>
+  <div class="place">Order online · Shipped India-wide</div>
 </div>
 
 </body>

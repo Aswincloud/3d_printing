@@ -22,7 +22,7 @@ E2E=/home/aswin/.cache/3dprints-e2e
 cp render.mjs "$E2E/" && (cd "$E2E" && node render.mjs) || rc=1
 
 echo "── read the code back out of each rendered file ──"
-for f in card-170x70 card-170x70-bleed card-170x70-light; do
+for f in card-70x170 card-70x170-bleed; do
   echo "  $f:"
   python3 verify-render.py "$f.png" 2>&1 | sed 's/^/  /' || rc=1
 done
