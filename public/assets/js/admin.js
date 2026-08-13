@@ -29,6 +29,18 @@ const when = (ms) => {
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
+    // Never reuse a stored answer for a dashboard request. The server now sends
+    // `private, no-store` on everything under /api/ except the public catalogue,
+    // which stops these being cached in the first place — but that only governs
+    // responses issued from now on.
+    //
+    // The reason this is here at all: /api/auth/me had already been cached at the
+    // edge for 25 minutes with {"signedIn":false}. Deploying the header fixed new
+    // responses and did nothing about the stored one, so sign-in stayed broken while
+    // that entry lived. Asking for no-cache on the request side skips it immediately
+    // rather than waiting for an eviction nobody controls, and it keeps a browser or
+    // an intermediary from doing the same thing later.
+    cache: 'no-store',
     ...opts,
   });
   // A 401 means the session lapsed or OWNER_EMAIL changed. Drop straight back
