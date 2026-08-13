@@ -25,9 +25,10 @@ body {
   color: #22222e;
   overflow: hidden;
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 1fr auto 1fr;
+  justify-items: center;
   padding: 13mm 8mm 12mm;
 }
 
@@ -42,6 +43,15 @@ body::before {
   width: 96mm;
   height: 96mm;
   background: radial-gradient(circle, rgba(255,107,0,0.11) 0%, rgba(255,107,0,0) 62%);
+}
+
+/* Top group: brand and copy, pinned to the top of its row so the space it does not
+   use falls between it and the code rather than above it. */
+.top {
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 /* ── brand ─────────────────────────────────────────────────────── */
@@ -77,32 +87,36 @@ body::before {
    light to read as body text on white. */
 .subhead {
   position: relative;
-  margin-top: 2.2mm;
-  font-size: 4.2mm;
+  margin-bottom: 0.6mm;
+  font-size: 3.6mm;
   font-weight: 700;
-  line-height: 1.4;
-  letter-spacing: -0.01em;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
   text-align: center;
   text-wrap: balance;
-  max-width: 52mm;
+  max-width: 50mm;
   color: #d95a00;
 }
 
 /* ── the code ──────────────────────────────────────────────────── */
-.qr-wrap {
-  position: relative;
-  margin-top: auto;
-  margin-bottom: auto;
+/* The centred grid row holds ONLY the code, so what lands on the card's midline is
+   the code and not the code-plus-caption pair. */
+.qr-tile { align-self: center; display: block; }
+
+/* Bottom row: caption at the top of it, footer pinned to the bottom. */
+.below {
+  align-self: stretch;
+  justify-self: stretch;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   align-items: center;
 }
 
-/* No tile: the page is already white, so the paper IS the quiet zone. The padding
-   is kept explicitly so the 4-module margin the spec asks for is a stated number
-   rather than a side effect of where the code happens to sit. 7mm against a
-   1.62mm module is 4.3 modules. */
-.qr-tile { padding: 7mm; display: block; }
+/* No tile and no padding: the page is already white, so the paper IS the quiet zone.
+   A 47mm code centred on a 70mm card leaves 11.5mm of white each side — over 7
+   modules against the spec's 4 — and verify-render.py measures that from the
+   rendered pixels on all four edges, so it is asserted rather than assumed. */
 .qr-tile svg {
   /* 47mm across 29 modules is 1.62mm per module — a third more than the landscape
      card managed, because a 70mm-wide portrait card has room the 170mm-wide one
@@ -113,7 +127,7 @@ body::before {
   fill: #0a0a0f;
 }
 .scan {
-  margin-top: 1.5mm;
+  margin-top: 7mm;
   max-width: 40mm;
   line-height: 1.45;
   text-wrap: balance;
@@ -167,6 +181,7 @@ body::before {
 </head>
 <body>
 
+<div class="top">
 <div class="brand">
   <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
     <rect width="32" height="32" rx="8" fill="url(#g)"/>
@@ -180,16 +195,17 @@ body::before {
 </div>
 
 <div class="headline">3D printed décor, figurines and gifts</div>
-<div class="subhead">Made to order in Pondicherry</div>
-
-<div class="qr-wrap">
-  <div class="qr-tile"><!--QR--></div>
-  <div class="scan">Scan to browse all collections</div>
 </div>
 
-<div class="foot">
+<div class="qr-tile"><!--QR--></div>
+
+<div class="below">
+  <div class="scan">Scan to browse all collections</div>
+  <div class="foot">
+  <div class="subhead">Made to order in Pondicherry</div>
   <div class="url">3d-prints.aswincloud.com</div>
-  <div class="place">Order online · Shipped India-wide</div>
+    <div class="place">Order online · Shipped India-wide</div>
+  </div>
 </div>
 
 </body>
