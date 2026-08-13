@@ -1,4 +1,4 @@
-# QR card — 70 × 170 mm (portrait)
+# QR card — 70 × 155 mm (portrait)
 
 A tall portrait card pointing at `3d-prints.aswincloud.com`. Sized for a parcel
 insert, a bookmark, a table card at a stall, or a strip taped near the printer.
@@ -11,9 +11,9 @@ Rebuild everything and re-run every check:
 
 | File | Size | Use it for |
 |---|---|---|
-| `card-70x170.pdf` | 70 × 170 mm | The default. Home printing, or a shop that adds its own bleed. |
-| `card-70x170-bleed.pdf` | 76 × 176 mm | Send this to a commercial press. 3 mm bleed on every side, orange crop marks at the trim. |
-| `card-70x170*.png` | 827 × 2008 px | 300 DPI previews — for WhatsApp or a quick look, not for print. |
+| `card-70x155.pdf` | 70 × 155 mm | The default. Home printing, or a shop that adds its own bleed. |
+| `card-70x155-bleed.pdf` | 76 × 161 mm | Send this to a commercial press. 3 mm bleed on every side, orange crop marks at the trim. |
+| `card-70x155*.png` | 827 × 1831 px | 300 DPI previews — for WhatsApp or a quick look, not for print. |
 
 **Prefer the PDFs.** The QR and the type are vector in them, so they stay sharp at
 any size. The PNGs are fixed at 300 DPI.
@@ -24,6 +24,23 @@ expensive on a home inkjet, prone to banding, and it cockles thin paper.
 
 Printing at home: choose **Actual size** / 100%, never "Fit to page". Scaling is
 what breaks a QR.
+
+## Layout
+
+The code is anchored to 50% of the card height, so it is dead centre by definition
+rather than as an outcome of row arithmetic — measured at 77.5 mm on a 155 mm card,
+0.0 mm off. The brand block and the footer are pinned to the top and bottom edges
+with equal 11 mm margins, so changing the height only changes how much white sits
+between the three groups.
+
+An earlier version centred the code with `margin: auto`, which centres in the
+*leftover* space. With 44 mm of copy above and a 10 mm footer below, that put the
+code 11.9 mm low.
+
+**155 mm is close to the floor for this content** — the gap between the caption and
+the footer is down to 4.4 mm. Dropping the "Order online · Shipped India-wide" line
+would allow roughly 148 mm; going shorter than that means either a smaller code or
+less copy.
 
 ## The QR
 

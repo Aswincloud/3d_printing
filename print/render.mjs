@@ -1,11 +1,11 @@
-// Render the 70x170mm portrait QR card to print-ready PDF and a 300 DPI preview.
+// Render the 70x155mm portrait QR card to print-ready PDF and a 300 DPI preview.
 //
 // PDF via Chromium's print path rather than a screenshot, so the QR and the type
 // stay vector — the card can be scaled or printed at any DPI without the code
 // softening. The PNG is a preview only.
 //
 // Two PDFs:
-//   trim  — exactly 70x170mm, for home printing or a shop that adds its own bleed
+//   trim  — exactly 70x155mm, for home printing or a shop that adds its own bleed
 //   bleed — 76x176mm with 3mm bleed and crop marks, for a commercial press
 //
 // Bleed exists because a guillotine drifts by a millimetre or so. On a white card a
@@ -20,7 +20,7 @@ const qr = readFileSync(`${DIR}/qr.svg`, 'utf8');
 const base = readFileSync(`${DIR}/card.html`, 'utf8');
 if (!base.includes('<!--QR-->')) throw new Error('QR placeholder missing from card.html');
 
-const W_MM = 70, H_MM = 170, BLEED = 3;
+const W_MM = 70, H_MM = 155, BLEED = 3;
 
 const b = await chromium.launch();
 
@@ -54,8 +54,8 @@ async function pdf(html, out, widthMm, heightMm) {
 
 // ── trim ──────────────────────────────────────────────────────────
 const trimHtml = base.replace('<!--QR-->', qr);
-await pdf(trimHtml, 'card-70x170', W_MM, H_MM);
-console.log(`  card-70x170.pdf         ${W_MM} x ${H_MM} mm  (trim size)`);
+await pdf(trimHtml, 'card-70x155', W_MM, H_MM);
+console.log(`  card-70x155.pdf         ${W_MM} x ${H_MM} mm  (trim size)`);
 
 // ── bleed ─────────────────────────────────────────────────────────
 // Content pushed in by the bleed so the layout is IDENTICAL relative to the trim
@@ -65,7 +65,10 @@ const bleedHead = `
 <style>
   @page { size: ${bw}mm ${bh}mm; margin: 0; }
   html, body { width: ${bw}mm; height: ${bh}mm; }
-  body { padding: ${13 + BLEED}mm ${8 + BLEED}mm ${12 + BLEED}mm; }
+  body { padding: 0 ${8 + BLEED}mm; }
+  .top { top: ${11 + BLEED}mm; left: ${8 + BLEED}mm; right: ${8 + BLEED}mm; }
+  .below, .foot { left: ${8 + BLEED}mm; right: ${8 + BLEED}mm; }
+  .foot { bottom: ${11 + BLEED}mm; }
   .crop { position: absolute; background: #ff6b00; }
 </style>`;
 const marks = [
@@ -83,8 +86,8 @@ const bleedHtml = base
   .replace('<!--QR-->', qr)
   .replace('</head>', bleedHead + '</head>')
   .replace('</body>', marks + '</body>');
-await pdf(bleedHtml, 'card-70x170-bleed', bw, bh);
-console.log(`  card-70x170-bleed.pdf   ${bw} x ${bh} mm  (${BLEED}mm bleed + crop marks)`);
+await pdf(bleedHtml, 'card-70x155-bleed', bw, bh);
+console.log(`  card-70x155-bleed.pdf   ${bw} x ${bh} mm  (${BLEED}mm bleed + crop marks)`);
 
 // ── 300 DPI preview rasters ───────────────────────────────────────
 // deviceScaleFactor on the CONTEXT, which is the only way to get a true 300 DPI
@@ -93,8 +96,8 @@ console.log(`  card-70x170-bleed.pdf   ${bw} x ${bh} mm  (${BLEED}mm bleed + cro
 // check. CSS mm are 96 px/inch, so the factor for 300 DPI is 300/96.
 const DPI = 300;
 for (const [html, out, wMm, hMm] of [
-  [trimHtml, 'card-70x170', W_MM, H_MM],
-  [bleedHtml, 'card-70x170-bleed', bw, bh],
+  [trimHtml, 'card-70x155', W_MM, H_MM],
+  [bleedHtml, 'card-70x155-bleed', bw, bh],
 ]) {
   const ctx = await b.newContext({
     viewport: { width: Math.round(wMm * 96 / 25.4), height: Math.round(hMm * 96 / 25.4) },
