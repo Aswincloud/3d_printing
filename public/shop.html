@@ -111,29 +111,20 @@
 
       <div id="unlistedList"></div>
 
-      <!-- Appears only when something is selected. Mirrors the products list's
-           bulk bar, so the interaction is one that already exists here. -->
+      <!-- There is no "price for all" field. Every row above already has its own
+           Price box, so listing several means filling the ones you want and pressing
+           one button — a blank price is how you say "not this one". A shared price
+           was the older, narrower idea and it made the common case (different prices)
+           impossible.
+
+           Shown when there is anything to act on: a row with a price, or a selection
+           for Hide. The two buttons count independently. -->
       <div class="ul-bulkbar" id="ulBulkBar" hidden>
         <span class="bulk-count" id="ulBulkCount"></span>
-        <div class="ul-bulk-fields">
-          <label class="ul-field">
-            <span class="ul-label">Price for all</span>
-            <span class="price-input"><span>₹</span><input type="text" id="ulBulkPrice" inputmode="decimal" placeholder="349"></span>
-          </label>
-          <label class="ul-field">
-            <span class="ul-label">Category</span>
-            <select class="ul-input" id="ulBulkCategory">
-              <option value="figurine">figurine</option>
-              <option value="decor">decor</option>
-              <option value="functional">functional</option>
-              <option value="set">set</option>
-            </select>
-          </label>
-        </div>
         <div class="ul-bulk-actions">
-          <button type="button" class="admin-btn" id="ulBulkList">List selected</button>
+          <button type="button" class="admin-btn" id="ulListPriced" disabled>List priced photos</button>
           <!-- No price needed: hiding is for photos that will never have one. -->
-          <button type="button" class="admin-btn-danger" id="ulBulkHide">Hide selected</button>
+          <button type="button" class="admin-btn-danger" id="ulBulkHide" disabled>Hide selected</button>
           <button type="button" class="admin-btn-ghost" id="ulBulkClear">Clear</button>
         </div>
         <p class="ul-error" id="ulBulkError" hidden></p>

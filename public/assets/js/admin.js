@@ -403,11 +403,29 @@ async function loadUnlisted() {
   const present = new Set(list.map((i) => i.file));
   for (const f of [...ulSelected]) if (!present.has(f)) ulSelected.delete(f);
 
+  // Rebuilt from scratch on every render, so a stale entry can never point at a
+  // detached input — which would submit a price the admin can no longer see.
+  ulRows.length = 0;
   for (const img of list) box.appendChild(unlistedRow(img));
   refreshUlBar();
 }
 
 // ── batch selection ───────────────────────────────────────────────
+//
+// Every rendered row registers a reader here so one handler can collect the whole
+// panel without querying the DOM for inputs it did not create.
+const ulRows = [];
+
+// Rows with a usable price, in render order. This is the set "List priced photos"
+// acts on: a blank price is how the admin says "not this one", so it is a skip
+// rather than an error.
+function ulPricedRows() {
+  return ulRows.filter((r) => {
+    const paise = toPaise(r.priceValue());
+    return paise !== null && paise >= 100;
+  });
+}
+
 function refreshUlBar() {
   const bar = $('ulBulkBar');
   const count = $('ulBulkCount');
@@ -415,13 +433,33 @@ function refreshUlBar() {
   if (!bar) return;
 
   const n = ulSelected.size;
-  bar.hidden = n === 0;
-  if (count) count.textContent = `${n} photo${n === 1 ? '' : 's'} selected`;
+  const priced = ulPricedRows().length;
 
-  const list = $('ulBulkList');
+  // Visible when there is anything to do. The two actions are independent now:
+  // listing is driven by which rows have prices, hiding by what is ticked, so a bar
+  // shown only on selection would hide the List button exactly when it is usable.
+  bar.hidden = n === 0 && priced === 0;
+
+  if (count) {
+    const parts = [];
+    if (priced) parts.push(`${priced} priced`);
+    if (n) parts.push(`${n} selected`);
+    count.textContent = parts.join(' · ');
+  }
+
+  const listBtn = $('ulListPriced');
+  if (listBtn) {
+    listBtn.disabled = priced === 0;
+    listBtn.textContent = priced === 0
+      ? 'List priced photos'
+      : `List ${priced} priced photo${priced === 1 ? '' : 's'}`;
+  }
+
   const hide = $('ulBulkHide');
-  if (list) list.textContent = n > 1 ? `List ${n}` : 'List selected';
-  if (hide) hide.textContent = n > 1 ? `Hide ${n}` : 'Hide selected';
+  if (hide) {
+    hide.disabled = n === 0;
+    hide.textContent = n > 1 ? `Hide ${n}` : 'Hide selected';
+  }
 
   // Reflect partial selection, so the header checkbox is never a lie.
   if (all) {
@@ -482,6 +520,12 @@ async function runUlBatch(path, payload, btn, describe) {
     // 8 checkboxes for 4 photos — which then made "select all" look broken.
     await loadProducts();
   } catch (e) {
+    // Server errors from the batch path name the offending FILE — "Enter a price in
+    // rupees for x.jpg", "x.jpg is already a product". Put the message on that row
+    // when it can be matched, because in a panel of twenty a message at the bottom
+    // of the bar means scrolling and guessing.
+    const hit = ulRows.find((r) => e.message && e.message.includes(r.file));
+    if (hit) hit.showError(e.message);
     if (err) { err.textContent = e.message; err.hidden = false; }
   } finally {
     btn.disabled = false;
@@ -489,20 +533,22 @@ async function runUlBatch(path, payload, btn, describe) {
   }
 }
 
-$('ulBulkList')?.addEventListener('click', (e) => {
+// One click, every row that has a price, each at its own.
+$('ulListPriced')?.addEventListener('click', (e) => {
   const err = $('ulBulkError');
-  const paise = toPaise($('ulBulkPrice')?.value);
-  // The one field with no safe default — it is what a customer pays.
-  if (paise === null || paise < 100) {
-    if (err) { err.textContent = 'Enter a price in rupees, e.g. 349.'; err.hidden = false; }
-    $('ulBulkPrice')?.focus();
+  const rows = ulPricedRows();
+  if (!rows.length) {
+    // The button is disabled in this state, so this is only reachable by a stray
+    // programmatic click — but silently posting an empty batch would be worse.
+    if (err) { err.textContent = 'Enter a price on at least one photo first.'; err.hidden = false; }
     return;
   }
-  runUlBatch('/api/admin/products/batch', {
-    images: [...ulSelected],
-    price_paise: paise,
-    category: $('ulBulkCategory')?.value || 'figurine',
-  }, e.target, (out) => `${out.created} photo${out.created === 1 ? '' : 's'} listed at ${rupees(paise)}.`);
+
+  const items = rows.map((r) => r.read());
+  runUlBatch('/api/admin/products/batch', { items }, e.target, (out) => {
+    const total = items.reduce((sum, it) => sum + it.price_paise, 0);
+    return `${out.created} photo${out.created === 1 ? '' : 's'} listed — ${rupees(total)} of stock.`;
+  });
 });
 
 $('ulBulkHide')?.addEventListener('click', (e) => {
@@ -566,8 +612,21 @@ function unlistedRow(img) {
   const price = document.createElement('input');
   price.type = 'text';
   price.inputMode = 'decimal';
-  price.placeholder = '349';
+  // "skip", not "349". A numeric placeholder is fine when a price is mandatory, but
+  // blank now MEANS "do not list this one" — and a greyed 349 in every empty box
+  // reads as four priced rows above a button offering to list three. The placeholder
+  // states the behaviour instead of demonstrating the format.
+  price.placeholder = 'skip';
   price.setAttribute('aria-label', 'Price for ' + img.file);
+  // Typing a price is what puts a row into the batch, so the button's count has to
+  // follow the keystrokes. Without this the label would only be right after a
+  // re-render, and "List 2" over three filled rows is the kind of wrong that gets
+  // trusted.
+  const markPriced = () => {
+    const paise = toPaise(price.value);
+    row.classList.toggle('is-priced', paise !== null && paise >= 100);
+  };
+  price.addEventListener('input', () => { markPriced(); refreshUlBar(); });
   priceWrap.appendChild(price);
 
   const cat = document.createElement('select');
@@ -594,6 +653,22 @@ function unlistedRow(img) {
   );
 
   const err = el('p', 'ul-error');
+
+  // Register this row so "List priced photos" can read it. Closures over the actual
+  // inputs, not a DOM query — the values submitted are then necessarily the ones on
+  // screen in this row, and there is no selector to drift out of sync with the markup.
+  ulRows.push({
+    file: img.file,
+    priceValue: () => price.value,
+    showError: (msg) => { err.textContent = msg; err.hidden = false; },
+    read: () => ({
+      file: img.file,
+      name: name.value.trim(),
+      price_paise: toPaise(price.value),
+      category: cat.value,
+      description: desc.value.trim(),
+    }),
+  });
   err.hidden = true;
 
   const listBtn = actionBtn('List it', 'admin-btn', async () => {

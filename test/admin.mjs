@@ -547,22 +547,53 @@ section("admin products — the image path cannot be forged");
 }
 
 // ── batch listing ─────────────────────────────────────────────────
+//
+// The batch form used to take ONE price for the whole selection. It now submits each
+// row's own price, so the assertions that matter are the ones proving the values do
+// not bleed between rows: a single prepared statement is bound once per row inside
+// batch(), and every way that can go wrong ends with several products sharing one
+// price. That is money, so it is asserted from more than one angle.
 section("admin products — batch list");
 {
   const env = envDB();
   const [status, out] = await read(await batchCreateProducts(env, {
-    images: ["n.jpg", "i.jpg", "kingfisher.jpg"],
-    price_paise: 44900, category: "decor",
+    items: [
+      { file: "n.jpg", price_paise: 44900, category: "decor", name: "Nice Thing",
+        description: "A described thing." },
+      { file: "i.jpg", price_paise: 9900, category: "functional" },
+      { file: "kingfisher.jpg", price_paise: 129900, category: "figurine" },
+    ],
   }));
   ok("201", status === 201, String(status));
   ok("all three written", env.DB._db.products.length === 3, String(env.DB._db.products.length));
   ok("reports the count", out.created === 3);
 
-  // One price for all — the whole point of the batch form.
-  ok("every row gets the one price",
-     env.DB._db.products.every((p) => p.price_paise === 44900));
-  ok("every row gets the category",
-     env.DB._db.products.every((p) => p.category === "decor"));
+  const bySlug = (frag) => env.DB._db.products.find((p) => p.image.includes(frag));
+
+  // THE point of the change: three different prices, one click.
+  ok("each row keeps its OWN price",
+     bySlug("n.jpg").price_paise === 44900
+     && bySlug("i.jpg").price_paise === 9900
+     && bySlug("kingfisher.jpg").price_paise === 129900,
+     env.DB._db.products.map((p) => p.price_paise).join(","));
+  ok("prices are not all the same value",
+     new Set(env.DB._db.products.map((p) => p.price_paise)).size === 3,
+     "a shared price means the binding aliased across rows");
+
+  ok("each row keeps its own category",
+     bySlug("n.jpg").category === "decor"
+     && bySlug("i.jpg").category === "functional"
+     && bySlug("kingfisher.jpg").category === "figurine",
+     env.DB._db.products.map((p) => p.category).join(","));
+
+  // The description box exists on every row of the panel. writeProductRows used to
+  // bind "" regardless, so anything typed there was silently discarded.
+  ok("a row's description is written, not dropped",
+     bySlug("n.jpg").description === "A described thing.",
+     JSON.stringify(bySlug("n.jpg").description));
+  ok("a row with no description gets an empty one, not undefined",
+     bySlug("i.jpg").description === "");
+
   ok("every row is visible", env.DB._db.products.every((p) => p.visible === 1));
 
   // Each row must carry ITS OWN image — the bug a fake with an aliasing bind()
@@ -571,9 +602,27 @@ section("admin products — batch list");
   ok("each row keeps its own image",
      imgs.join(",") === "assets/images/i.jpg,assets/images/kingfisher.jpg,assets/images/n.jpg",
      imgs.join(","));
-  ok("names are derived per file",
+  ok("a supplied name is used", bySlug("n.jpg").name === "Nice Thing", bySlug("n.jpg").name);
+  // kingfisher.jpg, not i.jpg: suggestName("i.jpg") is legitimately the single
+  // letter "I", so a length check there tests nothing about the fallback.
+  ok("a missing name falls back to one derived from the filename",
+     bySlug("kingfisher.jpg").name === "Kingfisher",
+     bySlug("kingfisher.jpg").name);
+  ok("names are distinct per file",
      new Set(env.DB._db.products.map((p) => p.name)).size === 3,
      env.DB._db.products.map((p) => p.name).join(","));
+}
+{
+  // A dashboard tab opened before this shipped posts the old shape. Answer with an
+  // instruction rather than "No photos selected.", which sends Aswin looking for a
+  // selection bug that does not exist.
+  const env = envDB();
+  const [status, out] = await read(await batchCreateProducts(env, {
+    images: ["n.jpg", "i.jpg"], price_paise: 9900,
+  }));
+  ok("the old {images, price_paise} shape is refused", status === 409, String(status));
+  ok("and says to reload", /out of date|reload/i.test(out.error || ""), out.error);
+  ok("and writes nothing", env.DB._db.products.length === 0);
 }
 {
   // THE case that motivated de-duplication. These two real filenames both
@@ -588,8 +637,10 @@ section("admin products — batch list");
   let status = 0, threw = "";
   try {
     [status] = await read(await batchCreateProducts(env, {
-      images: ["poster_wall_staircase.jpg", "poster_wall_staircase_v2.jpg"],
-      price_paise: 9900,
+      items: [
+        { file: "poster_wall_staircase.jpg", price_paise: 9900 },
+        { file: "poster_wall_staircase_v2.jpg", price_paise: 9900 },
+      ],
     }));
   } catch (e) {
     threw = String(e?.message || e);
@@ -614,7 +665,8 @@ section("admin products — batch list");
   ];
   for (const [label, images] of cases) {
     const env = envDB();
-    const [status] = await read(await batchCreateProducts(env, { images, price_paise: 9900 }));
+    const items = images.map((file) => ({ file, price_paise: 9900 }));
+    const [status] = await read(await batchCreateProducts(env, { items }));
     ok(`${label} → refused`, status === 400, String(status));
     ok(`${label} → NOTHING written`, env.DB._db.products.length === 0,
        `${env.DB._db.products.length} rows`);
@@ -622,21 +674,35 @@ section("admin products — batch list");
 }
 {
   const env = envDB();
-  ok("no price → refused",
-     (await read(await batchCreateProducts(env, { images: ["n.jpg"] })))[0] === 400);
-  ok("zero price → refused",
-     (await read(await batchCreateProducts(env, { images: ["n.jpg"], price_paise: 0 })))[0] === 400);
-  ok("and nothing written", env.DB._db.products.length === 0);
+  ok("a row with no price → refused",
+     (await read(await batchCreateProducts(env, { items: [{ file: "n.jpg" }] })))[0] === 400);
+  ok("a row with zero price → refused",
+     (await read(await batchCreateProducts(env, { items: [{ file: "n.jpg", price_paise: 0 }] })))[0] === 400);
 
-  const many = Array.from({ length: 101 }, () => "n.jpg");
+  // One unpriced row among priced ones must refuse the WHOLE batch. Skipping it
+  // server-side would list some photos and silently ignore others.
+  const [mixedStatus, mixedOut] = await read(await batchCreateProducts(env, {
+    items: [
+      { file: "n.jpg", price_paise: 9900 },
+      { file: "i.jpg" },
+      { file: "kingfisher.jpg", price_paise: 9900 },
+    ],
+  }));
+  ok("one unpriced row refuses the whole batch", mixedStatus === 400, String(mixedStatus));
+  ok("and the error names the offending file", /i\.jpg/.test(mixedOut.error || ""), mixedOut.error);
+  ok("and nothing written", env.DB._db.products.length === 0,
+     `${env.DB._db.products.length} rows`);
+
+  const many = Array.from({ length: 101 }, () => ({ file: "n.jpg", price_paise: 100 }));
   ok("over 100 photos → refused",
-     (await read(await batchCreateProducts(env, { images: many, price_paise: 100 })))[0] === 400);
+     (await read(await batchCreateProducts(env, { items: many })))[0] === 400);
 }
 {
   // A photo that is already a product cannot be listed twice.
   const env = envDB();
-  await batchCreateProducts(env, { images: ["n.jpg"], price_paise: 9900 });
-  const [status] = await read(await batchCreateProducts(env, { images: ["n.jpg"], price_paise: 9900 }));
+  await batchCreateProducts(env, { items: [{ file: "n.jpg", price_paise: 9900 }] });
+  const [status] = await read(await batchCreateProducts(env,
+    { items: [{ file: "n.jpg", price_paise: 9900 }] }));
   ok("re-listing the same photo → refused", status === 400, String(status));
   ok("and still only one row", env.DB._db.products.length === 1);
 }

@@ -398,6 +398,18 @@
   background: rgba(255, 107, 0, 0.06);
 }
 
+/* A row with a price is one that "List priced photos" will act on. Marked because
+   the button gives a count and nothing else answered WHICH — with four rows on
+   screen and three of them priced, the admin had to re-read every box to find the
+   odd one out. Green rather than the orange used for selection, since the two mean
+   different things and can be true at once. */
+.unlisted-row.is-priced {
+  border-left: 3px solid #3f9e63;
+}
+.unlisted-row.is-priced.is-picked {
+  border-left-color: #3f9e63;
+}
+
 .unlisted-row {
   display: grid;
   grid-template-columns: 24px 72px 1fr auto;

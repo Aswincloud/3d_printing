@@ -210,12 +210,19 @@ export async function createProduct(env, body) {
 // photos listed and some not — and no obvious way to tell which. `env.DB.batch()`
 // is one D1 transaction: it all lands or none of it does.
 
-// Validate a list of filenames against the manifest, and plan a row for each.
-// Shared by batch-list and hide, because the checks are identical and the only
-// difference is what the rows contain.
-async function planRowsFor(env, images, { price, category, visible }) {
-  if (!Array.isArray(images) || images.length === 0) return { error: "No photos selected." };
-  if (images.length > 100) return { error: "Too many photos in one request (max 100)." };
+// Validate a list of ENTRIES against the manifest and plan a row for each.
+//
+// An entry is { file, price, category, visible, name?, description? }. Values are
+// per-entry rather than shared across the batch: the unlisted panel has always had
+// a Price box on every row, and it now submits them together, so ten photos can go
+// live at ten different prices in one transaction.
+//
+// Shared with hide, which maps its filenames to entries at price 0 — the checks are
+// identical and only the contents of the rows differ, which is the reason this is
+// one function and not two.
+async function planRowsFor(env, entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return { error: "No photos selected." };
+  if (entries.length > 100) return { error: "Too many photos in one request (max 100)." };
 
   const manifest = await readManifest(env);
   if (!manifest) return { error: "Image manifest unavailable — run `npm run images` and deploy.", status: 503 };
@@ -230,7 +237,8 @@ async function planRowsFor(env, images, { price, category, visible }) {
   const seen = new Set();
   const rows = [];
 
-  for (const raw of images) {
+  for (const entry of entries) {
+    const raw = entry?.file;
     const file = String(raw || "").trim().replace(/^.*\//, "");
     if (!file) return { error: "An entry in the selection is empty." };
 
@@ -244,9 +252,10 @@ async function planRowsFor(env, images, { price, category, visible }) {
     seen.add(file);
     if (alreadyListed.has(file)) return { error: `"${file}" is already a product.` };
 
-    // A camera-default filename yields nothing to name a product after. Blocking
-    // the whole batch for that would be worse than a placeholder Aswin can edit.
-    const name = suggestName(file) || "Custom piece";
+    // The row's own name if it has one. A camera-default filename yields nothing to
+    // name a product after, and blocking the whole batch for that would be worse
+    // than a placeholder Aswin can edit.
+    const name = clip(entry?.name, MAXLEN.name) || suggestName(file) || "Custom piece";
 
     // De-duplicate the slug against existing rows AND against earlier entries in
     // this same batch.
@@ -262,24 +271,59 @@ async function planRowsFor(env, images, { price, category, visible }) {
     }
     takenSlugs.add(slug);
 
-    rows.push({ id: uid(), slug, name, image: `assets/images/${file}`, price, category, visible });
+    rows.push({
+      id: uid(),
+      slug,
+      name,
+      image: `assets/images/${file}`,
+      price: entry.price,
+      category: clip(entry?.category, MAXLEN.category),
+      visible: entry.visible,
+      description: clip(entry?.description, MAXLEN.desc),
+    });
   }
 
   return { rows };
 }
 
-// POST /api/admin/products/batch — list several photos at one price.
+// POST /api/admin/products/batch — list several photos, each at its own price.
+//
+// Takes `items: [{ file, price_paise, name?, category?, description? }]`, mirroring
+// bulkUpdateProducts() above: validate and plan everything first, write once. Any bad
+// row rejects the whole batch, which is the same promise the transaction makes —
+// listing nine of ten photos and leaving no clear record of which failed is worse
+// than listing none.
 export async function batchCreateProducts(env, body) {
-  const price = parsePaise(body?.price_paise);
-  if (price === null || price < 1) {
-    return bad("Enter a price in rupees for the selected photos.");
+  const items = body?.items;
+
+  // A dashboard tab loaded before this shipped posts the old shape: a list of
+  // filenames plus one shared price. Say so, rather than falling through to "No
+  // photos selected." and leaving Aswin wondering why the button stopped working.
+  if (!Array.isArray(items) && Array.isArray(body?.images)) {
+    return bad("This dashboard page is out of date — reload it and try again.", 409);
+  }
+  if (!Array.isArray(items) || items.length === 0) return bad("No photos selected.");
+
+  const entries = [];
+  for (const it of items) {
+    const file = String(it?.file || "").trim().replace(/^.*\//, "") || "a photo";
+    const price = parsePaise(it?.price_paise);
+    // Naming the file matters: in a batch of twenty, "enter a price" without saying
+    // which row is a hunt.
+    if (price === null || price < 1) {
+      return bad(`Enter a price in rupees for "${file}".`);
+    }
+    entries.push({
+      file: it?.file,
+      price,
+      category: it?.category,
+      name: it?.name,
+      description: it?.description,
+      visible: it?.visible === false ? 0 : 1,
+    });
   }
 
-  const planned = await planRowsFor(env, body?.images, {
-    price,
-    category: clip(body?.category, MAXLEN.category),
-    visible: body?.visible === false ? 0 : 1,
-  });
+  const planned = await planRowsFor(env, entries);
   if (planned.error) return bad(planned.error, planned.status || 400);
 
   await writeProductRows(env, planned.rows);
@@ -308,11 +352,19 @@ export async function batchCreateProducts(env, body) {
 // poster would otherwise mean inventing a price for something never meant to be
 // sold.
 export async function hideImages(env, body) {
-  const planned = await planRowsFor(env, body?.images, {
+  const images = body?.images;
+  if (!Array.isArray(images) || images.length === 0) return bad("No photos selected.");
+
+  // Hide still takes a plain list of filenames — there is nothing per-row to say
+  // about a photo that will never be sold. Mapped to entries so it keeps sharing
+  // planRowsFor's checks rather than growing a parallel copy of them.
+  const planned = await planRowsFor(env, images.map((file) => ({
+    file,
     price: 0,        // never sellable; priceCart refuses price_paise = 0 anyway
     category: "",
     visible: 0,
-  });
+    description: "",
+  })));
   if (planned.error) return bad(planned.error, planned.status || 400);
 
   await writeProductRows(env, planned.rows);
@@ -331,8 +383,13 @@ function writeProductRows(env, rows) {
        category, visible, sort, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
   );
+  // r.description, not "". The single-photo path carries a description through
+  // createProduct() and this one used to drop it on the floor — invisible while the
+  // batch form had no description box, and silent data loss the moment it submits the
+  // one each row has always had.
   return env.DB.batch(rows.map((r) => stmt.bind(
-    r.id, r.slug, r.name, "", r.price, r.image, "", r.category, r.visible, 0, ts, ts,
+    r.id, r.slug, r.name, r.description || "", r.price, r.image, "", r.category,
+    r.visible, 0, ts, ts,
   )));
 }
 
