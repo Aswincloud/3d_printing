@@ -21,24 +21,16 @@ body {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
   font-family: Inter, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: #ffffff;
+  /* Warm wash behind the wordmark, as a background rather than a positioned
+     pseudo-element — see the note in the git history: a ::before sized in mm and
+     centred with a transform overflowed the page box and made the PDF path scale
+     the whole card down. A background cannot overflow its own element. */
+  background: #ffffff radial-gradient(circle 52mm at 50% -8mm,
+              rgba(255, 107, 0, 0.13) 0%, rgba(255, 107, 0, 0) 100%) no-repeat;
   color: #22222e;
   overflow: hidden;
   position: relative;
   padding: 0 8mm;
-}
-
-/* Warm wash behind the wordmark. Low contrast on purpose: heavy colour on a small
-   card reads as cheap, and it costs ink. */
-body::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -40mm;
-  transform: translateX(-50%);
-  width: 96mm;
-  height: 96mm;
-  background: radial-gradient(circle, rgba(255,107,0,0.11) 0%, rgba(255,107,0,0) 62%);
 }
 
 /* Top group, pinned to the top edge. */
@@ -97,12 +89,18 @@ body::before {
 }
 
 /* ── the code ──────────────────────────────────────────────────── */
-/* Dead centre by definition, not as an outcome of row arithmetic. */
+/* Dead centre by definition, not as an outcome of row arithmetic.
+   Offset by half the code rather than left/top:50% with a translate(-50%,-50%).
+   The transform moves the element VISUALLY but its layout box still starts at 50%,
+   so a 47mm code sat at 35..82mm — 12mm past a 70mm page. The screenshot path does
+   not care, but the PDF path shrink-to-fits overflowing content and scaled the whole
+   card to 70/82.8 = 0.845, anchored top-left. That is the 84% scale and the 5.5mm
+   leftward shift Aswin was seeing: the PNG was correct and the PDF was not.
+   calc(50% - half) overflows nothing and needs no transform. */
 .qr-tile {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  top: calc(50% - 23.5mm);    /* half of the 47mm code */
+  left: calc(50% - 23.5mm);
   display: block;
 }
 

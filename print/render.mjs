@@ -37,14 +37,20 @@ async function pdf(html, out, widthMm, heightMm) {
     console.warn(`  WARN Inter not loaded for ${out} — type will be the fallback`);
   }
 
-  // Inches, not mm. Passing "170mm" produced a 170.19mm MediaBox: Chromium rounds
-  // the conversion upward, and a shop reading 170.19 on a card spec'd at 170 will
-  // query it. Playwright's parser rejects pt, so inches at six decimals is the most
-  // precise route available.
+  // preferCSSPageSize, NOT width/height.
+  //
+  // This is the bug Aswin spotted. Passing width/height while the CSS also declares
+  // `@page { size: 70mm 155mm }` makes Chromium lay out for one box and print to
+  // another: the content came out scaled to about 84% and pushed into the top-left
+  // corner, 5.6mm left of centre. The screenshot path was unaffected, which is why
+  // every check passed — I was verifying the PNG and shipping the PDF.
+  //
+  // Deferring to the CSS page size fixes the offset and the size rounding at once:
+  // the MediaBox lands on exactly 70 x 155mm instead of the 70.19mm Chromium
+  // produced when converting a passed dimension.
   await page.pdf({
     path: `${DIR}/${out}.pdf`,
-    width: `${(widthMm / 25.4).toFixed(6)}in`,
-    height: `${(heightMm / 25.4).toFixed(6)}in`,
+    preferCSSPageSize: true,
     printBackground: true,
     margin: { top: '0', right: '0', bottom: '0', left: '0' },
     pageRanges: '1',

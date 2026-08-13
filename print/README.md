@@ -79,10 +79,27 @@ So `build.sh` does two independent things:
    pixels read out of the delivered file. Then it checks dark/light separation and
    the quiet zone on all four edges.
 
-Both are needed because they catch different failures. Verified by corrupting the
-artwork: a 6 px blur still passes the module comparison, because sampling centres is
-robust, and is caught by the contrast check. A single flipped module is caught by the
-comparison. Neither alone is sufficient.
+3. **`verify-layout.py`** checks page size, horizontal centring of every ink band,
+   the margins, and the code's measured width — that last one being the tell for any
+   global scaling.
+
+4. **`overflow.mjs`** asserts, in print media, that the body's scrollable width does
+   not exceed its client width.
+
+All of them run on the **PDF, rasterised with `pdftoppm`** — not on the PNG.
+
+That last point was a real bug, not a precaution. Chromium's screenshot path and its
+print path are different code, and the print one applies shrink-to-fit. A background
+wash whose layout box overflowed the page by 13 mm made Chromium scale the entire card
+to 84% and anchor it top-left. The PNG was pixel perfect; the PDF, which is the thing
+that gets printed, was visibly wrong — and every check passed, because every check was
+looking at the PNG.
+
+Verified by corrupting things deliberately: a 6 px blur still passes the module
+comparison (sampling centres is robust) and is caught by the contrast check; a single
+flipped module is caught by the comparison; and reintroducing the overflowing wash is
+caught three ways — the overflow check names the cause, and the layout check reports
+both the −5.5 mm shift and a 39.62 mm code where 47 mm was expected.
 
 ## Changing it
 
