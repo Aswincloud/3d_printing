@@ -53,7 +53,7 @@ export default {
         if (limited) return withSecurityHeaders(limited);
 
         const res = await api(request, env, url, ctx);
-        return withSecurityHeaders(res);
+        return withSecurityHeaders(noStoreUnlessCacheable(url, res));
       } catch (e) {
         // Deliberately generic. Invoicer returns `e.message` here, but these
         // routes talk to Razorpay and Resend, whose errors can echo request
@@ -184,6 +184,37 @@ export default {
     return withSecurityHeaders(await env.ASSETS.fetch(request));
   },
 };
+
+// Which /api/ responses may be stored by a shared cache. An ALLOWLIST, not a
+// blocklist, and this is the second attempt at it.
+//
+// The first was per-endpoint: /api/me states `private, no-store` at its return, and
+// when [cache] was enabled in wrangler.toml I audited the API surface and added it
+// there. I missed /api/auth/me — a different endpoint answering the same question —
+// and Cloudflare cached `{"signedIn":false}` for everyone. Aswin signed in
+// successfully, the page asked who he was, the edge handed back a 20-minute-old
+// "nobody", and he was returned to the sign-in screen every time.
+//
+// It was also a latent disclosure, not just an annoyance: had the first request
+// after an eviction come from a signed-in session, that response — carrying an email
+// address — would have been stored and served to strangers.
+//
+// So the default is inverted. Everything under /api/ is no-store unless it appears
+// here, which means a new endpoint is private until someone deliberately decides
+// otherwise, rather than public until someone remembers.
+const CACHEABLE_API = new Set([
+  "/api/products",     // the public catalogue; identical for everyone, and the
+                       // homepage and every product page depend on it being cached
+]);
+
+function noStoreUnlessCacheable(url, res) {
+  if (CACHEABLE_API.has(url.pathname)) return res;
+  // Only set it if the handler did not already say something deliberate.
+  if (res.headers.get("cache-control")) return res;
+  const h = new Headers(res.headers);
+  h.set("cache-control", "private, no-store");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
 
 async function api(request, env, url, ctx) {
   const p = url.pathname;
