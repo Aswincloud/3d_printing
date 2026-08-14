@@ -7,7 +7,7 @@
 // The tampering block is the point of the whole file. Everything else is
 // arithmetic.
 
-import { applyCoupon, recordRedemption, normaliseCode, listCoupons } from "../src/coupons.js";
+import { applyCoupon, recordRedemption, normaliseCode, listCoupons, updateCoupon } from "../src/coupons.js";
 import { priceCart } from "../src/shop.js";
 
 let pass = 0, fail = 0;
@@ -394,6 +394,106 @@ section("listCoupons() — money aggregation");
   } } };
   const c = (await (await listCoupons(env)).json()).coupons[0];
   ok("matches a differently-cased snapshot", c.paid_orders === 1, String(c.paid_orders));
+}
+
+// ── editing a coupon ──────────────────────────────────────────────
+//
+// updateCoupon had NO tests, and was broken for every edit the dashboard can
+// make. It validates the patch against the merged row so a percentage over 100 is
+// caught even when the patch alone carries no kind — correct idea, but the SELECT
+// pulled only (id, kind, value), so `code` was absent from the merge and the
+// full-mode validator rejected it with "Code must be at least 3 characters."
+//
+// The dashboard deliberately never sends `code` — renaming a coupon invalidates
+// every copy customers already hold — so EVERY edit failed, including the one-field
+// Pause button. Aswin hit it setting a ₹100 cap on WELCOME10.
+section("admin — editing a coupon");
+{
+  const existing = {
+    id: "c1", code: "WELCOME10", kind: "percent", value: 10,
+    min_order_paise: 0, max_discount_paise: null, expires_at: null,
+    max_uses: null, uses: 0, once_per_customer: 0, active: 1,
+  };
+  const writes = [];
+  const envEdit = (row = existing) => ({ DB: { prepare(sql) {
+    const s = sql.replace(/\s+/g, " ").trim();
+    return {
+      bind(...a) { this._a = a; return this; },
+      async first() {
+        const m = /^SELECT (.+?) FROM coupons WHERE id/.exec(s);
+        if (!m || !row) return null;
+        // Return ONLY the columns the statement asked for, the way D1 does.
+        //
+        // Without this the fake hands back the whole row whatever the SELECT says,
+        // and the bug this section exists for — a SELECT too narrow to include
+        // `code` — is invisible: reverting the fix left all these tests passing.
+        // test/admin.mjs already carries the same projection for the same reason.
+        if (m[1].trim() === "*") return { ...row };
+        const cols = m[1].split(",").map((c) => c.trim());
+        return Object.fromEntries(cols.filter((c) => c in row).map((c) => [c, row[c]]));
+      },
+      async run() { writes.push({ sql: s, args: this._a }); return { meta: { changes: 1 } }; },
+      async all() { return { results: [] }; },
+    };
+  } } });
+  const read = async (r) => [r.status, await r.json()];
+
+  // THE case from the dashboard: cap an uncapped percentage coupon.
+  {
+    writes.length = 0;
+    const [status, out] = await read(await updateCoupon(envEdit(), "c1", { max_discount_paise: 10000 }));
+    ok("capping a coupon without resending the code succeeds", status === 200,
+       `${status} ${out.error || ""}`);
+    ok("and the cap is written", writes.some((w) => /max_discount_paise = \?/.test(w.sql)),
+       writes.map((w) => w.sql.slice(0, 50)).join(" | "));
+  }
+
+  // Pause sends ONE field. Same failure, and it is the button most likely to be
+  // needed in a hurry.
+  {
+    const [status, out] = await read(await updateCoupon(envEdit(), "c1", { active: false }));
+    ok("pausing a coupon succeeds", status === 200, `${status} ${out.error || ""}`);
+  }
+  {
+    const [status] = await read(await updateCoupon(envEdit(), "c1", { expires_at: "2026-12-31" }));
+    ok("setting an expiry succeeds", status === 200, String(status));
+  }
+  {
+    const [status] = await read(await updateCoupon(envEdit(), "c1", { max_uses: 50 }));
+    ok("setting a use cap succeeds", status === 200, String(status));
+  }
+
+  // The merge must still CATCH cross-field errors — that is why it exists. A patch
+  // carrying only a value has no kind of its own to check against.
+  {
+    const [status, out] = await read(await updateCoupon(envEdit(), "c1", { value: 150 }));
+    ok("a percentage over 100 is still rejected", status === 400, String(status));
+    ok("and says why", /between 1 and 100/.test(out.error || ""), out.error);
+  }
+  {
+    const [status] = await read(await updateCoupon(envEdit(), "c1", { value: 0 }));
+    ok("a zero percentage is still rejected", status === 400, String(status));
+  }
+  // A fixed-amount coupon merged with a bad value.
+  {
+    const fixed = { ...existing, kind: "fixed", value: 5000 };
+    const [status] = await read(await updateCoupon(envEdit(fixed), "c1", { value: 0 }));
+    ok("a zero fixed discount is still rejected", status === 400, String(status));
+  }
+  // Renaming is still possible via the API even though the UI does not offer it.
+  {
+    const [status] = await read(await updateCoupon(envEdit(), "c1", { code: "AB" }));
+    ok("an explicitly short code is still rejected", status === 400, String(status));
+  }
+  {
+    const [status] = await read(await updateCoupon(envEdit(), "c1", { code: "NEWCODE10" }));
+    ok("a valid explicit rename is accepted", status === 200, String(status));
+  }
+  {
+    const [status, out] = await read(await updateCoupon(envEdit(null), "missing", { active: false }));
+    ok("a missing coupon is a 404", status === 404, String(status));
+    ok("and says so", /not found/i.test(out.error || ""), out.error);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

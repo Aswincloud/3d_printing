@@ -353,15 +353,27 @@ export async function createCoupon(env, body) {
 // PATCH semantics, same as updateProduct: only the fields present in the body
 // are touched.
 export async function updateCoupon(env, id, body) {
+  // The WHOLE row, not (id, kind, value).
+  //
+  // The merge below is validated in FULL mode, which requires a code — and the
+  // narrower SELECT meant `code` was never in the merged object, so every patch
+  // that did not resend it was rejected with "Code must be at least 3 characters."
+  // The dashboard deliberately never sends it (renaming a coupon invalidates every
+  // copy a customer already holds), so in practice EVERY edit failed, including the
+  // one-field Pause button. Aswin hit it capping WELCOME10 at ₹100.
+  //
+  // Selecting * also means a field added to the validator later is covered without
+  // anyone remembering to widen this query — the same reason the API cache is an
+  // allowlist rather than a list of exceptions.
   const existing = await env.DB.prepare(
-    `SELECT id, kind, value FROM coupons WHERE id = ?`
+    `SELECT * FROM coupons WHERE id = ?`
   ).bind(id).first();
   if (!existing) return bad("Coupon not found.", 404);
 
   // Validate against the MERGED row, not the patch alone: sending {value: 150}
   // on an existing percent coupon has to be rejected, and the patch by itself
   // carries no kind to check it against.
-  const merged = { kind: existing.kind, value: existing.value, ...(body || {}) };
+  const merged = { ...existing, ...(body || {}) };
   const { errors } = validateCouponBody(merged);
   if (errors.length) return json({ error: errors[0], errors }, 400);
 
