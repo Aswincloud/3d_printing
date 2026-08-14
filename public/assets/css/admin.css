@@ -836,3 +836,8 @@
 
 .cr-r-email { color: var(--text); font-weight: 600; }
 .cr-r-meta { color: var(--text-muted); }
+
+/* The one-use-per-customer toggle sits on its own row under the field grid rather
+   than inside it: .cr-edit-grid is auto-fit 140px columns sized for labelled text
+   inputs, and a bare checkbox in one of those cells reads as a stray control. */
+.cr-edit-once { margin-bottom: 0.75rem; }

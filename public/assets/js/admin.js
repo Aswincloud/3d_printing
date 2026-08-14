@@ -1148,6 +1148,16 @@ function openCouponEditor(c, row) {
   grid.appendChild(field('Total uses', maxUses, 'blank = unlimited'));
   grid.appendChild(field('Expires', expires, 'blank = never'));
 
+  // The checkbox was built above and read on save, but was never put on the page —
+  // so "Per customer" appeared in a coupon's facts as something you could set, and
+  // the editor had no control for it. It could only be chosen at creation.
+  //
+  // Its own row rather than a grid cell: the grid is auto-fit 140px columns sized
+  // for labelled inputs, and a bare checkbox dropped into one sits oddly against
+  // them. Appended to the box below, next to `grid`.
+  const onceRow = el('div', 'cr-edit-once');
+  onceRow.appendChild(onceWrap);
+
   const err = el('p', 'ul-error');
   err.hidden = true;
 
@@ -1218,7 +1228,7 @@ function openCouponEditor(c, row) {
 
   box.append(
     el('p', 'cr-edit-note', `Editing ${c.code}. The code itself can't be changed — anyone already holding it would find it invalid.`),
-    grid, err, bar,
+    grid, onceRow, err, bar,
   );
   row.appendChild(box);
   (isShipping ? min : value).focus();
