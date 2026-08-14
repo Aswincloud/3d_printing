@@ -267,5 +267,12 @@ section("script serialisation");
   })());
 }
 
+// The shoppable hero is rewritten by rewriteHome(), which uses HTMLRewriter — a
+// Workers runtime global with no Node equivalent. It is tested over HTTP against a
+// real `wrangler dev` instead (see the hero section of the e2e suite), rather than
+// against a hand-written shim: a fake HTMLRewriter that behaved slightly differently
+// from the real one would report success on markup the runtime would mangle, which
+// is the failure mode this codebase has already been bitten by twice.
+
 console.log(`\n  seo: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

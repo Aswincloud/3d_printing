@@ -128,56 +128,33 @@
       </div>
     </div>
   </div>
-  <div class="hero-visual">
-    <div class="hero-img-main">
-      <img src="assets/images/IMG20260403160453.jpg" alt="Articulated 3D print" loading="eager" />
-    </div>
-    <div class="hero-img-small">
-      <img src="assets/images/IMG20260413121025.jpg" alt="Tinkerbell figurine" loading="eager" />
-    </div>
-    <div class="hero-img-small" style="position:relative;">
-      <img src="assets/images/IMG20260215094926.jpg" alt="Moon swing 3D print" loading="eager" />
-      <div class="hero-printer-badge">Bambu Lab A1</div>
-    </div>
-  </div>
-</section>
+  <!-- These three photos were always real products; they just did not behave like
+       them. A visitor's first screen showed a dinosaur skeleton, a fairy and a moon
+       swing and gave no way to buy any of them, while the actual shop sat 2.6
+       screens down on desktop and 4.4 on mobile.
 
-<!-- ===== SERVICES ===== -->
-<section class="services" id="services">
-  <div class="section-label">What I Offer</div>
-  <h2 class="section-title fade-up">Everything You Need<br>From One Printer</h2>
-  <p class="section-sub fade-up" data-delay="100">Whether you need a one-off custom piece or a small batch run, I've got you covered with quality materials and careful attention to detail.</p>
-  <div class="services-grid">
-    <div class="service-card fade-up" data-delay="0">
-      <div class="service-icon">🎨</div>
-      <h3>Custom Figurines</h3>
-      <p>Characters, mascots, and artistic pieces printed with fine detail. Perfect for gifts, collectibles, and decorations.</p>
-    </div>
-    <div class="service-card fade-up" data-delay="80">
-      <div class="service-icon">⚙️</div>
-      <h3>Functional Parts</h3>
-      <p>Replacement components, brackets, and mechanical parts. Strong, durable prints for real-world use cases.</p>
-    </div>
-    <div class="service-card fade-up" data-delay="160">
-      <div class="service-icon">🏠</div>
-      <h3>Home Décor</h3>
-      <p>Vases, wall art, organizers, and decorative accents. Add a unique printed touch to any living space.</p>
-    </div>
-    <div class="service-card fade-up" data-delay="240">
-      <div class="service-icon">🎁</div>
-      <h3>Personalised Gifts</h3>
-      <p>Custom name plates, keychains, miniature models, and one-of-a-kind gifts that nobody else has.</p>
-    </div>
-    <div class="service-card fade-up" data-delay="320">
-      <div class="service-icon">🔬</div>
-      <h3>Prototypes</h3>
-      <p>Rapid prototyping for product ideas, engineering models, or school projects. Bring concepts to life fast.</p>
-    </div>
-    <div class="service-card fade-up" data-delay="400">
-      <div class="service-icon">📦</div>
-      <h3>Small Batch Runs</h3>
-      <p>Need multiple copies? I can handle small production runs with consistent quality across every piece.</p>
-    </div>
+       Each is now a link. The name, the price and the href are filled in
+       SERVER-SIDE by rewriteHome() in src/seo.js, which already holds the product
+       rows for the grid below — so there is no second fetch and no price appearing
+       a moment after the photo. data-hero is the image filename, which is what the
+       lookup keys on.
+
+       If a product is ever hidden or deleted, its slot silently stays a plain
+       photo rather than becoming a dead link. -->
+  <div class="hero-visual">
+    <a class="hero-shot hero-img-main" data-hero="IMG20260403160453.jpg" href="#shop">
+      <img src="assets/images/IMG20260403160453.jpg" alt="Articulated 3D print" loading="eager" />
+      <span class="hero-shot-meta" data-hero-meta="IMG20260403160453.jpg"></span>
+    </a>
+    <a class="hero-shot hero-img-small" data-hero="IMG20260413121025.jpg" href="#shop">
+      <img src="assets/images/IMG20260413121025.jpg" alt="Tinkerbell figurine" loading="eager" />
+      <span class="hero-shot-meta" data-hero-meta="IMG20260413121025.jpg"></span>
+    </a>
+    <a class="hero-shot hero-img-small" data-hero="IMG20260215094926.jpg" href="#shop" style="position:relative;">
+      <img src="assets/images/IMG20260215094926.jpg" alt="Moon swing 3D print" loading="eager" />
+      <span class="hero-shot-meta" data-hero-meta="IMG20260215094926.jpg"></span>
+      <div class="hero-printer-badge">Bambu Lab A1</div>
+    </a>
   </div>
 </section>
 
@@ -232,6 +209,45 @@
 
     <div class="product-grid" id="productGrid" aria-live="polite">
       <div class="shop-loading">Loading the catalogue…</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SERVICES ===== -->
+<section class="services" id="services">
+  <div class="section-label">What I Offer</div>
+  <h2 class="section-title fade-up">Everything You Need<br>From One Printer</h2>
+  <p class="section-sub fade-up" data-delay="100">Whether you need a one-off custom piece or a small batch run, I've got you covered with quality materials and careful attention to detail.</p>
+  <div class="services-grid">
+    <div class="service-card fade-up" data-delay="0">
+      <div class="service-icon">🎨</div>
+      <h3>Custom Figurines</h3>
+      <p>Characters, mascots, and artistic pieces printed with fine detail. Perfect for gifts, collectibles, and decorations.</p>
+    </div>
+    <div class="service-card fade-up" data-delay="80">
+      <div class="service-icon">⚙️</div>
+      <h3>Functional Parts</h3>
+      <p>Replacement components, brackets, and mechanical parts. Strong, durable prints for real-world use cases.</p>
+    </div>
+    <div class="service-card fade-up" data-delay="160">
+      <div class="service-icon">🏠</div>
+      <h3>Home Décor</h3>
+      <p>Vases, wall art, organizers, and decorative accents. Add a unique printed touch to any living space.</p>
+    </div>
+    <div class="service-card fade-up" data-delay="240">
+      <div class="service-icon">🎁</div>
+      <h3>Personalised Gifts</h3>
+      <p>Custom name plates, keychains, miniature models, and one-of-a-kind gifts that nobody else has.</p>
+    </div>
+    <div class="service-card fade-up" data-delay="320">
+      <div class="service-icon">🔬</div>
+      <h3>Prototypes</h3>
+      <p>Rapid prototyping for product ideas, engineering models, or school projects. Bring concepts to life fast.</p>
+    </div>
+    <div class="service-card fade-up" data-delay="400">
+      <div class="service-icon">📦</div>
+      <h3>Small Batch Runs</h3>
+      <p>Need multiple copies? I can handle small production runs with consistent quality across every piece.</p>
     </div>
   </div>
 </section>

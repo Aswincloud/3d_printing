@@ -4,7 +4,7 @@
 // what the shop sells — which today it cannot, because the catalogue is fetched
 // by JavaScript and there is no sitemap telling a crawler which URLs exist.
 
-import { esc } from "./lib.js";
+import { esc, rupees } from "./lib.js";
 
 // The five policy pages plus the homepage. Static because they are, and because
 // a crawler discovering /terms is worth almost nothing next to a product page —
@@ -292,6 +292,14 @@ export function rewriteHome(env, response, products, url) {
 
   const grid = products.map((p) => cardHtml(env, p)).join("");
 
+  // The three hero photos are real products. Keyed on image FILENAME rather than a
+  // hardcoded slug: the photos were chosen because they compose well together, and
+  // the catalogue is what knows their name, price and current slug. A slug renamed
+  // in the dashboard would otherwise leave a dead link on the first screen.
+  const byImage = new Map(
+    products.map((p) => [String(p.image || "").replace(/^.*\//, ""), p]),
+  );
+
   return new HTMLRewriter()
     .on("head", {
       element(el) {
@@ -306,6 +314,28 @@ export function rewriteHome(env, response, products, url) {
     // to it, so a crawler never sees both.
     .on("#productGrid", {
       element(el) { el.setInnerContent(grid, { html: true }); },
+    })
+    // Point each hero photo at its product page. Left as the #shop anchor when the
+    // product is not in the visible set — a hidden or deleted piece degrades to a
+    // decorative photo rather than a 302 from the first thing on the page.
+    .on("[data-hero]", {
+      element(el) {
+        const p = byImage.get(el.getAttribute("data-hero"));
+        if (p && p.slug) el.setAttribute("href", `/p/${p.slug}`);
+      },
+    })
+    // …and give it a name and a price. Server-rendered, so it is in the HTML a
+    // crawler reads and there is no moment where the photo is on screen without it.
+    .on("[data-hero-meta]", {
+      element(el) {
+        const p = byImage.get(el.getAttribute("data-hero-meta"));
+        if (!p || !(p.price_paise > 0)) return;
+        el.setInnerContent(
+          `<span class="hero-shot-name">${esc(p.name)}</span>` +
+          `<span class="hero-shot-price">${esc(rupees(p.price_paise))}</span>`,
+          { html: true },
+        );
+      },
     })
     .transform(response);
 }
