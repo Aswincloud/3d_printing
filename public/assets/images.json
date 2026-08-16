@@ -1,7 +1,11 @@
 {
-  "generated_at": 1786895188549,
-  "count": 70,
+  "generated_at": 1786896649998,
+  "count": 71,
   "images": [
+    {
+      "file": "batman_figurine.jpg",
+      "bytes": 112332
+    },
     {
       "file": "pikachu_wall_art.jpg",
       "bytes": 143251
