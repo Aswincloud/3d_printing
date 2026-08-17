@@ -18,6 +18,7 @@ import {
   couponRedemptions as adminCouponRedemptions,
 } from "./coupons.js";
 import { chatCouponHandler } from "./chatcoupons.js";
+import { agentVerdict } from "./agent.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
 } from "./orders.js";
@@ -362,7 +363,24 @@ async function api(request, env, url, ctx) {
     // Either transport: a broker session, or an OTP-verified email that is on
     // the OWNER_EMAIL allowlist. Same allowlist check either way.
     const owner = await currentAdmin(request, env);
-    if (!owner) return bad("unauthorized", 401);
+
+    // Second actor: the listing agent, which holds a token authorising exactly two
+    // routes. Checked only when there is no owner session, so nothing about the
+    // owner path changes — and `actor` is threaded to the batch handler so it can
+    // apply the tighter limits in agent.js rather than trusting the caller.
+    let actor = owner ? "owner" : null;
+    if (!owner) {
+      const verdict = await agentVerdict(request, env, m, p);
+      if (verdict === "agent") actor = "agent";
+      // A valid token on a route it does not cover is 403, not 401: the credential
+      // was accepted, the action was not. 401 would invite the agent to retry with
+      // different credentials it does not have, and hide a real misconfiguration.
+      else if (verdict === "forbidden") {
+        console.warn(`agent token denied: ${m} ${p}`);
+        return bad("This token may only read unlisted photos and create new listings.", 403);
+      }
+    }
+    if (!actor) return bad("unauthorized", 401);
 
     if (p === "/api/admin/stats" && m === "GET") return adminStats(env);
 
@@ -379,7 +397,7 @@ async function api(request, env, url, ctx) {
     if (p === "/api/admin/products/unlisted" && m === "GET") return adminUnlistedImages(env);
     // List several photos at one price, or take photos out of the shop. Both
     // write a row per image in a single transaction — see the note in admin.js.
-    if (p === "/api/admin/products/batch" && m === "POST") return adminBatchCreate(env, body);
+    if (p === "/api/admin/products/batch" && m === "POST") return adminBatchCreate(env, body, actor, ctx);
     if (p === "/api/admin/products/hide" && m === "POST") return adminHideImages(env, body);
 
     const prod = p.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/);

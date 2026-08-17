@@ -5,6 +5,7 @@
 import { json, bad, uid, now, sendEmail } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
 import { orderShippedEmail } from "./emails.js";
+import { checkAgentEntries } from "./agent.js";
 
 const MAXLEN = { name: 120, slug: 80, desc: 2000, image: 300, images: 2000, category: 40, note: 500,
   courier: 60, tracking: 80 };
@@ -293,7 +294,7 @@ async function planRowsFor(env, entries) {
 // row rejects the whole batch, which is the same promise the transaction makes —
 // listing nine of ten photos and leaving no clear record of which failed is worse
 // than listing none.
-export async function batchCreateProducts(env, body) {
+export async function batchCreateProducts(env, body, actor = "owner", ctx = null) {
   const items = body?.items;
 
   // A dashboard tab loaded before this shipped posts the old shape: a list of
@@ -323,16 +324,67 @@ export async function batchCreateProducts(env, body) {
     });
   }
 
+  // Agent-authored batches get extra rails, checked BEFORE planRowsFor so a
+  // rejected batch writes nothing. planRowsFor already guarantees new-items-only
+  // for every caller; this is the separate question of what values a token that
+  // publishes straight to the live shop may set.
+  if (actor === "agent") {
+    const problem = checkAgentEntries(entries);
+    if (problem) return bad(problem, 400);
+  }
+
   const planned = await planRowsFor(env, entries);
   if (planned.error) return bad(planned.error, planned.status || 400);
 
   await writeProductRows(env, planned.rows);
+
+  // Tell Aswin what just went live. This is the only compensating control for
+  // "live immediately" — the agent's price reaches customers with no review, so the
+  // least this can do is make sure he finds out the same minute rather than the next
+  // time he happens to open the dashboard.
+  //
+  // waitUntil, not await: the write is already committed and the agent's response
+  // should not wait on Resend. Guarded because ctx is absent in the unit tests and
+  // on the owner path, where it is not wanted anyway.
+  if (actor === "agent" && ctx?.waitUntil) {
+    ctx.waitUntil(notifyAgentListings(env, planned.rows).catch((e) =>
+      console.error("agent listing notification failed", e?.message || e)));
+  }
+  console.log(`${actor} listed ${planned.rows.length} product(s): ` +
+    planned.rows.map((r) => `${r.slug}@${r.price_paise}`).join(" "));
+
   return json({
     ok: true,
     created: planned.rows.length,
     products: planned.rows.map((r) => ({ id: r.id, slug: r.slug, name: r.name, image: r.image })),
   }, 201);
 }
+
+// Plain and scannable on a phone: what went live, at what price, and the link to
+// change it. No HTML cleverness — this is an alert, and the only thing that matters
+// is that a wrong number is obvious at a glance.
+async function notifyAgentListings(env, rows) {
+  const to = String(env.OWNER_EMAIL || "").split(",")[0].trim();
+  if (!to) return;
+  const site = env.SITE_URL || "https://3d-prints.aswincloud.com";
+  const line = (r) => `${r.name} — ₹${(r.price_paise / 100).toFixed(0)}  ${site}/p/${r.slug}`;
+  const list = rows.map(line).join("\n");
+  await sendEmail(env, {
+    to,
+    subject: `${rows.length} new product${rows.length === 1 ? "" : "s"} listed by the agent`,
+    text: `These are LIVE in the shop now.\n\n${list}\n\n` +
+          `If a price is wrong, change it at ${site}/shop.html — the listing agent ` +
+          `cannot edit an existing product, so it will not overwrite your correction.`,
+    html: `<p>These are <strong>live in the shop now</strong>.</p><ul>` +
+          rows.map((r) => `<li><a href="${site}/p/${r.slug}">${escapeHtml(r.name)}</a> — ` +
+            `<strong>₹${(r.price_paise / 100).toFixed(0)}</strong></li>`).join("") +
+          `</ul><p>If a price is wrong, change it in the dashboard. The listing agent ` +
+          `cannot edit an existing product, so it will not overwrite your correction.</p>`,
+  });
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 // POST /api/admin/products/hide — take photos out of the shop without deleting
 // the files.
