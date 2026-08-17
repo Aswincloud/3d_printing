@@ -6,8 +6,8 @@
 // the owner session can, and "we only call it from two places" is not a control.
 //
 //   node test/agent.mjs
-import { agentVerdict, checkAgentEntries, AGENT_ROUTES, AGENT_LIMITS, MIN_TOKEN_LENGTH }
-  from "../src/agent.js";
+import { agentVerdict, checkAgentEntries, checkDescribeEntries, AGENT_ROUTES,
+         AGENT_LIMITS, MIN_TOKEN_LENGTH, CATEGORIES } from "../src/agent.js";
 import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
@@ -137,7 +137,10 @@ ok("comparison is over fixed-length digests, not raw tokens",
    /sha256Hex\(presented\)[\s\S]{0,60}sha256Hex\(secret\)/.test(src));
 
 console.log("\nwhat the agent may write, given it publishes straight to the shop");
-const entry = (o = {}) => ({ file: "a.jpg", price: 49900, description: "words", ...o });
+// category included because checkAgentEntries now requires a real one — a row with
+// category "" is one verify-catalogue.sh reports as unknown.
+const entry = (o = {}) => ({ file: "a.jpg", price: 49900, description: "words",
+                            category: "figurine", ...o });
 ok("a normal listing passes", checkAgentEntries([entry()]) === null);
 ok("price below the floor is refused",
    /outside the/.test(checkAgentEntries([entry({ price: AGENT_LIMITS.minPaise - 1 })]) || ""));
@@ -189,8 +192,11 @@ ok("Aswin is emailed when the agent lists something",
 console.log("\nthe write path itself still cannot touch an existing product");
 // The real guarantee behind all of the above. If an UPDATE or DELETE ever appears on
 // this path, the token stops being safe no matter how tight the allowlist is.
+// Ends at describeProducts, NOT at hideImages. describeProducts was inserted between
+// the two and legitimately contains an UPDATE, so the wider slice reported the batch
+// path as able to modify existing rows when nothing about it had changed.
 const batchSection = adm.slice(adm.indexOf("export async function batchCreateProducts"),
-                               adm.indexOf("export async function hideImages"));
+                               adm.indexOf("// POST /api/admin/products/describe"));
 ok("no UPDATE reachable from the batch handler", !/\bUPDATE\s+products\b/i.test(batchSection));
 ok("no DELETE reachable from the batch handler", !/\bDELETE\s+FROM\b/i.test(batchSection));
 ok("writeProductRows is INSERT-only",
@@ -200,6 +206,70 @@ ok("planRowsFor still rejects an already-listed file",
    /alreadyListed\.has\(file\)[\s\S]{0,120}is already a product/.test(adm));
 ok("planRowsFor still requires the file to be in the manifest",
    /!known\.has\(file\)/.test(adm));
+
+
+console.log("\nthe describe route: fill a blank, never overwrite");
+ok("POST /api/admin/products/describe → agent",
+   await verdict("/api/admin/products/describe") === "agent");
+ok("GET on the describe route → forbidden",
+   await verdict("/api/admin/products/describe", { method: "GET" }) === "forbidden");
+ok("PATCH on it → forbidden",
+   await verdict("/api/admin/products/describe", { method: "PATCH" }) === "forbidden");
+
+const d = (o = {}) => ({ slug: "blank-one", description: "x".repeat(80), ...o });
+ok("a normal fill passes", checkDescribeEntries([d()]) === null);
+ok("an empty description is refused",
+   /empty description/.test(checkDescribeEntries([d({ description: "" })]) || ""));
+ok(`under ${AGENT_LIMITS.minDescription} chars is refused`,
+   /minimum/.test(checkDescribeEntries([d({ description: "x".repeat(AGENT_LIMITS.minDescription - 1) })]) || ""));
+ok(`exactly ${AGENT_LIMITS.minDescription} chars is allowed`,
+   checkDescribeEntries([d({ description: "x".repeat(AGENT_LIMITS.minDescription) })]) === null);
+ok("the floor matches verify-catalogue.sh's 'thin' threshold", AGENT_LIMITS.minDescription === 60);
+ok("an invented category is refused",
+   /not one of/.test(checkDescribeEntries([d({ category: "gadgets" })]) || ""));
+for (const c of CATEGORIES) {
+  ok(`category "${c}" is accepted`, checkDescribeEntries([d({ category: c })]) === null);
+}
+ok("omitting category is fine", checkDescribeEntries([d({ category: undefined })]) === null);
+ok("the slug is named in the message",
+   (checkDescribeEntries([d({ slug: "radha-krishna", description: "no" })]) || "").includes("radha-krishna"));
+ok(`more than ${AGENT_LIMITS.maxItems} is refused`,
+   /at most/.test(checkDescribeEntries(Array.from({ length: AGENT_LIMITS.maxItems + 1 }, () => d())) || ""));
+
+console.log("\ncreating a listing now requires a real category too");
+// Without this the agent could create a row with category "", which
+// verify-catalogue.sh reports as unknown and the shop sidebar cannot file.
+const e2 = (o = {}) => ({ file: "a.jpg", price: 49900, description: "words", category: "figurine", ...o });
+ok("a valid category passes", checkAgentEntries([e2()]) === null);
+ok("a missing category is refused",
+   /no category/.test(checkAgentEntries([e2({ category: "" })]) || ""));
+ok("an invented category is refused",
+   /not one of/.test(checkAgentEntries([e2({ category: "gizmos" })]) || ""));
+ok("the four real categories all pass",
+   [...CATEGORIES].every((c) => checkAgentEntries([e2({ category: c })]) === null));
+
+console.log("\nthe overwrite guard is in the SQL, not just the validation");
+// This is the assertion that matters most in the file. checkDescribeEntries can be
+// skipped — it only runs for actor === "agent" — but the WHERE clause cannot.
+const desc = adm.slice(adm.indexOf("export async function describeProducts"),
+                       adm.indexOf("async function notifyAgentDescriptions"));
+ok("the UPDATE carries AND (description IS NULL OR TRIM(description) = '')",
+   /AND \(description IS NULL OR TRIM\(description\) = ''\)/.test(desc),
+   "the only thing making an overwrite impossible is gone");
+ok("it is an UPDATE of description/category only, not a general SET",
+   /SET description = \?, category = COALESCE\(\?, category\), updated_at = \?/.test(desc));
+// Money and shelf presence must be absent from the statement entirely.
+for (const col of ["price_paise", "visible", "slug =", "name ="]) {
+  const stmt = desc.slice(desc.indexOf("UPDATE products"), desc.indexOf("`)"));
+  ok(`${col.replace(" =","")} is not assignable through this route`, !stmt.includes(col + " ="),
+     `${col} appears in the UPDATE`);
+}
+ok("the guard is not weakened to a JS-only check",
+   desc.indexOf("AND (description IS NULL") > 0 &&
+   desc.indexOf("already has a description") > 0,
+   "both layers should be present");
+ok("it reports what the DATABASE changed, not what was asked",
+   /meta\?\.changes/.test(desc), "a race would be reported as success");
 
 console.log(`\n  agent: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -39,7 +39,23 @@
 export const AGENT_ROUTES = new Set([
   "GET /api/admin/products/unlisted",
   "POST /api/admin/products/batch",
+  // Fill in a description that is MISSING. Added because the division of labour is
+  // real: Aswin bulk-lists photos from the dashboard in seconds, and the agent writes
+  // the copy afterwards. Four products sat undescribed because create-only had no way
+  // to express that, so the agent's only route was a migration it has no credentials
+  // to apply — it wrote 0017 and then could do nothing with it.
+  //
+  // This is the one route that touches an existing row, so it is the one to be
+  // suspicious of. The limit is not "the agent promises to only fill blanks": the
+  // UPDATE statement itself carries `AND (description IS NULL OR TRIM(description) =
+  // '')`, so overwriting is not a thing the SQL can do. See describeProducts().
+  "POST /api/admin/products/describe",
 ]);
+
+// The shop's filter sidebar is built from whatever categories exist in the table, so
+// a typo does not fail — it silently adds a category chip with one product in it.
+// Nothing validated this before; category was only length-clipped.
+export const CATEGORIES = new Set(["figurine", "decor", "functional", "set"]);
 
 // A short token is a guessable token, and this one creates live shop listings.
 // Below this length the credential is refused outright rather than accepted weakly —
@@ -122,6 +138,9 @@ export const AGENT_LIMITS = {
   // request much larger is a runaway loop, and it should be stopped at the door
   // rather than after it has written a hundred rows.
   maxItems: 20,
+  // Matches the "thin description" threshold in test/verify-catalogue.sh, so the
+  // agent cannot write copy that the catalogue check immediately reports.
+  minDescription: 60,
 };
 
 /**
@@ -149,6 +168,54 @@ export function checkAgentEntries(entries) {
     if (!String(e.description || "").trim()) {
       return `"${file}" has no description. This token may only create listings that ` +
              `have one.`;
+    }
+    // Category is REQUIRED here, unlike on the owner path where an empty one is
+    // merely untidy. planRowsFor clips a missing category to "", and a product with
+    // category "" is one that test/verify-catalogue.sh reports as unknown and that
+    // the shop sidebar cannot file under any chip. Requiring it costs the agent one
+    // field and removes a way for it to create a row that fails the catalogue check.
+    const cat = String(e.category || "").trim();
+    if (!cat) return `"${file}" has no category. One of: ${[...CATEGORIES].join(", ")}.`;
+    if (!CATEGORIES.has(cat)) {
+      return `"${file}" has category "${cat}", which is not one of ` +
+             `${[...CATEGORIES].join(", ")}. A new one would add a filter chip to the ` +
+             `shop with a single product under it.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Validation for filling in a MISSING description on a product that already exists.
+ *
+ * The overwrite protection is NOT here — it is in the UPDATE's WHERE clause, because
+ * a check in JavaScript is a check that has to be reached. This is about the quality
+ * of what gets written, plus a readable error before the write is attempted.
+ */
+export function checkDescribeEntries(entries) {
+  if (entries.length > AGENT_LIMITS.maxItems) {
+    return `This token may describe at most ${AGENT_LIMITS.maxItems} products per ` +
+           `request (got ${entries.length}).`;
+  }
+  for (const e of entries) {
+    const slug = String(e.slug || "a product");
+    const desc = String(e.description || "").trim();
+    if (!desc) {
+      return `"${slug}" has an empty description. Filling a blank with a blank is not ` +
+             `worth a write.`;
+    }
+    // 60 characters is the threshold test/verify-catalogue.sh already calls "thin".
+    // Matching it means the agent cannot write something that the catalogue check
+    // will turn around and flag.
+    if (desc.length < AGENT_LIMITS.minDescription) {
+      return `Description for "${slug}" is ${desc.length} characters; ` +
+             `${AGENT_LIMITS.minDescription} is the minimum, which is the same ` +
+             `threshold the catalogue check calls thin.`;
+    }
+    // Optional here — an existing row already has a category. Validated when given.
+    if (e.category != null && e.category !== "" && !CATEGORIES.has(String(e.category))) {
+      return `"${slug}" has category "${e.category}", which is not one of ` +
+             `${[...CATEGORIES].join(", ")}.`;
     }
   }
   return null;

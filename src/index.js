@@ -37,6 +37,7 @@ import {
   listProducts as adminListProducts, createProduct as adminCreateProduct,
   unlistedImages as adminUnlistedImages,
   batchCreateProducts as adminBatchCreate, hideImages as adminHideImages,
+  describeProducts as adminDescribe,
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
   listOrders as adminListOrders, updateOrder as adminUpdateOrder,
   refundOrder as adminRefundOrder, stats as adminStats,
@@ -398,6 +399,9 @@ async function api(request, env, url, ctx) {
     // List several photos at one price, or take photos out of the shop. Both
     // write a row per image in a single transaction — see the note in admin.js.
     if (p === "/api/admin/products/batch" && m === "POST") return adminBatchCreate(env, body, actor, ctx);
+    // Sibling of batch: same actor, same ctx, and the only agent route that writes
+    // to a row it did not create. Its WHERE clause is what makes that safe.
+    if (p === "/api/admin/products/describe" && m === "POST") return adminDescribe(env, body, actor, ctx);
     if (p === "/api/admin/products/hide" && m === "POST") return adminHideImages(env, body);
 
     const prod = p.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/);

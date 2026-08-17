@@ -10,6 +10,7 @@ import {
   listProducts, createProduct, updateProduct, deleteProduct, unlistedImages,
   batchCreateProducts, hideImages,
   listOrders, updateOrder, refundOrder, stats, bulkUpdateProducts,
+  describeProducts,
 } from "../src/admin.js";
 import { signToken } from "@aswincloud/auth";
 
@@ -230,6 +231,41 @@ function makeDB(seed = {}) {
     // Read by the batch planner to check slugs and already-listed images.
     if (s.startsWith("SELECT slug, image FROM products")) {
       return { results: db.products.map((p) => project(p, ["slug", "image"])) };
+    }
+    // describeProducts: fills a description that is MISSING.
+    //
+    // Must sit ABOVE the generic "UPDATE products SET" handler below, which reads the
+    // LAST bind as a row id — this statement's last bind is a slug, so the generic
+    // handler would look up id === "batman-figurine", find nothing, and report 0
+    // changes for every write.
+    //
+    // The guard is honoured ONLY when the SQL actually carries it. That is
+    // deliberate: a fake that refused overwrites unconditionally would be testing
+    // itself, and deleting the WHERE clause from admin.js would still pass. This way
+    // the mutation shows up as a failing assertion.
+    if (s.startsWith("UPDATE products SET description = ?, category = COALESCE(")) {
+      const [description, category, updated_at, slug] = a;
+      const row = db.products.find((x) => x.slug === slug);
+      if (!row) return { meta: { changes: 0 } };
+      const guarded = s.includes("TRIM(description) = ''");
+      if (guarded && String(row.description || "").trim()) return { meta: { changes: 0 } };
+      row.description = description;
+      if (category != null) row.category = category;
+      row.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+    // Projected to two columns, so a test cannot pass because the fake handed back
+    // the whole row — the mistake that let the coupon-edit bug through.
+    if (s.startsWith("SELECT slug, description FROM products")) {
+      // _raceDescriptions makes this read report every description as empty while the
+      // stored rows keep theirs. That is exactly the race describeProducts' WHERE
+      // clause exists for: a row gains a description between the validate pass and the
+      // write. Without it the JS check answers 409 first and the SQL guard is never
+      // reached, so deleting the guard broke no functional test — only a source-text
+      // assertion, which proves the clause is PRESENT and not that it WORKS.
+      const rows = db.products.map((p) => project(p, ["slug", "description"]));
+      if (db._raceDescriptions) for (const r of rows) r.description = "";
+      return { results: rows };
     }
     if (s.startsWith("UPDATE products SET")) {
       const id = a[a.length - 1];
@@ -1173,6 +1209,152 @@ section("bulk update — zero is a legitimate price");
   const [status] = await read(await bulkUpdateProducts(env, { items: [{ id: "p1", price_paise: 0 }] }));
   ok("accepted", status === 200);
   ok("applied", env.DB._db.products[0].price_paise === 0);
+}
+
+
+// ── describeProducts: fill a MISSING description ────────────────────
+//
+// The route the listing agent uses on rows it did not create, so the assertions that
+// matter are the ones about NOT overwriting. Aswin's whole stated concern was an agent
+// that "might change any existing thing".
+{
+  console.log("\ndescribeProducts — fills blanks, never overwrites");
+  const seed = () => ({ products: [
+    { id: "p1", slug: "blank-one", name: "Blank One", description: "",
+      price_paise: 44900, image: "assets/images/a.jpg", images: "", category: "figurine",
+      visible: 1, sort: 1, created_at: 1, updated_at: 1 },
+    { id: "p2", slug: "already-done", name: "Already Done",
+      description: "Existing copy that Aswin wrote himself and must survive.",
+      price_paise: 59900, image: "assets/images/b.jpg", images: "", category: "decor",
+      visible: 1, sort: 2, created_at: 1, updated_at: 1 },
+    { id: "p3", slug: "whitespace-only", name: "Whitespace", description: "   ",
+      price_paise: 19900, image: "assets/images/c.jpg", images: "", category: "set",
+      visible: 1, sort: 3, created_at: 1, updated_at: 1 },
+  ] });
+  const LONG = "A properly written description that clears the sixty character floor easily.";
+
+  {
+    const env = envDB(seed());
+    const [status, body] = await read(await describeProducts(env,
+      { items: [{ slug: "blank-one", description: LONG }] }, "agent"));
+    ok("fills an empty description", status === 200 && body.described === 1);
+    ok("the text landed", env.DB._db.products[0].description === LONG);
+    ok("price untouched", env.DB._db.products[0].price_paise === 44900);
+    ok("name untouched", env.DB._db.products[0].name === "Blank One");
+    ok("visible untouched", env.DB._db.products[0].visible === 1);
+  }
+
+  // THE assertion. If this ever fails, the agent can rewrite Aswin's copy.
+  {
+    const env = envDB(seed());
+    const before = env.DB._db.products[1].description;
+    const [status] = await read(await describeProducts(env,
+      { items: [{ slug: "already-done", description: LONG }] }, "agent"));
+    ok("refuses a row that already has a description (409)", status === 409);
+    ok("the existing copy is untouched", env.DB._db.products[1].description === before);
+  }
+
+  // Whitespace is blank. TRIM in the SQL and .trim() in the check must agree, or a
+  // row of spaces is unfillable through the API and unreachable except by migration.
+  {
+    const env = envDB(seed());
+    const [status] = await read(await describeProducts(env,
+      { items: [{ slug: "whitespace-only", description: LONG }] }, "agent"));
+    ok("a whitespace-only description counts as empty", status === 200);
+    ok("and gets filled", env.DB._db.products[2].description === LONG);
+  }
+
+  // Category may be corrected while filling, because a row with no description is
+  // unfinished — but only to a real category, and only on such a row.
+  {
+    const env = envDB(seed());
+    await read(await describeProducts(env,
+      { items: [{ slug: "blank-one", description: LONG, category: "functional" }] }, "agent"));
+    ok("category can be set while filling", env.DB._db.products[0].category === "functional");
+  }
+  {
+    const env = envDB(seed());
+    const [status] = await read(await describeProducts(env,
+      { items: [{ slug: "blank-one", description: LONG, category: "gadgets" }] }, "agent"));
+    ok("an invented category is refused", status === 400);
+    ok("nothing was written", env.DB._db.products[0].description === "");
+  }
+  {
+    const env = envDB(seed());
+    await read(await describeProducts(env,
+      { items: [{ slug: "blank-one", description: LONG }] }, "agent"));
+    ok("omitting category leaves it alone", env.DB._db.products[0].category === "figurine");
+  }
+
+  {
+    const env = envDB(seed());
+    const [status] = await read(await describeProducts(env,
+      { items: [{ slug: "no-such-product", description: LONG }] }, "agent"));
+    ok("an unknown slug is 404", status === 404);
+  }
+  {
+    const env = envDB(seed());
+    const [status] = await read(await describeProducts(env,
+      { items: [{ slug: "blank-one", description: "too short" }] }, "agent"));
+    ok("a thin description is refused for the agent", status === 400);
+    ok("and nothing was written", env.DB._db.products[0].description === "");
+  }
+  // All-or-nothing: one bad row must not let the good one through.
+  {
+    const env = envDB(seed());
+    const [status] = await read(await describeProducts(env, { items: [
+      { slug: "blank-one", description: LONG },
+      { slug: "already-done", description: LONG },
+    ] }, "agent"));
+    ok("one refused row rejects the batch", status === 409);
+    ok("the good row was NOT written", env.DB._db.products[0].description === "");
+  }
+  {
+    const env = envDB(seed());
+    const [status] = await read(await describeProducts(env, { items: [
+      { slug: "blank-one", description: LONG },
+      { slug: "blank-one", description: LONG },
+    ] }, "agent"));
+    ok("the same slug twice is refused", status === 400);
+  }
+  // The owner is not held to the agent's quality floor — a short note from the
+  // dashboard is Aswin's business. The overwrite guard still applies to everyone,
+  // because it is in the SQL.
+  {
+    const env = envDB(seed());
+    const [status] = await read(await describeProducts(env,
+      { items: [{ slug: "blank-one", description: "short" }] }, "owner"));
+    ok("the owner may write a short description", status === 200);
+  }
+  {
+    const env = envDB(seed());
+    const [status] = await read(await describeProducts(env,
+      { items: [{ slug: "already-done", description: LONG }] }, "owner"));
+    ok("even the owner cannot overwrite through THIS route", status === 409);
+  }
+}
+
+
+// The SQL guard, exercised rather than merely asserted.
+{
+  console.log("\ndescribeProducts — the WHERE clause catches what the check cannot");
+  const env = envDB({ products: [
+    { id: "p2", slug: "already-done", name: "Already Done",
+      description: "Copy Aswin wrote himself.", price_paise: 59900,
+      image: "assets/images/b.jpg", images: "", category: "decor",
+      visible: 1, sort: 1, created_at: 1, updated_at: 1 },
+  ] });
+  // Validate pass sees an empty description and waves it through; the row actually
+  // has one. Only the UPDATE's WHERE clause stands between that and an overwrite.
+  env.DB._db._raceDescriptions = true;
+  const [status, body] = await read(await describeProducts(env,
+    { items: [{ slug: "already-done", description: "x".repeat(80) }] }, "agent"));
+  ok("the request is accepted (the check was fooled)", status === 200);
+  ok("but the DATABASE refused the write", body.described === 0);
+  ok("the existing copy survived",
+     env.DB._db.products[0].description === "Copy Aswin wrote himself.");
+  ok("and the response says so rather than claiming success",
+     typeof body.note === "string" && body.requested === 1);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

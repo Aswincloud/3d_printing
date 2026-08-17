@@ -5,7 +5,7 @@
 import { json, bad, uid, now, sendEmail } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
 import { orderShippedEmail } from "./emails.js";
-import { checkAgentEntries } from "./agent.js";
+import { checkAgentEntries, checkDescribeEntries } from "./agent.js";
 
 const MAXLEN = { name: 120, slug: 80, desc: 2000, image: 300, images: 2000, category: 40, note: 500,
   courier: 60, tracking: 80 };
@@ -385,6 +385,116 @@ async function notifyAgentListings(env, rows) {
 
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// POST /api/admin/products/describe — fill in a description that is MISSING.
+//
+// The only route the listing agent has that writes to a row it did not create, which
+// makes it the one worth being suspicious of. Two things keep it honest, and the order
+// matters:
+//
+//   1. The UPDATE carries `AND (description IS NULL OR TRIM(description) = '')`.
+//      This is the actual guarantee. Overwriting an existing description is not
+//      something this statement is able to do, whatever reaches it — a bug in the
+//      validation below, a caller that skips it, a future refactor that reorders it.
+//      The same reasoning as writeProductRows() being INSERT-only: put the limit in
+//      the SQL, not in the JavaScript that hopes to run first.
+//
+//   2. A validate-then-write pass so a request that WOULD have been a no-op gets a
+//      readable 409 naming the slug, instead of a silent "ok, 0 changed" that an
+//      agent would have no way to interpret.
+//
+// price_paise, name, slug and visible are absent from the statement entirely. Money
+// and shelf presence are not editable through this route at any privilege level.
+export async function describeProducts(env, body, actor = "owner", ctx = null) {
+  const items = body?.items;
+  if (!Array.isArray(items) || items.length === 0) return bad("No products given.");
+
+  const entries = [];
+  for (const it of items) {
+    const slug = clip(it?.slug, MAXLEN.slug);
+    if (!slug) return bad("An entry has no slug.");
+    entries.push({
+      slug,
+      description: clip(it?.description, MAXLEN.desc),
+      // null means "leave the category alone", which is different from "" — the
+      // COALESCE below depends on the distinction.
+      category: it?.category == null || it.category === ""
+        ? null : clip(it.category, MAXLEN.category),
+    });
+  }
+
+  if (actor === "agent") {
+    const problem = checkDescribeEntries(entries);
+    if (problem) return bad(problem, 400);
+  }
+
+  // Pass one: read, decide, write nothing.
+  const { results } = await env.DB.prepare(
+    `SELECT slug, description FROM products`).all();
+  const bySlug = new Map((results || []).map((r) => [r.slug, r]));
+  const seen = new Set();
+  for (const e of entries) {
+    if (seen.has(e.slug)) return bad(`"${e.slug}" appears twice in this request.`);
+    seen.add(e.slug);
+    const row = bySlug.get(e.slug);
+    if (!row) return bad(`"${e.slug}" is not a product.`, 404);
+    if (String(row.description || "").trim()) {
+      return bad(
+        `"${e.slug}" already has a description. This route only fills in empty ones — ` +
+        `edit it from the dashboard instead.`, 409);
+    }
+  }
+
+  // Pass two: one transaction.
+  const stmt = env.DB.prepare(
+    `UPDATE products
+        SET description = ?, category = COALESCE(?, category), updated_at = ?
+      WHERE slug = ?
+        AND (description IS NULL OR TRIM(description) = '')`);
+  const ts = now();
+  const res = await env.DB.batch(
+    entries.map((e) => stmt.bind(e.description, e.category, ts, e.slug)));
+
+  // Report what the DATABASE did, not what was asked for. If the WHERE clause
+  // rejected a row — someone described it between the two passes — that has to show
+  // up here rather than being reported as success.
+  const changed = res.reduce((n, r) => n + (r?.meta?.changes || 0), 0);
+  console.log(`${actor} described ${changed}/${entries.length}: ` +
+    entries.map((e) => e.slug).join(" "));
+
+  if (actor === "agent" && ctx?.waitUntil && changed) {
+    ctx.waitUntil(notifyAgentDescriptions(env, entries.slice(0, changed))
+      .catch((e) => console.error("describe notification failed", e?.message || e)));
+  }
+
+  return json({
+    ok: true,
+    described: changed,
+    requested: entries.length,
+    slugs: entries.map((e) => e.slug),
+    ...(changed < entries.length
+      ? { note: "Some rows were not changed — they gained a description between the check and the write." }
+      : {}),
+  });
+}
+
+async function notifyAgentDescriptions(env, entries) {
+  const to = String(env.OWNER_EMAIL || "").split(",")[0].trim();
+  if (!to) return;
+  const site = env.SITE_URL || "https://3d-prints.aswincloud.com";
+  await sendEmail(env, {
+    to,
+    subject: `${entries.length} product description${entries.length === 1 ? "" : "s"} written by the agent`,
+    text: `These products had no description and now do. Prices are unchanged — this ` +
+          `route cannot touch them.\n\n` +
+          entries.map((e) => `${e.slug}\n${site}/p/${e.slug}\n${e.description}\n`).join("\n"),
+    html: `<p>These products had no description and now do. Prices are unchanged — ` +
+          `this route cannot touch them.</p>` +
+          entries.map((e) =>
+            `<p><a href="${site}/p/${e.slug}">${escapeHtml(e.slug)}</a><br>` +
+            `<span style="color:#555">${escapeHtml(e.description)}</span></p>`).join(""),
+  });
+}
 
 // POST /api/admin/products/hide — take photos out of the shop without deleting
 // the files.
