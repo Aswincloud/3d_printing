@@ -1332,19 +1332,25 @@ footer {
   line-height: 1.35;
 }
 
-.product-desc {
-  font-size: 0.84rem;
-  color: var(--text-muted);
-  line-height: 1.55;
-  flex: 1;
-}
+/* .product-desc is gone — the description is on /p/<slug> now. See the note in
+   main.js where the card is built.
 
+   margin-top:auto replaces what it was quietly doing. .product-desc carried flex:1,
+   so it absorbed the leftover height in the column and pushed this row to the
+   bottom. Without a replacement the price would sit straight under the name, and a
+   two-line product name would then push its card's price a line lower than its
+   neighbours' — the same ragged row of prices, from a different cause. */
 .product-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-top: 0.35rem;
+  /* auto, and it must stay the ONLY margin-top in this rule. The first attempt added
+     `margin-top: auto` at the top and left the existing `margin-top: 0.35rem` below
+     it — same rule, later declaration wins, so the new line was dead on arrival and
+     computed style still read 5.6px. The grid looked almost right, which is why it
+     took a box-model dump rather than a screenshot to see. */
+  margin-top: auto;
 }
 
 .product-price {
@@ -1360,7 +1366,11 @@ footer {
   font-family: inherit;
   font-size: 0.82rem;
   font-weight: 700;
-  padding: 0.5rem 0.9rem;
+  /* 0.7rem sides, not 0.9rem. At five columns a card is 204px and the widest
+     price/label pair still ran 4px past the trim; the button is white-space:nowrap so
+     it cannot give any of it back. Trimming 0.4rem of padding buys 6.4px, which
+     clears it without shrinking the type or the tap target. */
+  padding: 0.5rem 0.7rem;
   border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
@@ -1631,8 +1641,26 @@ footer {
 }
 
 @media (max-width: 480px) {
-  .product-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; }
+  /* 150px and a 0.85rem gap, measured rather than picked.
+     At 160px with a 1rem gap, two columns need 160+16+160 = 336px and the grid at a
+     360px-wide phone is 331px — five pixels short, so auto-fill dropped to ONE column
+     and the catalogue became 54.5 screens instead of 25.9. 360px is one of the most
+     common Android widths, so that was the single worst layout on the site and it was
+     invisible at 390px, where it fits. 150 + 13.6 + 150 = 313.6 clears 331 with room. */
+  .product-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.85rem; }
   .cart-drawer { width: 100vw; }
+
+  /* Price over button instead of beside it.
+     At this breakpoint a card is ~171px wide and ~134px of that is usable once the
+     body padding is out. "₹399" and "Add to cart" need about 145px side by side, and
+     .product-add is white-space:nowrap so it cannot give — the button simply ran past
+     the card's right edge and was clipped by its overflow:hidden. Measured at 9-11px
+     lost on every card on production, which is the end of "Add to cart" and the whole
+     right border of the primary action.
+     Stacking also makes the button full width, which is a better tap target than the
+     ~100px it had. */
+  .product-foot { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+  .product-add { width: 100%; text-align: center; }
 }
 
 /* ===== PROCESS — TWO TRACKS ===== */

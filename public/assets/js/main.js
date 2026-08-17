@@ -888,9 +888,20 @@ function renderProducts() {
     if (p.slug) name.href = '/p/' + p.slug;
     name.textContent = p.name;
 
-    const desc = document.createElement('p');
-    desc.className = 'product-desc';
-    desc.textContent = p.description || '';
+    // No description on the card. It lives on /p/<slug>, which the photo and the
+    // name both link to.
+    //
+    // It was rendered here in full, with no clamp, so the card was as tall as
+    // whatever had been written: the description block measured a median of 208px
+    // against a 553px card on mobile — 38% of every card — and ranged from 0 to
+    // 500px. That spread is what made the grid ragged, because four products have no
+    // description at all and one has 432 characters, so neighbouring cards differed
+    // by 374px and no two rows of prices lined up.
+    //
+    // A grid is for choosing WHICH thing to look at; the photo, the name and the
+    // price are what that choice is made on. The prose is for after the choice, and
+    // it is still indexed for search below — searchMatches() reads p.description off
+    // the API object, not out of the DOM, so filtering is unaffected.
 
     const foot = document.createElement('div');
     foot.className = 'product-foot';
@@ -976,7 +987,7 @@ function renderProducts() {
       media.appendChild(share);
     }
 
-    body.append(name, desc, foot);
+    body.append(name, foot);
     if (!p.quote_only) body.appendChild(ask);
     card.append(media, body);
     productGrid.appendChild(card);

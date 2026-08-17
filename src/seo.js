@@ -275,7 +275,17 @@ function cardHtml(env, p) {
     `</div>` +
     `<div class="product-body">` +
       name +
-      (p.description ? `<p class="product-desc">${esc(p.description)}</p>` : "") +
+      // No description here either, and it has to match main.js rather than being
+      // decided on its own merits. This markup is what a visitor sees for the moment
+      // before the script runs, and then the script rebuilds the same grid. If one
+      // carries descriptions and the other does not, every card on the page shrinks
+      // the instant JS loads — a layout shift on the busiest page on the site, which
+      // Core Web Vitals measures and penalises.
+      //
+      // Little is given up for search. The valuable part of this grid is the 66 real
+      // <a href="/p/..."> links, which is how a crawler reaches every product page
+      // from one document — and the full description is on each of those pages, in
+      // the copy and in its meta description.
       `<div class="product-foot"><div class="product-price">${esc(priceLabel)}</div></div>` +
     `</div>` +
   `</div>`;
