@@ -202,13 +202,43 @@ export default {
 // So the default is inverted. Everything under /api/ is no-store unless it appears
 // here, which means a new endpoint is private until someone deliberately decides
 // otherwise, rather than public until someone remembers.
-const CACHEABLE_API = new Set([
-  "/api/products",     // the public catalogue; identical for everyone, and the
-                       // homepage and every product page depend on it being cached
+//
+// A MAP OF SECONDS, not a set of paths — the third attempt, and the reason is the
+// second one's bug. Membership alone said "this may be cached" and nothing said for
+// how long, so the entry was returned untouched and Cloudflare applied its own
+// default of two hours. Aswin listed four photos as products, the dashboard
+// confirmed the write, and the shop kept serving them as unpriced quote-only cards
+// for the rest of the afternoon. Nothing was broken; the edge simply had not been
+// told anything, and an unstated TTL is not "no caching", it is somebody else's.
+//
+// Now a path cannot be made cacheable without stating its lifetime in the same
+// breath.
+const CACHEABLE_API = new Map([
+  // The public catalogue; identical for everyone, so worth caching — but it is
+  // exactly what the dashboard edits, so a minute is the ceiling. That is still
+  // enough to collapse a burst into one D1 query, which is all the cache was for.
+  // It matches the homepage and sits under the product page's 300s.
+  ["/api/products", 60],
 ]);
 
 function noStoreUnlessCacheable(url, res) {
-  if (CACHEABLE_API.has(url.pathname)) return res;
+  const ttl = CACHEABLE_API.get(url.pathname);
+
+  // res.ok as well as membership. A 500 from the catalogue handler is still a
+  // response on a cacheable path, and without this the edge would pin the outage in
+  // place for the full TTL and keep serving it after the origin recovered.
+  if (ttl !== undefined && res.ok) {
+    // Unless the handler already stated an edge policy of its own.
+    if (res.headers.get("cdn-cache-control")) return res;
+    const h = new Headers(res.headers);
+    // Split deliberately: browsers revalidate every time, the edge holds it for the
+    // TTL. A shared cache is safe to serve stale here for a minute; a customer's own
+    // browser showing them a stale price after they reloaded is not.
+    h.set("cache-control", "public, max-age=0, must-revalidate");
+    h.set("cdn-cache-control", `public, s-maxage=${ttl}`);
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+  }
+
   // Only set it if the handler did not already say something deliberate.
   if (res.headers.get("cache-control")) return res;
   const h = new Headers(res.headers);
