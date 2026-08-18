@@ -255,7 +255,19 @@ export function homeJsonLd(env) {
 // when the JS takes over. It deliberately omits the interactive parts (buy
 // buttons, lightbox roles): those need event handlers that only exist after JS
 // loads, and a button that does nothing is worse than no button.
-function cardHtml(env, p) {
+// Same edge-resize as the client grid, and it must produce the SAME URL — this
+// markup is replaced by main.js on load, so a mismatch would make the browser fetch
+// every photo twice: once for the server card, once for the one that replaces it.
+//
+// `resize` is false under wrangler dev, where /cdn-cgi/ does not exist and every
+// image would 404.
+function cdnImage(path, width, resize) {
+  const p = String(path || "").replace(/^\/+/, "");
+  if (!resize || !p || /^https?:/i.test(p)) return "/" + p;
+  return `/cdn-cgi/image/width=${width},format=auto,onerror=redirect/${p}`;
+}
+
+function cardHtml(env, p, resize) {
   const base = baseUrl(env);
   const priceLabel = p.price_paise > 0
     ? "₹" + Math.round(p.price_paise / 100).toLocaleString("en-IN")
@@ -271,7 +283,7 @@ function cardHtml(env, p) {
 
   return `<div class="product-card">` +
     `<div class="product-media">` +
-      `<img src="/${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" width="400" height="400">` +
+      `<img src="${esc(cdnImage(p.image, 480, resize))}" alt="${esc(p.name)}" loading="lazy" decoding="async" width="400" height="400">` +
     `</div>` +
     `<div class="product-body">` +
       name +
@@ -300,7 +312,10 @@ export function rewriteHome(env, response, products, url) {
   const base = baseUrl(env);
   const canonical = base + "/";
 
-  const grid = products.map((p) => cardHtml(env, p)).join("");
+  // /cdn-cgi/ is an edge feature; under wrangler dev it 404s, so the whole grid
+  // would render broken while developing.
+  const resize = !/^(localhost|127\.0\.0\.1)$/.test(url.hostname);
+  const grid = products.map((p) => cardHtml(env, p, resize)).join("");
 
   // The three hero photos are real products. Keyed on image FILENAME rather than a
   // hardcoded slug: the photos were chosen because they compose well together, and

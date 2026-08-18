@@ -37,12 +37,19 @@ const lightboxImg = document.getElementById('lightboxImg');
 const lbItems = () => [...document.querySelectorAll('.product-media')];
 let current = 0;
 
+// The lightbox is full-screen, so it must NOT reuse the card's src — that is now a
+// 480px thumbnail, and blowing it up would look worse than before the resizing was
+// added. data-full carries a large edge-resized URL, set where the card is built; the
+// fallback keeps this working for any <img> without one (the server-rendered grid,
+// before main.js replaces it).
+const fullSrc = (img) => img.getAttribute('data-full') || img.src;
+
 function openLightbox(index) {
   const items = lbItems();
   if (!items[index]) return;
   current = index;
   const img = items[index].querySelector('img');
-  lightboxImg.src = img.src;
+  lightboxImg.src = fullSrc(img);
   lightboxImg.alt = img.alt;
   lightbox.classList.add('active');
   document.body.style.overflow = 'hidden';
@@ -70,7 +77,7 @@ function navigate(dir) {
   const img = items[current].querySelector('img');
   lightboxImg.style.opacity = '0';
   setTimeout(() => {
-    lightboxImg.src = img.src;
+    lightboxImg.src = fullSrc(img);
     lightboxImg.alt = img.alt;
     lightboxImg.style.opacity = '1';
     if (typeof updateLightboxCaption === 'function') updateLightboxCaption();
@@ -648,6 +655,24 @@ const CATEGORY_LABELS = {
   set: 'Sets',
 };
 
+// Cloudflare image resizing. Turns "assets/images/x.jpg" into a URL that is resized
+// and re-encoded at the edge.
+//
+// onerror=redirect is not optional: without it a path Cloudflare cannot resize
+// returns 404 and the card shows a broken image. With it, the request 307s to the
+// original — so the worst case is the old behaviour, a big file, rather than no
+// picture at all. Verified against a deliberately missing file: 404 without, 307 with.
+//
+// Skipped anywhere that is not the live site. /cdn-cgi/ is an edge feature and does
+// not exist under `wrangler dev`, so without this every image 404s locally and the
+// whole grid looks broken while developing.
+function cdnImage(path, width) {
+  const p = String(path || '').replace(/^\/+/, '');
+  const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (local || !p || /^https?:/i.test(p)) return '/' + p;
+  return `/cdn-cgi/image/width=${width},format=auto,onerror=redirect/${p}`;
+}
+
 const categoryLabel = (slug) =>
   CATEGORY_LABELS[slug] || (slug ? slug[0].toUpperCase() + slug.slice(1) : 'Other');
 
@@ -865,9 +890,30 @@ function renderProducts() {
     // a screen-reader user is told the wrong thing.
     media.setAttribute('aria-label', p.slug ? 'View ' + p.name : 'View larger photo of ' + p.name);
     const img = document.createElement('img');
-    img.src = p.image;
-    img.alt = p.name;
+    // ORDER MATTERS. loading must be set BEFORE src.
+    //
+    // Assigning src starts the fetch immediately, against whatever `loading` is at
+    // that instant — and the default is eager. Setting loading='lazy' on the next
+    // line changes the attribute but not the request already in flight, so every
+    // image in the grid downloaded at once and the attribute looked correct in
+    // devtools while doing nothing at all.
+    //
+    // Measured on the live site before this: 66 images and 9.8 MB pulled on a phone
+    // WITHOUT scrolling, on a page where four cards are visible.
     img.loading = 'lazy';
+    img.decoding = 'async';
+    // Resized at the edge instead of shipping the original. A card is 171px wide on a
+    // phone and 204px on desktop; the files behind them are 900-1200px, so the browser
+    // was downloading roughly fifty times the pixels it draws. Cloudflare also
+    // negotiates AVIF/WebP from the Accept header, which is most of the saving:
+    // banana_bowl.jpg is 86 KB as sent today and 17 KB at width=400 as AVIF.
+    img.sizes = '(max-width: 480px) 50vw, 210px';
+    img.srcset = [320, 480, 640].map((w) => `${cdnImage(p.image, w)} ${w}w`).join(', ');
+    img.src = cdnImage(p.image, 480);
+    // What the lightbox opens. 1400px rather than the original: it still fills any
+    // phone or laptop screen and saves most of the weight of a camera-sized file.
+    img.setAttribute('data-full', cdnImage(p.image, 1400));
+    img.alt = p.name;
     media.appendChild(img);
 
     const body = document.createElement('div');
@@ -1103,9 +1149,12 @@ function renderCart() {
     row.className = 'cart-item';
 
     const img = document.createElement('img');
-    img.src = p.image;
-    img.alt = '';
+    // Same ordering rule as the product grid: loading before src, or the fetch has
+    // already started eagerly by the time lazy is set.
     img.loading = 'lazy';
+    img.decoding = 'async';
+    img.src = cdnImage(p.image, 160);      // cart thumbnail, ~64px on screen
+    img.alt = '';
 
     const info = document.createElement('div');
     info.className = 'cart-item-info';
