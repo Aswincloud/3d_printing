@@ -1,0 +1,57 @@
+# Response headers for static assets.
+#
+# This file exists because the Worker cannot do the job. [assets] + run_worker_first
+# is deliberately scoped to the HTML entry points (see wrangler.toml), so a request
+# for /assets/images/x.jpg is answered by the asset server and src/index.js never
+# runs. A cache-control helper was written there first and silently did nothing:
+# verified with curl, versioned and unversioned URLs both still came back
+# max-age=0. _headers is applied by the asset server itself, with no Worker
+# invocation and no edge-cache cost.
+
+# ── product photos ────────────────────────────────────────────────
+#
+# The default was `max-age=0, must-revalidate`, so every returning visitor
+# re-checked all 22 photos on the first screen — 22 round trips to be told nothing
+# changed, which on a slow connection is seconds of blank cards. Cloudflare's own
+# image resizer was flagging it in a response header:
+#   warning: cf-images 299 "cache-control is too restrictive"
+#
+# WHY NOT `immutable`, WHICH IS THE OBVIOUS ANSWER
+#
+# Filenames here are not stable. All eight poster photos were re-cropped in place
+# under their existing names, so a path is NOT a durable identity for its contents.
+# `immutable` tells a browser never to revalidate, which would have pinned the
+# uncropped versions for everyone who had already visited, with no way to clear it.
+#
+# _headers matches on path only — it cannot see the ?v=<hash> that product URLs now
+# carry — so it cannot grant `immutable` just to the URLs that have earned it. The
+# TTL therefore has to be one that is safe for the WORST case, a bare unversioned
+# path, and a day is that: any replaced photo is picked up within one, and in
+# practice much sooner, because every URL the site emits carries the content hash
+# and a re-crop changes it. stale-while-revalidate then keeps the following month of
+# visits instant, refreshing in the background rather than making anyone wait.
+/assets/images/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=2592000
+
+# ── css and js ────────────────────────────────────────────────────
+#
+# Deliberately SHORTER than the photos, which is the opposite of the usual advice —
+# and only because these filenames are not fingerprinted either. style.css and
+# main.js change far more often than a photo does, and shipping a fix that half the
+# returning visitors cannot see for a day is worse than re-fetching 30 KB. An hour,
+# with a week of background revalidation behind it.
+#
+# Raise this the moment these are content-hashed; until then the number is bounded
+# by how long a broken deploy may persist, not by how big the files are.
+/assets/css/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=604800
+
+/assets/js/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=604800
+
+# ── the image manifest ────────────────────────────────────────────
+#
+# Read by the Worker on catalogue requests and it is how a newly pushed photo
+# becomes visible, so it must not be held. Short, and revalidated.
+/assets/images.json
+  Cache-Control: public, max-age=60, must-revalidate

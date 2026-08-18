@@ -22,6 +22,7 @@
 // counts do not line up.
 
 import { readdirSync, statSync, writeFileSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,7 +39,22 @@ export function scanImages(dir = IMAGE_DIR) {
     .filter((f) => ALLOWED.test(f))
     .map((f) => {
       const s = statSync(join(dir, f));
-      return { file: f, bytes: s.size, mtime: s.mtimeMs };
+      // A content hash, so an image URL can be busted by its CONTENTS.
+      //
+      // Photos DO get replaced under the same filename — the eight poster images
+      // were all re-cropped in place — so a long browser cache keyed on the path
+      // alone would keep serving the old crop until it expired. With ?v=<hash> in
+      // the URL, replacing a file changes the URL and there is nothing stale left
+      // to serve.
+      //
+      // Eight hex characters: plenty across 72 files, and it keeps the manifest and
+      // every image URL short. This is cache-busting, not integrity — a collision
+      // costs one stale photo, not a security property.
+      const hash = createHash("sha256")
+        .update(readFileSync(join(dir, f)))
+        .digest("hex")
+        .slice(0, 8);
+      return { file: f, bytes: s.size, mtime: s.mtimeMs, hash };
     })
     // Newest first: the reason you are looking at this list is almost always a
     // photo you just added.
@@ -53,7 +69,7 @@ export function buildManifest() {
     // that photo?", which a date answers and a hash does not.
     generated_at: Date.now(),
     count: images.length,
-    images: images.map(({ file, bytes }) => ({ file, bytes })),
+    images: images.map(({ file, bytes, hash }) => ({ file, bytes, hash })),
   };
 }
 

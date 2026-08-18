@@ -54,6 +54,37 @@ section("the committed manifest matches the images on disk");
     const wrongSize = committed.images.filter((i) => bySize.has(i.file) && bySize.get(i.file) !== i.bytes);
     ok("recorded sizes are current", wrongSize.length === 0,
        wrongSize.length ? `${wrongSize.length} changed, e.g. ${wrongSize[0].file}` : "");
+
+    // ── the content hash ────────────────────────────────────────
+    //
+    // ?v=<hash> is what lets product photos be cached for a day instead of
+    // revalidated on every visit (public/_headers, and stampVersion in shop.js).
+    // Without a hash the URL falls back to a bare path, everything still works, and
+    // the caching quietly stops being safe — so it is checked here rather than left
+    // to announce itself.
+    //
+    // Added because a mutation proved the gap: deleting `hash` from the generator
+    // broke no test anywhere. test/shop.mjs supplies its own fake manifest so it
+    // never noticed, and this file only compared names and sizes.
+    const noHash = committed.images.filter((i) => !i.hash);
+    ok("every image has a content hash", noHash.length === 0,
+       noHash.length ? `run \`npm run images\` — e.g. ${noHash[0].file}` : "");
+    ok("hashes are unique",
+       new Set(committed.images.map((i) => i.hash)).size === committed.images.length);
+    ok("hashes look like 8 hex characters",
+       committed.images.every((i) => /^[0-9a-f]{8}$/.test(i.hash || "")));
+
+    // The one that matters. A hash recorded against contents it no longer describes
+    // is WORSE than none, because the URL then looks versioned and is wrong. That is
+    // the state after re-cropping a photo and forgetting to regenerate — exactly
+    // what happened to the eight posters.
+    const byHash = new Map(actual.images.map((i) => [i.file, i.hash]));
+    const wrongHash = committed.images.filter(
+      (i) => byHash.has(i.file) && byHash.get(i.file) !== i.hash);
+    ok("every hash matches the file on disk", wrongHash.length === 0,
+       wrongHash.length
+         ? `${wrongHash.length} stale, e.g. ${wrongHash[0].file} — run \`npm run images\``
+         : "");
   }
 }
 

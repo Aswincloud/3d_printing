@@ -30,7 +30,16 @@ export async function listProducts(env) {
   ).all();
 
   const rows = results || [];
-  const products = rows.map(shape);
+
+  // The manifest carries a content hash per photo. Appending it as ?v= makes every
+  // image URL change when its bytes change, which is what lets cacheImages() in
+  // index.js hand out an immutable year-long cache with no risk of a stale photo —
+  // see the note there. Read once here and passed down, rather than fetched twice.
+  const manifest = await readImageManifest(env);
+  const version = new Map(
+    (manifest?.images || []).filter((i) => i.hash).map((i) => [i.file, i.hash]));
+
+  const products = rows.map((r) => stampVersion(shape(r), version));
 
   // Ordering: buyable first, then priced-at-zero, then synthesised.
   //
@@ -40,7 +49,7 @@ export async function listProducts(env) {
   products.sort((a, b) => Number(a.quote_only) - Number(b.quote_only));
 
   return json({
-    products: [...products, ...(await synthesised(env, rows))],
+    products: [...products, ...(await synthesised(env, rows, manifest, version))],
     shipping: shippingConfig(env),
   });
 }
@@ -51,8 +60,7 @@ export async function listProducts(env) {
 // there is nothing to add to a cart even if the frontend tried: the cart keys on
 // product id, priceCart looks the id up in `products`, and null resolves to
 // nothing. The card is a picture and a quote button, not a half-built product.
-async function synthesised(env, rows) {
-  const manifest = await readImageManifest(env);
+async function synthesised(env, rows, manifest, version) {
   if (!manifest) return [];
 
   // Every path the catalogue already uses — primary image AND each entry of the
@@ -89,7 +97,10 @@ async function synthesised(env, rows) {
       description: "",
       price_paise: 0,
       quote_only: true,
-      image: `assets/images/${i.file}`,
+      // Versioned like the real products, off the same manifest entry — a
+      // synthesised card shows a real photo and should earn the same immutable
+      // cache. No hash means no ?v=, which falls back to the short cache.
+      image: i.hash ? `assets/images/${i.file}?v=${i.hash}` : `assets/images/${i.file}`,
       images: [],
       category: "",
     }));
@@ -114,6 +125,18 @@ async function readImageManifest(env) {
 
 // `images` is stored comma-separated; the API hands back an array so the
 // frontend never has to know that.
+// Appends the content hash to an image path, so the URL identifies its contents.
+//
+// Leaves the path alone when the photo has no hash — a file in the database but
+// missing from the manifest. That combination then gets the SHORT cache in index.js
+// rather than an immutable one, which is the safe way round.
+function stampVersion(p, version) {
+  const file = String(p.image || "").replace(/^.*\//, "");
+  const h = version.get(file);
+  if (h) p.image = `${p.image}?v=${h}`;
+  return p;
+}
+
 function shape(r) {
   return {
     id: r.id,

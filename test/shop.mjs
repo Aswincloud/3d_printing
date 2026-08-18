@@ -5,6 +5,7 @@
 // only thing between a tampered cart and a wrong charge.
 
 import { priceCart, shippingFor, shippingConfig, MAX_QTY, listProducts } from "../src/shop.js";
+import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -379,7 +380,9 @@ function catalogueEnv({ products = [], manifest = null } = {}) {
     ASSETS: manifest === null ? undefined : {
       fetch: async () => new Response(JSON.stringify({
         count: manifest.length,
-        images: manifest.map((f) => ({ file: f, bytes: 1000 })),
+        // A deterministic stand-in for the real content hash, so the ?v= stamping in
+        // listProducts is actually exercised rather than skipped for want of a hash.
+        images: manifest.map((f) => ({ file: f, bytes: 1000, hash: `h${f.length}` })),
       }), { status: 200 }),
     },
     DB: {
@@ -429,7 +432,11 @@ const row = (o) => ({
   const synth = out.products.filter((p) => p.id === null);
   ok("exactly one photo is synthesised", synth.length === 1,
      synth.map((s) => s.image).join(","));
-  ok("and it is the new one", synth[0].image === "assets/images/brand-new.jpg", synth[0].image);
+  // Compared without the ?v= suffix: the identity being asserted is WHICH photo,
+  // and the content hash on the end is a caching detail that would otherwise make
+  // this test fail every time the file changed.
+  const bare = (u) => String(u).split("?")[0];
+  ok("and it is the new one", bare(synth[0].image) === "assets/images/brand-new.jpg", synth[0].image);
 
   // The three ways a photo is already spoken for.
   ok("a photo used as a primary image is not synthesised",
@@ -489,7 +496,8 @@ const row = (o) => ({
   ok("DELETING the row instead brings the photo back as a card", ghost.length === 1,
      "if this ever fails, the hazard is gone and 0013's reasoning is stale");
   ok("and the ghost is the retired duplicate's photo",
-     ghost[0]?.image === "assets/images/staircase-poster.jpg", ghost[0]?.image);
+     String(ghost[0]?.image).split("?")[0] === "assets/images/staircase-poster.jpg",
+     ghost[0]?.image);
 }
 {
   // No manifest: degrade to the old behaviour rather than breaking the shop.
@@ -510,6 +518,98 @@ const row = (o) => ({
   });
   const out = await (await listProducts(env)).json();
   ok("nothing synthesised when every photo is listed", out.products.length === 1);
+}
+
+
+// ── image URLs carry a content version ────────────────────────────
+//
+// The ?v=<hash> is what makes a long browser cache safe. Photos get REPLACED under
+// the same filename — all eight posters were re-cropped in place — so without a
+// version in the URL, caching an image by path means serving the old crop until it
+// expires, with no way to clear it.
+section("listProducts() — image versioning");
+{
+  const env = catalogueEnv({
+    products: [
+      { id: "p1", slug: "listed", name: "Listed", description: "d", price_paise: 34900,
+        image: "assets/images/listed.jpg", images: "", category: "figurine", visible: 1, sort: 1 },
+    ],
+    manifest: ["listed.jpg", "unlisted.jpg"],
+  });
+  const out = await (await listProducts(env)).json();
+  const listed = out.products.find((p) => p.id === "p1");
+  const synth = out.products.find((p) => p.id === null);
+
+  ok("a listed product's image carries ?v=", /\?v=h\d+$/.test(listed.image), listed.image);
+  ok("a synthesised card's image carries ?v=", /\?v=h\d+$/.test(synth.image), synth.image);
+  ok("the path itself is unchanged",
+     listed.image.split("?")[0] === "assets/images/listed.jpg", listed.image);
+  ok("the version is the manifest's hash for THAT file",
+     listed.image.endsWith("?v=h" + "listed.jpg".length), listed.image);
+  ok("every image in the response is versioned",
+     out.products.every((p) => p.image.includes("?v=")),
+     out.products.map((p) => p.image).join(" "));
+}
+{
+  // A photo in the database but missing from the manifest gets NO version — and
+  // must not get a broken one. index.js/_headers then treats an unversioned URL as
+  // the short-cache case, which is the safe way round.
+  const env = catalogueEnv({
+    products: [
+      { id: "p1", slug: "orphan", name: "Orphan", description: "d", price_paise: 100,
+        image: "assets/images/not-in-manifest.jpg", images: "", category: "", visible: 1, sort: 1 },
+    ],
+    manifest: ["something-else.jpg"],
+  });
+  const out = await (await listProducts(env)).json();
+  const orphan = out.products.find((p) => p.id === "p1");
+  ok("a photo missing from the manifest is left unversioned",
+     orphan.image === "assets/images/not-in-manifest.jpg", orphan.image);
+  ok("and no empty ?v= is appended", !orphan.image.includes("?v="), orphan.image);
+}
+{
+  // No ASSETS binding at all: the shop must still price and list.
+  const env = catalogueEnv({
+    products: [
+      { id: "p1", slug: "x", name: "X", description: "", price_paise: 100,
+        image: "assets/images/x.jpg", images: "", category: "", visible: 1, sort: 1 },
+    ],
+    manifest: null,
+  });
+  const out = await (await listProducts(env)).json();
+  ok("no manifest → still lists, just unversioned",
+     out.products.length === 1 && out.products[0].image === "assets/images/x.jpg",
+     JSON.stringify(out.products.map((p) => p.image)));
+}
+
+// ── the _headers file is what actually applies the cache policy ───
+//
+// src/index.js cannot: run_worker_first is scoped to the HTML entry points, so the
+// asset server answers /assets/images/* and the Worker never runs. A cache-control
+// helper was written there first and did nothing at all.
+section("public/_headers");
+{
+  const raw = readFileSync(new URL("../public/_headers", import.meta.url), "utf8");
+  // Comment lines stripped before matching. The first version tested the whole file
+  // and failed on the word "immutable" inside the comment that explains why it is
+  // NOT used — a test that reads documentation as configuration.
+  const h = raw.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
+  ok("covers product photos", /^\/assets\/images\/\*/m.test(h));
+  ok("photos are cached for a day, not zero",
+     /\/assets\/images\/\*[\s\S]{0,120}?max-age=86400/.test(h));
+  ok("with stale-while-revalidate behind it",
+     /\/assets\/images\/\*[\s\S]{0,160}?stale-while-revalidate=\d+/.test(h));
+  // The trap this whole design avoids. _headers matches on PATH only, so it cannot
+  // see ?v= — an immutable rule here would apply to bare paths too and pin a
+  // re-cropped photo forever.
+  ok("NOTHING is marked immutable, because _headers cannot see ?v=",
+     !/immutable/.test(h), "an immutable path rule would pin a replaced photo");
+  ok("css and js are cached for less than the photos",
+     /\/assets\/(css|js)\/\*[\s\S]{0,120}?max-age=3600/.test(h));
+  ok("the manifest is kept short, or a new photo would not appear",
+     /images\.json[\s\S]{0,120}?max-age=60/.test(h));
+  ok("the API and HTML are NOT given a cache rule here",
+     !/^\/api\//m.test(h) && !/^\/\*$/m.test(h));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
