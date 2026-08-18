@@ -2445,14 +2445,25 @@ footer {
 
 .shop-search-clear:hover { color: var(--orange); }
 
-/* The chip count sits inside the button, dimmer than the label. */
+/* The chip count sits inside the button, dimmer than the label.
+   Dimmed with a COLOUR rather than `opacity: 0.6`, so its contrast is a number
+   somebody can look up instead of a product of two things. --text-muted on the chip
+   ground is 4.99, comfortably over the 4.5 this size needs, and still visibly
+   quieter than the label beside it.
+   To be clear about what this did and did not fix: opacity was NOT why the count
+   failed the audit. The failing one was the ACTIVE chip, which is white on #ff6b00 —
+   2.86 whatever the opacity — and that is a brand-colour problem shared with
+   .nav-cta and .cart-badge, not something this rule can solve. */
 .filter-btn .filter-count {
-  opacity: 0.6;
+  color: var(--text-muted);
   font-weight: 500;
   margin-left: 0.3rem;
 }
 
-.filter-btn.active .filter-count { opacity: 0.85; }
+/* On the active chip the count takes the chip's own colour rather than the muted
+   grey above, which would read as disabled against the orange. `inherit` means its
+   contrast is whatever the label beside it has — so it can never fail on its own. */
+.filter-btn.active .filter-count { color: inherit; }
 
 .shop-result-count {
   font-size: 0.82rem;
