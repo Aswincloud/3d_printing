@@ -10,7 +10,7 @@ import {
   listProducts, createProduct, updateProduct, deleteProduct, unlistedImages,
   batchCreateProducts, hideImages,
   listOrders, updateOrder, refundOrder, stats, bulkUpdateProducts,
-  describeProducts,
+  describeProducts, agentListingEmail,
 } from "../src/admin.js";
 import { signToken } from "@aswincloud/auth";
 
@@ -1355,6 +1355,46 @@ section("bulk update — zero is a legitimate price");
      env.DB._db.products[0].description === "Copy Aswin wrote himself.");
   ok("and the response says so rather than claiming success",
      typeof body.note === "string" && body.requested === 1);
+}
+
+
+// ── the notification the agent's listings trigger ──────────────────
+//
+// Shipped broken. It read r.price_paise; planRowsFor() names that field `price`, so
+// the arithmetic was undefined/100 and a real ₹1,999 listing was announced as
+// "Marvel Wall Art — ₹NaN". The row written to the database was perfectly correct —
+// only the mail reporting it was wrong, which is the nastiest shape for this kind of
+// bug, because the thing telling you the state is the broken part.
+//
+// Nothing caught it because the mail was built inline inside a waitUntil callback
+// and had no seam to test. It is a pure exported function now for exactly this.
+{
+  console.log("\nagentListingEmail — the price must survive into the mail");
+  // Rows shaped as planRowsFor actually returns them: `price`, not `price_paise`.
+  const rows = [
+    { id: "a", slug: "marvel-wall-art", name: "Marvel Wall Art", price: 199900 },
+    { id: "b", slug: "cheap-thing", name: "Cheap <Thing> & Co", price: 4900 },
+  ];
+  const e = agentListingEmail(rows, "https://shop.test");
+
+  ok("no NaN anywhere in the text", !/NaN/.test(e.text), e.text);
+  ok("no NaN anywhere in the html", !/NaN/.test(e.html), e.html);
+  ok("the rupee amount is right", e.text.includes("₹1999"), e.text);
+  ok("and for the second row too", e.text.includes("₹49"), e.text);
+  ok("html carries the amount as well", e.html.includes("₹1999"), e.html);
+  ok("subject counts the rows", e.subject.startsWith("2 new products"), e.subject);
+  ok("singular subject for one row",
+     agentListingEmail([rows[0]], "https://x").subject.startsWith("1 new product listed"));
+  ok("links to the product page", e.text.includes("https://shop.test/p/marvel-wall-art"));
+  ok("names are html-escaped in the html body",
+     e.html.includes("Cheap &lt;Thing&gt; &amp; Co"), e.html);
+
+  // Reading the WRONG field is the mistake that happened. If someone reintroduces
+  // it, the price is missing rather than NaN, and it says so in words.
+  const wrongShape = [{ slug: "x", name: "X", price_paise: 199900 }];
+  const w = agentListingEmail(wrongShape, "https://x");
+  ok("a row with no `price` says so instead of rendering NaN",
+     w.text.includes("price missing") && !/NaN/.test(w.text), w.text);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

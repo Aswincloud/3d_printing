@@ -351,7 +351,7 @@ export async function batchCreateProducts(env, body, actor = "owner", ctx = null
       console.error("agent listing notification failed", e?.message || e)));
   }
   console.log(`${actor} listed ${planned.rows.length} product(s): ` +
-    planned.rows.map((r) => `${r.slug}@${r.price_paise}`).join(" "));
+    planned.rows.map((r) => `${r.slug}@${r.price}`).join(" "));
 
   return json({
     ok: true,
@@ -363,24 +363,45 @@ export async function batchCreateProducts(env, body, actor = "owner", ctx = null
 // Plain and scannable on a phone: what went live, at what price, and the link to
 // change it. No HTML cleverness — this is an alert, and the only thing that matters
 // is that a wrong number is obvious at a glance.
+// Built as a pure function and EXPORTED so it can be tested, which is the whole
+// point of it not being inline any more.
+//
+// It shipped reading r.price_paise. planRowsFor() names that field `price` — the
+// paise suffix appears on the database column and on the API payload, not on the
+// planned row — so the arithmetic was undefined/100 and Aswin's notification for a
+// real ₹1,999 listing said "Marvel Wall Art — ₹NaN". The product itself was written
+// correctly; only the mail that told him about it was wrong, which is the worst shape
+// for a bug like this because the thing reporting the state is the broken part.
+//
+// The price is read once, here, and asserted on in test/admin.mjs.
+export function agentListingEmail(rows, site) {
+  const rupees = (r) => {
+    // Explicit, because this is exactly where the bug lived. A row that somehow has
+    // no numeric price must say so rather than render as NaN and look like a
+    // formatting quirk.
+    const paise = r.price;
+    return Number.isFinite(paise) ? `₹${(paise / 100).toFixed(0)}` : "price missing";
+  };
+  const n = rows.length;
+  return {
+    subject: `${n} new product${n === 1 ? "" : "s"} listed by the agent`,
+    text: `These are LIVE in the shop now.\n\n` +
+      rows.map((r) => `${r.name} — ${rupees(r)}  ${site}/p/${r.slug}`).join("\n") +
+      `\n\nIf a price is wrong, change it at ${site}/shop.html — the listing agent ` +
+      `cannot edit an existing product, so it will not overwrite your correction.`,
+    html: `<p>These are <strong>live in the shop now</strong>.</p><ul>` +
+      rows.map((r) => `<li><a href="${site}/p/${r.slug}">${escapeHtml(r.name)}</a> — ` +
+        `<strong>${rupees(r)}</strong></li>`).join("") +
+      `</ul><p>If a price is wrong, change it in the dashboard. The listing agent ` +
+      `cannot edit an existing product, so it will not overwrite your correction.</p>`,
+  };
+}
+
 async function notifyAgentListings(env, rows) {
   const to = String(env.OWNER_EMAIL || "").split(",")[0].trim();
   if (!to) return;
   const site = env.SITE_URL || "https://3d-prints.aswincloud.com";
-  const line = (r) => `${r.name} — ₹${(r.price_paise / 100).toFixed(0)}  ${site}/p/${r.slug}`;
-  const list = rows.map(line).join("\n");
-  await sendEmail(env, {
-    to,
-    subject: `${rows.length} new product${rows.length === 1 ? "" : "s"} listed by the agent`,
-    text: `These are LIVE in the shop now.\n\n${list}\n\n` +
-          `If a price is wrong, change it at ${site}/shop.html — the listing agent ` +
-          `cannot edit an existing product, so it will not overwrite your correction.`,
-    html: `<p>These are <strong>live in the shop now</strong>.</p><ul>` +
-          rows.map((r) => `<li><a href="${site}/p/${r.slug}">${escapeHtml(r.name)}</a> — ` +
-            `<strong>₹${(r.price_paise / 100).toFixed(0)}</strong></li>`).join("") +
-          `</ul><p>If a price is wrong, change it in the dashboard. The listing agent ` +
-          `cannot edit an existing product, so it will not overwrite your correction.</p>`,
-  });
+  await sendEmail(env, { to, ...agentListingEmail(rows, site) });
 }
 
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g,
