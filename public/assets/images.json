@@ -1,7 +1,12 @@
 {
-  "generated_at": 1787030449342,
-  "count": 72,
+  "generated_at": 1787116000000,
+  "count": 73,
   "images": [
+    {
+      "file": "marvel_wall_art.jpg",
+      "bytes": 829560,
+      "hash": "413b7a80"
+    },
     {
       "file": "cyclops.jpg",
       "bytes": 115820,
