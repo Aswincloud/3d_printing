@@ -311,6 +311,30 @@ The trade is worth stating: route 2 makes admin access **email-strength**.
 Whoever can read the owner's inbox can issue refunds and read customer addresses.
 Prefer route 1 once the broker knows this site.
 
+### Listing photos from another agent — `AGENT_TOKEN`
+
+**→ [docs/listing-agent.md](docs/listing-agent.md)** — setup, the exact `curl` calls,
+and what the token cannot do.
+
+Photos are pushed to this repo by a separate AI agent, and pricing and describing them
+used to mean holding the owner session — which grants every product edit, every order,
+refunds and coupons. `AGENT_TOKEN` is a second credential authorising exactly three
+routes and nothing else:
+
+| Route | What it does |
+|---|---|
+| `GET /api/admin/products/unlisted` | which pushed photos have no product row yet |
+| `POST /api/admin/products/batch` | create listings — file, `price_paise`, `category`, `description` |
+| `POST /api/admin/products/describe` | fill in a description that is **missing** |
+
+Everything else under `/api/admin/` returns 403, including `PATCH /api/admin/products`
+— the bulk price editor over existing rows, which is the power being withheld.
+
+The safety is not the allowlist. `writeProductRows()` is a single `INSERT`, and the
+describe route's `UPDATE` carries `AND (description IS NULL OR TRIM(description) = '')`
+— so **an existing price, name or description cannot be changed through this token at
+all**, whatever reaches the handler. `price_paise` is not even in that statement.
+
 Products can be edited **in bulk**: change any number of prices or visibility
 toggles, then "Save all changes" sends one `PATCH /api/admin/products` instead of
 one request per row. The write is all-or-nothing — every row is validated before
