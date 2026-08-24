@@ -1357,7 +1357,29 @@ footer {
   font-size: 1.15rem;
   font-weight: 800;
   color: var(--orange);
+  /* Stacked, not side by side. The card is ~160px wide on a phone and the price row
+     already shares it with the Add-to-cart button; two prices in a row is what
+     pushed that button off the card edge before. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
 }
+
+/* The struck "was" figure. Deliberately small and quiet: it is a reference price,
+   not the thing being charged, and the real price must stay the one the eye lands
+   on. --text-muted on the card ground is 4.99, over the 4.5 this size needs. */
+.product-was {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: line-through;
+  /* Spelled out because `text-decoration: line-through` alone renders as a hairline
+     at this size on some Android builds and reads as a rendering artifact. */
+  text-decoration-thickness: 1px;
+}
+
+.product-now { display: block; }
 
 .product-add {
   background: rgba(255, 107, 0, 0.12);
@@ -2608,3 +2630,33 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
   .hero-stats .stat-num { font-size: 1.35rem; }
   .hero-stats .stat-label { font-size: 0.6rem; letter-spacing: 0.04em; }
 }
+
+
+/* ── struck-through reference price, product page ──────────────────
+   Same figure as the grid's .product-was, with room for the badge the card has no
+   width for. See compareAtPaise() in src/lib.js for what the number is. */
+.pdp-price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; }
+
+.pdp-was {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  order: -1;                 /* before the live price, which stays the largest thing */
+}
+
+.pdp-off {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #7ee0a1;
+  background: rgba(126, 224, 161, 0.12);
+  border: 1px solid rgba(126, 224, 161, 0.28);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  white-space: nowrap;
+}
+
+.pdp-now { font-size: inherit; font-weight: inherit; color: inherit; }

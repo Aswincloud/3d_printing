@@ -21,7 +21,7 @@
 // for every product (material, printer, delivery), so even the sparsest page
 // reads as finished rather than unfinished.
 
-import { esc, rupees } from "./lib.js";
+import { esc, rupees, compareAtPaise, comparePercentOff } from "./lib.js";
 
 const CATEGORY_LABEL = {
   figurine: "Figurines",
@@ -37,6 +37,22 @@ const baseUrl = (env) =>
 // grouping every other surface uses, so prices read the same here as in the
 // cart, the emails and the invoice.
 const price = (paise) => rupees(paise);
+
+// The struck-through "MRP" and its badge. See compareAtPaise() in lib.js for what
+// this number is and, more importantly, where it must not appear — it is display
+// only, and deliberately absent from the JSON-LD emitted further down this file,
+// which keeps declaring the real selling price to Google.
+//
+// The percentage is derived from the two numbers on screen rather than written as
+// "15%": +15% on the price is 13% off the result, and a badge contradicting the
+// arithmetic beside it is worse than no badge.
+function wasBlock(paise) {
+  const was = compareAtPaise(paise);
+  if (!(was > paise)) return "";
+  const off = comparePercentOff(paise);
+  return `<del class="pdp-was">${esc(rupees(was))}</del>` +
+         (off > 0 ? `<span class="pdp-off">${off}% off</span>` : "");
+}
 
 // ── breadcrumbs ───────────────────────────────────────────────────
 //
@@ -116,7 +132,7 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
        </div>
        <p class="pdp-note">This piece isn't priced yet — ask and you'll get a
           quote, usually within 24–48 hours.</p>`
-    : `<div class="pdp-price">${esc(price(product.price_paise))}</div>
+    : `<div class="pdp-price">${wasBlock(product.price_paise)}<span class="pdp-now">${esc(price(product.price_paise))}</span></div>
        <div class="pdp-actions">
          <div class="pdp-qty">
            <button type="button" id="pdpMinus" aria-label="Decrease quantity">−</button>

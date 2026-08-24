@@ -492,6 +492,28 @@ function rupees(paise) {
     .toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
+/* The struck-through "MRP" beside the selling price. Mirrors compareAtPaise() in
+   src/lib.js — same +15%, so the grid and the product page never disagree.
+
+   DISPLAY ONLY. It is deliberately absent from readCart/renderCart/checkout below:
+   those show what is actually charged, and a fabricated "you saved ₹X" against a
+   real total is a different claim entirely from a struck price on a card. If a
+   saving ever needs to appear in the drawer, it should come from a real coupon,
+   which already has its own line. */
+const COMPARE_AT_MULTIPLIER = 1.15;
+function compareAtPaise(paise) {
+  const p = Math.round(Number(paise) || 0);
+  if (!(p > 0)) return 0;                    // quote-only: no struck price
+  // Whole rupees, not whole paise — see the note in src/lib.js. ₹399 must show as
+  // ₹459, never ₹458.85.
+  return Math.round((p * COMPARE_AT_MULTIPLIER) / 100) * 100;
+}
+function comparePercentOff(paise) {
+  const was = compareAtPaise(paise), now = Math.round(Number(paise) || 0);
+  if (!(was > now) || !(now > 0)) return 0;
+  return Math.round(((was - now) / was) * 100);
+}
+
 /* ── cart storage ──────────────────────────────────────────────── */
 // Anything unparseable is treated as an empty cart rather than thrown — a
 // corrupt localStorage value must not break the whole page.
@@ -976,7 +998,20 @@ function renderProducts() {
 
       foot.append(price, askNow);
     } else {
-      price.textContent = rupees(p.price_paise);
+      // Struck "was" price, then the real one. Built as elements rather than
+      // innerHTML because product names and prices come from the database and this
+      // file treats them as untrusted everywhere else.
+      const was = compareAtPaise(p.price_paise);
+      if (was > p.price_paise) {
+        const del = document.createElement('del');
+        del.className = 'product-was';
+        del.textContent = rupees(was);
+        price.appendChild(del);
+      }
+      const now = document.createElement('span');
+      now.className = 'product-now';
+      now.textContent = rupees(p.price_paise);
+      price.appendChild(now);
 
       const add = document.createElement('button');
       add.className = 'product-add';
