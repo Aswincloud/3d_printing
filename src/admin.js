@@ -8,7 +8,7 @@ import { orderShippedEmail } from "./emails.js";
 import { checkAgentEntries, checkDescribeEntries } from "./agent.js";
 
 const MAXLEN = { name: 120, slug: 80, desc: 2000, image: 300, images: 2000, category: 40, note: 500,
-  courier: 60, tracking: 80 };
+  courier: 60, tracking: 80, personalise: 80 };
 const clip = (v, n) => String(v ?? "").trim().slice(0, n);
 
 // Prices arrive from a form. Reject anything that isn't a whole number of
@@ -30,7 +30,8 @@ const slugify = (s) =>
 export async function listProducts(env) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category,
-            visible, sort, created_at, updated_at
+            visible, sort, personalise_label, personalise_required,
+            created_at, updated_at
        FROM products ORDER BY sort ASC, name ASC`
   ).all();
   return json({ products: results || [] });
@@ -597,6 +598,14 @@ export async function updateProduct(env, id, body) {
     put("price_paise", price);
   }
   if ("description" in body) put("description", clip(body.description, MAXLEN.desc));
+  // An empty label means "this product does not ask" — that is the off switch,
+  // so it must be settable back to empty, not just to a new string.
+  if ("personalise_label" in body) {
+    put("personalise_label", clip(body.personalise_label, MAXLEN.personalise));
+  }
+  if ("personalise_required" in body) {
+    put("personalise_required", body.personalise_required ? 1 : 0);
+  }
   if ("image" in body) {
     const image = clip(body.image, MAXLEN.image);
     if (!image) return bad("Image path cannot be empty.");
@@ -694,6 +703,14 @@ export async function bulkUpdateProducts(env, body) {
       sets.push("description = ?");
       args.push(clip(it.description, MAXLEN.desc));
     }
+    if ("personalise_label" in (it || {})) {
+      sets.push("personalise_label = ?");
+      args.push(clip(it.personalise_label, MAXLEN.personalise));
+    }
+    if ("personalise_required" in (it || {})) {
+      sets.push("personalise_required = ?");
+      args.push(it.personalise_required ? 1 : 0);
+    }
     if (!sets.length) return bad("An item has nothing to update.");
 
     planned.push({ id, sets, args });
@@ -779,7 +796,7 @@ export async function listOrders(env, url) {
   if (list.length) {
     const ph = list.map(() => "?").join(",");
     const r = await env.DB.prepare(
-      `SELECT order_id, name, price_paise, qty, pos FROM order_items
+      `SELECT order_id, name, price_paise, qty, personalisation, pos FROM order_items
         WHERE order_id IN (${ph}) ORDER BY pos`
     ).bind(...list.map((o) => o.id)).all();
     items = r.results || [];

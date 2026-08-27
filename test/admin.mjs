@@ -187,7 +187,7 @@ function makeDB(seed = {}) {
   const run = (sql, a) => {
     const s = sql.replace(/\s+/g, " ").trim();
 
-    if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort, created_at, updated_at FROM products")) {
+    if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort, personalise_label, personalise_required, created_at, updated_at FROM products")) {
       return { results: [...db.products].sort((x, y) => x.sort - y.sort) };
     }
     // Every image path the catalogue uses — for the unlisted-photos diff.
@@ -286,7 +286,7 @@ function makeDB(seed = {}) {
       const rows = status ? db.orders.filter((o) => o.status === status) : db.orders;
       return { results: [...rows].sort((x, y) => y.created_at - x.created_at) };
     }
-    if (s.startsWith("SELECT order_id, name, price_paise, qty, pos FROM order_items")) {
+    if (s.startsWith("SELECT order_id, name, price_paise, qty, personalisation, pos FROM order_items")) {
       const want = new Set(a);
       return { results: db.order_items.filter((i) => want.has(i.order_id)) };
     }
@@ -1276,6 +1276,45 @@ section("bulk update — a bad price still rejects a batch carrying descriptions
      env.DB._db.products.find((p) => p.id === "p1").description === "before");
 }
 
+
+// ── personalisation columns from the dashboard ────────────────────
+section("bulk update — the personalisation prompt");
+{
+  const env = envDB({ products: [
+    { ...PRODUCT, id: "p1", slug: "one" },
+    { ...PRODUCT, id: "p2", slug: "two", personalise_label: "Name", personalise_required: 1 },
+  ] });
+  const [status] = await read(await bulkUpdateProducts(env, { items: [
+    { id: "p1", personalise_label: "Name or text to print", personalise_required: true },
+    // An EMPTY label is the off switch - it is how a product stops asking - so it
+    // has to be settable back to empty, not merely to some other string.
+    { id: "p2", personalise_label: "", personalise_required: false },
+  ] }));
+  ok("accepted", status === 200);
+  const byId = Object.fromEntries(env.DB._db.products.map((p) => [p.id, p]));
+  ok("prompt set", byId.p1.personalise_label === "Name or text to print");
+  ok("required stored as 1", byId.p1.personalise_required === 1, String(byId.p1.personalise_required));
+  ok("prompt cleared", byId.p2.personalise_label === "");
+  ok("required stored as 0", byId.p2.personalise_required === 0, String(byId.p2.personalise_required));
+
+  const long = envDB({ products: [{ ...PRODUCT, id: "p1", slug: "one" }] });
+  await bulkUpdateProducts(long, { items: [{ id: "p1", personalise_label: "x".repeat(300) }] });
+  ok("an over-long prompt is clipped to 80",
+     long.DB._db.products[0].personalise_label.length === 80,
+     String(long.DB._db.products[0].personalise_label.length));
+}
+
+section("single update — the personalisation prompt");
+{
+  const env = envDB({ products: [{ ...PRODUCT, id: "p1", slug: "one" }] });
+  const [status, out] = await read(await updateProduct(env, "p1", {
+    personalise_label: "Colour", personalise_required: false,
+  }));
+  ok("200", status === 200, JSON.stringify(out));
+  ok("prompt set", env.DB._db.products[0].personalise_label === "Colour");
+  // PATCH touches only what was sent - the price beside it must not move.
+  ok("price untouched", env.DB._db.products[0].price_paise === PRODUCT.price_paise);
+}
 
 // ── describeProducts: fill a MISSING description ────────────────────
 //

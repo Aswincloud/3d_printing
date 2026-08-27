@@ -26,6 +26,12 @@ const CATALOGUE = [
   { id: "p-large", name: "Elephant",    price_paise: 89900, visible: 1 },
   { id: "p-hidden", name: "Spider-Man", price_paise: 54900, visible: 0 },
   { id: "p-quote", name: "Unpriced Photo", price_paise: 0,  visible: 1 },
+  // Personalised. p-name cannot be printed without an answer; p-colour has a
+  // default and the question is an upsell, so a blank is a real answer.
+  { id: "p-name", name: "Plate Keychain", price_paise: 29900, visible: 1,
+    personalise_label: "Name or text to print", personalise_required: 1 },
+  { id: "p-colour", name: "PS5 Stand", price_paise: 89900, visible: 1,
+    personalise_label: "Colour", personalise_required: 0 },
 ];
 
 // Minimal D1 stand-in. Records every query so tests can assert on what was
@@ -610,6 +616,71 @@ section("public/_headers");
      /images\.json[\s\S]{0,120}?max-age=60/.test(h));
   ok("the API and HTML are NOT given a cache rule here",
      !/^\/api\//m.test(h) && !/^\/\*$/m.test(h));
+}
+
+// ══ PERSONALISATION ══════════════════════════════════════════════
+// The reason this exists: three live products asked the buyer for a name or a
+// colour, and checkout collected nothing, so an order could be paid in full with
+// no idea what to print. The refusal has to live HERE and not in the browser —
+// Buy-now hands off straight to checkout, and the API takes a cart from anywhere.
+section("personalisation — a required value is enforced server-side");
+{
+  const missing = await priceCart(envWith(), [{ product_id: "p-name", qty: 1 }], "ship");
+  ok("required + blank is refused", Boolean(missing.error), JSON.stringify(missing));
+  ok("names the product", /Plate Keychain/.test(missing.error || ""), missing.error);
+  ok("names the field", /Name or text to print/.test(missing.error || ""), missing.error);
+
+  const blank = await priceCart(envWith(),
+    [{ product_id: "p-name", qty: 1, personalisation: "   " }], "ship");
+  ok("whitespace is not an answer", Boolean(blank.error), JSON.stringify(blank));
+
+  const filled = await priceCart(envWith(),
+    [{ product_id: "p-name", qty: 1, personalisation: "SUNNY" }], "ship");
+  ok("a value is accepted", !filled.error, JSON.stringify(filled.error));
+  ok("and is snapshotted onto the line", filled.items[0].personalisation === "SUNNY");
+}
+
+section("personalisation — optional, absent, and unasked-for");
+{
+  const opt = await priceCart(envWith(), [{ product_id: "p-colour", qty: 1 }], "ship");
+  ok("optional + blank checks out fine", !opt.error, JSON.stringify(opt.error));
+  ok("stores an empty string, not undefined", opt.items[0].personalisation === "");
+
+  // A product that does not ask must never carry one, whatever the client sends.
+  // The client decides what to SHOW; the row decides what is real.
+  const unasked = await priceCart(envWith(),
+    [{ product_id: "p-small", qty: 1, personalisation: "engrave this" }], "ship");
+  ok("a value on an unpersonalised product is stripped",
+     unasked.items[0].personalisation === "", JSON.stringify(unasked.items[0]));
+
+  const long = await priceCart(envWith(),
+    [{ product_id: "p-name", qty: 1, personalisation: "x".repeat(500) }], "ship");
+  // Clipped rather than rejected: losing a real order over a long line of text
+  // is the worse failure.
+  ok("over-long is clipped to 120", long.items[0].personalisation.length === 120,
+     String(long.items[0].personalisation.length));
+}
+
+section("personalisation — survives the duplicate collapse");
+{
+  // priceCart collapses duplicate ids so the qty cap cannot be bypassed. One
+  // value per product is what makes that safe to keep: the two lines become one
+  // line, so they are one personalisation.
+  const dup = await priceCart(envWith(), [
+    { product_id: "p-name", qty: 1, personalisation: "SUNNY" },
+    { product_id: "p-name", qty: 2 },
+  ], "ship");
+  ok("collapses to one line", dup.items.length === 1, String(dup.items.length));
+  ok("quantities still sum", dup.items[0].qty === 3, String(dup.items[0].qty));
+  ok("the non-empty value wins", dup.items[0].personalisation === "SUNNY");
+
+  // The cap is the security control the collapse exists for. Varying the text
+  // must not become a way around it.
+  const over = await priceCart(envWith(), [
+    { product_id: "p-name", qty: MAX_QTY, personalisation: "A" },
+    { product_id: "p-name", qty: 1, personalisation: "B" },
+  ], "ship");
+  ok("the qty cap still applies across differing values", Boolean(over.error), JSON.stringify(over));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

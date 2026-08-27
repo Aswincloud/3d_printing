@@ -107,12 +107,22 @@ export function quoteCustomerEmail(env, q) {
   );
 }
 
+// What the customer asked to be printed on a personalised item. Rendered on its
+// own line under the product rather than appended to the name, because on the
+// owner's copy this IS the print instruction — it has to be readable at a glance
+// next to the thing it applies to, not buried in a run-on line.
+//
+// esc() like every other value here: it is customer-typed text.
+const pzLine = (it, colour) => (String(it.personalisation || "").trim()
+  ? `<div style="font-size:12px;color:${colour};margin-top:3px">${esc(it.personalisation)}</div>`
+  : "");
+
 // ── order confirmation → customer ─────────────────────────────────
 export function orderCustomerEmail(env, order, items) {
   const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
   const lines = items.map((it) =>
     `<tr><td style="padding:9px 0;border-bottom:1px solid ${LINE};font-size:14px">${esc(it.name)}` +
-    `<span style="color:${MUTED}"> × ${it.qty}</span></td>` +
+    `<span style="color:${MUTED}"> × ${it.qty}</span>${pzLine(it, MUTED)}</td>` +
     `<td style="padding:9px 0;border-bottom:1px solid ${LINE};font-size:14px;text-align:right;font-weight:600">${rupees(it.price_paise * it.qty)}</td></tr>`
   ).join("");
 
@@ -211,7 +221,7 @@ export function orderShippedEmail(env, order, { courier, tracking, trackingUrl }
 export function orderOwnerEmail(env, order, items) {
   const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
   const lines = items.map((it) =>
-    `<tr><td style="padding:8px 0;border-bottom:1px solid ${LINE};font-size:14px">${esc(it.name)} × ${it.qty}</td>` +
+    `<tr><td style="padding:8px 0;border-bottom:1px solid ${LINE};font-size:14px">${esc(it.name)} × ${it.qty}${pzLine(it, ORANGE)}</td>` +
     `<td style="padding:8px 0;border-bottom:1px solid ${LINE};font-size:14px;text-align:right">${rupees(it.price_paise * it.qty)}</td></tr>`
   ).join("");
 

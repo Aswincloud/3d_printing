@@ -465,13 +465,18 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
 });
 
 /* ===== SHOP & CART ===== */
-/* The cart stores ONLY { id, qty } in localStorage. No prices, no names.
+/* The cart stores ONLY { id, qty, pz } in localStorage. No prices, no names.
+   `pz` is what to print on a personalised item — the customer's own words, and
+   intent in exactly the way the quantity is. Whether a product asks for one at
+   all, and whether it is required, is decided server-side against the product
+   row; this only carries it.
    Everything shown is re-derived from /api/products on load, and the amount
    actually charged is computed server-side at checkout — so a hand-edited
    localStorage entry can change what you see, never what you pay. */
 
 const CART_KEY = 'ap_cart';
 const MAX_QTY = 100; // mirrors MAX_QTY in src/shop.js
+const MAX_PZ = 120;  // mirrors MAX_PERSONALISATION in src/shop.js
 
 const productGrid = document.getElementById('productGrid');
 const cartBtn = document.getElementById('cartBtn');
@@ -526,9 +531,16 @@ function readCart() {
       const id = typeof it?.id === 'string' ? it.id : '';
       const qty = parseInt(it?.qty, 10);
       if (!id || !Number.isFinite(qty) || qty < 1) continue;
-      seen.set(id, Math.min(MAX_QTY, (seen.get(id) || 0) + qty));
+      const prev = seen.get(id);
+      // Absent `pz` reads as '', so a cart written before this existed still
+      // loads rather than being dropped as malformed.
+      const pz = typeof it?.pz === 'string' ? it.pz.slice(0, MAX_PZ) : '';
+      seen.set(id, {
+        qty: Math.min(MAX_QTY, (prev?.qty || 0) + qty),
+        pz: prev?.pz || pz,
+      });
     }
-    return [...seen].map(([id, qty]) => ({ id, qty }));
+    return [...seen].map(([id, line]) => ({ id, qty: line.qty, pz: line.pz }));
   } catch {
     return [];
   }
@@ -583,6 +595,105 @@ function setQty(id, qty) {
     if (line) line.qty = Math.min(MAX_QTY, qty);
   }
   writeCart(cart);
+}
+
+/* ── personalisation ───────────────────────────────────────────── */
+/* What to print on a made-to-order item: a name on a keychain, the details on a
+   business card, a colour on a stand. Products carry `personalise_label` (empty
+   means the product does not ask) and `personalise_required`.
+
+   ONE RENDERER, TWO HOSTS. It appears in the cart drawer AND in the checkout
+   summary, because two buy paths skip the cart entirely — Buy-now on a product
+   page (product.js hands off through sessionStorage) and Buy-now in the
+   lightbox. A field that lived only in the drawer would be skippable by the two
+   fastest routes to paying, which is exactly the hole this closes.
+
+   The button being disabled is a courtesy. priceCart() refuses the order
+   regardless, because the API takes a cart from anywhere. */
+
+function pzMissing(items) {
+  return items
+    .map((it) => ({ it, p: catalogue.find((c) => c.id === it.id) }))
+    .filter(({ it, p }) => p && p.personalise_label && p.personalise_required
+                             && !String(it.pz || '').trim())
+    .map(({ p }) => p.name);
+}
+
+// Writes straight to the cart. buyNowItems is a separate in-memory list, so a
+// Buy-now line is updated in place instead — it is not in the cart and must not
+// be added to it.
+function setPz(id, value) {
+  const v = String(value || '').slice(0, MAX_PZ);
+  if (buyNowItems) {
+    const line = buyNowItems.find((it) => it.id === id);
+    if (line) line.pz = v;
+    return;
+  }
+  const cart = readCart();
+  const line = cart.find((it) => it.id === id);
+  if (!line) return;
+  line.pz = v;
+  writeCart(cart);
+}
+
+/* Returns null when the product does not ask. `onDone` re-renders whatever is
+   hosting it, so the checkout button's enabled state tracks the field. Bound on
+   'input' for the state and 'change' for the write, so the cart is not rewritten
+   — and syncCartUp not fired — on every keystroke. */
+function pzField(product, value, onDone) {
+  if (!product.personalise_label) return null;
+
+  const wrap = document.createElement('label');
+  wrap.className = 'pz-field';
+
+  const cap = document.createElement('span');
+  cap.className = 'pz-label';
+  cap.textContent = product.personalise_label
+    + (product.personalise_required ? '' : ' (optional)');
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = value || '';
+  input.maxLength = MAX_PZ;
+  input.placeholder = product.personalise_required ? 'Required' : 'Leave blank for the default';
+  input.setAttribute('aria-label', product.personalise_label + ' for ' + product.name);
+  if (product.personalise_required && !String(value || '').trim()) {
+    wrap.classList.add('pz-needed');
+    input.setAttribute('aria-invalid', 'true');
+  }
+
+  input.addEventListener('input', () => {
+    const filled = Boolean(input.value.trim());
+    wrap.classList.toggle('pz-needed', product.personalise_required && !filled);
+    if (filled || !product.personalise_required) input.removeAttribute('aria-invalid');
+    // Live, so the Checkout button un-disables as they type rather than only
+    // once they click away.
+    setPz(product.id, input.value);
+    if (typeof onDone === 'function') onDone();
+  });
+
+  wrap.append(cap, input);
+  return wrap;
+}
+
+/* Disables the two buttons that lead to payment while a required value is
+   blank, and says which item is missing rather than leaving a dead button with
+   no explanation. Advisory only — priceCart() is what actually refuses. */
+function syncCheckoutGate() {
+  const setState = (btn, noteId, items) => {
+    if (!btn) return;
+    const missing = pzMissing(items);
+    btn.disabled = missing.length > 0;
+    btn.classList.toggle('is-blocked', missing.length > 0);
+    const note = document.getElementById(noteId);
+    if (!note) return;
+    note.hidden = missing.length === 0;
+    note.textContent = missing.length === 1
+      ? `Tell me what to print on the ${missing[0]} first.`
+      : `Fill in the details for: ${missing.join(', ')}.`;
+  };
+  setState(document.getElementById('cartCheckout'), 'cartPzNote', readCart());
+  setState(document.getElementById('coSubmit'), 'coPzNote', checkoutItems());
 }
 
 /* ── shipping (display only) ───────────────────────────────────── */
@@ -1227,9 +1338,13 @@ function renderCart() {
     remove.addEventListener('click', () => setQty(it.id, 0));
 
     info.append(name, price, qty);
+    const pz = pzField(p, it.pz, renderCart);
+    if (pz) info.appendChild(pz);
     row.append(img, info, remove);
     cartBody.appendChild(row);
   }
+
+  syncCheckoutGate();
 
   const shipping = shippingForDisplay(subtotal);
   const setText = (id, text) => {
@@ -1375,6 +1490,14 @@ function renderCoSummary() {
     r.textContent = rupees(p.price_paise * it.qty);
     row.append(l, r);
     el.appendChild(row);
+
+    const pz = pzField(p, it.pz, () => { renderCoSummary(); syncCheckoutGate(); });
+    if (pz) {
+      const holder = document.createElement('div');
+      holder.className = 'co-line co-pz';
+      holder.appendChild(pz);
+      el.appendChild(holder);
+    }
   }
 
   const addRow = (label, value, cls) => {
@@ -1404,6 +1527,8 @@ function renderCoSummary() {
   const shipping = shippingForDisplay(subtotal);
   addRow(shipping === 0 ? 'Shipping (free)' : 'Shipping', rupees(shipping));
   addRow('Total', rupees(subtotal + shipping), 'co-line-total');
+
+  syncCheckoutGate();
 }
 
 /* ── promo code ────────────────────────────────────────────────── */
@@ -1440,7 +1565,7 @@ async function applyPromo() {
       body: JSON.stringify({
         // Only ids, qty and the code. No amounts — the server prices it, exactly
         // as it does for the order itself.
-        items: checkoutItems().map((it) => ({ product_id: it.id, qty: it.qty })),
+        items: checkoutItems().map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })),
         code,
         // For a once-per-customer code. The server re-checks against the
         // validated address at order time, so this is a preview convenience.
@@ -1622,7 +1747,7 @@ checkoutForm?.addEventListener('submit', async (e) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        items: checkoutItems().map((it) => ({ product_id: it.id, qty: it.qty })),
+        items: checkoutItems().map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })),
         // No `delivery` field: the server sets it, and does not trust a value
         // sent from here — it decides the shipping charge.
         //
@@ -2466,7 +2591,7 @@ async function adoptServerCart() {
       await fetch('/api/me/cart/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: local.map((it) => ({ product_id: it.id, qty: it.qty })) }),
+        body: JSON.stringify({ items: local.map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
       });
     }
     const res = await fetch('/api/me/cart');
@@ -2474,7 +2599,9 @@ async function adoptServerCart() {
     const { items } = await res.json();
     // setItem directly, NOT writeCart — writeCart triggers syncCartUp, which
     // would push straight back to the server in a loop.
-    localStorage.setItem(CART_KEY, JSON.stringify(items.map((it) => ({ id: it.product_id, qty: it.qty }))));
+    localStorage.setItem(CART_KEY, JSON.stringify(items.map((it) => ({
+      id: it.product_id, qty: it.qty, pz: it.personalisation || '',
+    }))));
     renderCart();
   } catch { /* keep the local cart */ }
 }
@@ -2486,7 +2613,7 @@ function syncCartUp() {
   fetch('/api/me/cart', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items: readCart().map((it) => ({ product_id: it.id, qty: it.qty })) }),
+    body: JSON.stringify({ items: readCart().map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
   }).catch(() => {});
 }
 

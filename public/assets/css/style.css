@@ -2806,3 +2806,72 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 .skip-link:focus {
   left: 0;
 }
+
+/* ===== PERSONALISATION =====
+   What to print on a made-to-order item. Appears on a cart line and again in
+   the checkout summary — two hosts, because Buy-now skips the cart. */
+
+.pz-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.pz-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-muted);
+}
+
+.pz-field input {
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.pz-field input:focus {
+  border-color: rgba(255,107,0,0.5);
+  box-shadow: 0 0 0 3px rgba(255,107,0,0.1);
+}
+
+/* Orange, not red. Nothing is wrong yet — they have not finished. Red here
+   would read as a rejection of something they typed, when the field is simply
+   still waiting. */
+.pz-field.pz-needed input { border-color: rgba(255,107,0,0.55); }
+.pz-field.pz-needed .pz-label::after {
+  content: " — required";
+  color: var(--orange);
+}
+
+/* In the checkout summary the field is a full-width row, not a two-column
+   money line, so it opts out of .co-line's flex layout. */
+.co-line.co-pz {
+  display: block;
+  padding-top: 0;
+}
+
+/* Why the button below is disabled. Without this it is a dead control with no
+   stated reason, which reads as the site being broken. */
+.pz-note {
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  color: var(--orange);
+  text-align: center;
+}
+
+.pz-note[hidden] { display: none; }
+
+.btn-primary.is-blocked,
+.cart-checkout.is-blocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

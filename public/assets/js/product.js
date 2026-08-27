@@ -13,10 +13,16 @@
  */
 
 // ── the cart contract, shared with main.js ────────────────────────
-// MUST match main.js:442-443 and MAX_QTY in src/shop.js. If these drift, an item
-// added here becomes invisible or over-quantity in the drawer.
+// MUST match main.js and MAX_QTY / MAX_PERSONALISATION in src/shop.js. If these
+// drift, an item added here becomes invisible or over-quantity in the drawer.
+//
+// Lines are { id, qty, pz }. `pz` is what to print on a personalised item. This
+// page does not render a field for it — the cart drawer and the checkout summary
+// both do — but it must PRESERVE one that is already there, or adding a second
+// item from a product page would silently wipe the name off the first.
 const CART_KEY = 'ap_cart';
 const MAX_QTY = 100;
+const MAX_PZ = 120;
 
 function readCart() {
   try {
@@ -29,9 +35,16 @@ function readCart() {
       const id = typeof it?.id === 'string' ? it.id : '';
       const qty = parseInt(it?.qty, 10);
       if (!id || !Number.isFinite(qty) || qty < 1) continue;
-      seen.set(id, Math.min(MAX_QTY, (seen.get(id) || 0) + qty));
+      const prev = seen.get(id);
+      const pz = typeof it?.pz === 'string' ? it.pz.slice(0, MAX_PZ) : '';
+      seen.set(id, {
+        qty: Math.min(MAX_QTY, (prev?.qty || 0) + qty),
+        // Preserved, never authored here: dropping it would wipe the name off an
+        // item already in the cart the moment a second one is added.
+        pz: prev?.pz || pz,
+      });
     }
-    return [...seen].map(([id, qty]) => ({ id, qty }));
+    return [...seen].map(([id, line]) => ({ id, qty: line.qty, pz: line.pz }));
   } catch {
     return [];
   }

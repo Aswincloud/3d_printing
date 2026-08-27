@@ -25,7 +25,8 @@ import { suggestName } from "./admin.js";
 // value here is that FUTURE photos appear without anyone doing anything.
 export async function listProducts(env) {
   const { results } = await env.DB.prepare(
-    `SELECT id, slug, name, description, price_paise, image, images, category, sort
+    `SELECT id, slug, name, description, price_paise, image, images, category, sort,
+            personalise_label, personalise_required
        FROM products WHERE visible = 1 ORDER BY sort ASC, name ASC`
   ).all();
 
@@ -154,6 +155,15 @@ function shape(r) {
     image: r.image,
     images: r.images ? r.images.split(",").filter(Boolean) : [],
     category: r.category || "",
+    // What this product asks the buyer for, and whether an answer is needed.
+    // An empty label means it asks nothing, which is how the cart and checkout
+    // decide whether to render a field at all. Sent as a flag rather than
+    // inferred from the description text, for the same reason quote_only is.
+    //
+    // Advisory: priceCart() re-reads both from the row and refuses the order
+    // itself, so a client that ignores these gets a 400 rather than a free pass.
+    personalise_label: r.personalise_label || "",
+    personalise_required: Boolean(r.personalise_required),
   };
 }
 
@@ -201,6 +211,10 @@ export function shippingFor(subtotalPaise, delivery, env) {
 // Returns { items, subtotal_paise, discount_paise, coupon_code, shipping_paise,
 // total_paise } or { error }.
 export const MAX_QTY = 100;
+// Long enough for a company name and two contact lines on a business card,
+// short enough that it cannot be used as free storage. Clipped, never rejected:
+// losing an order over a long line of text would be the worse failure.
+export const MAX_PERSONALISATION = 120;
 
 export async function priceCart(env, rawItems, delivery, couponCode = null, email = null) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
@@ -213,12 +227,19 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
   // Collapse duplicate product_ids so the same item twice can't bypass the
   // per-line qty cap.
   const wanted = new Map();
+  // What to print, per product. One value per product per order, which is why it
+  // can live in the same collapse as the quantity: two lines of the same product
+  // are one line, so they are one personalisation. First non-empty wins — a
+  // client that sends the id twice with a value and a blank meant the value.
+  const personalise = new Map();
   for (const it of rawItems) {
     const id = String(it?.product_id ?? "").trim();
     const qty = parseInt(it?.qty, 10);
     if (!id) return { error: "Invalid item in cart." };
     if (!Number.isFinite(qty) || qty < 1) return { error: "Invalid quantity." };
     wanted.set(id, (wanted.get(id) || 0) + qty);
+    const pz = String(it?.personalisation ?? "").trim().slice(0, MAX_PERSONALISATION);
+    if (pz && !personalise.get(id)) personalise.set(id, pz);
   }
 
   for (const qty of wanted.values()) {
@@ -244,7 +265,8 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
   // is refused, which is the right answer: better than silently dropping an item
   // the customer believed they were buying.
   const { results } = await env.DB.prepare(
-    `SELECT id, name, price_paise FROM products
+    `SELECT id, name, price_paise, personalise_label, personalise_required
+       FROM products
       WHERE visible = 1 AND price_paise > 0 AND id IN (${placeholders})`
   ).bind(...ids).all();
 
@@ -266,11 +288,25 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
     const row = found.get(id);
     const qty = wanted.get(id);
     subtotal += row.price_paise * qty;
+    // A product that does not ask gets nothing stored, whatever was sent. The
+    // client decides what to SHOW; the row decides what is real — the same split
+    // as the price two lines up.
+    const label = String(row.personalise_label || "").trim();
+    const pz = label ? (personalise.get(id) || "") : "";
+
+    // The whole point of the feature. Refused here rather than in the browser
+    // because the browser is where it was already possible to skip it: Buy-now
+    // hands off straight to checkout, and the API takes a cart from anywhere.
+    if (label && row.personalise_required && !pz) {
+      return { error: `${row.name}: please fill in "${label}" before checking out.` };
+    }
+
     items.push({
       product_id: row.id,
       name: row.name,          // snapshot
       price_paise: row.price_paise, // snapshot
       qty,
+      personalisation: pz,     // snapshot, for the same reason
       pos: pos++,
     });
   }
