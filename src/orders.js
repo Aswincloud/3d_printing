@@ -162,9 +162,11 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
 
   for (const it of priced.items) {
     batch.push(env.DB.prepare(
-      `INSERT INTO order_items (id, order_id, product_id, name, price_paise, qty, pos)
-       VALUES (?,?,?,?,?,?,?)`
-    ).bind(uid(), orderId, it.product_id, it.name, it.price_paise, it.qty, it.pos));
+      `INSERT INTO order_items
+         (id, order_id, product_id, name, price_paise, qty, personalisation, pos)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(uid(), orderId, it.product_id, it.name, it.price_paise, it.qty,
+           it.personalisation || "", it.pos));
   }
 
   await env.DB.batch(batch);
@@ -272,7 +274,7 @@ export async function getOrderHandler(env, receipt) {
   if (!order) return bad("Order not found.", 404);
 
   const { results } = await env.DB.prepare(
-    `SELECT name, price_paise, qty FROM order_items
+    `SELECT name, price_paise, qty, personalisation FROM order_items
       WHERE order_id = (SELECT id FROM orders WHERE receipt = ?) ORDER BY pos`
   ).bind(r).all();
 
@@ -383,7 +385,7 @@ async function handleOrderPaid(env, ctx, evt) {
   }
 
   const { results: items } = await env.DB.prepare(
-    `SELECT name, price_paise, qty FROM order_items WHERE order_id = ? ORDER BY pos`
+    `SELECT name, price_paise, qty, personalisation FROM order_items WHERE order_id = ? ORDER BY pos`
   ).bind(order.id).all();
 
   const paid = { ...order, status: "paid", rzp_payment_id: payment.id || order.rzp_payment_id };

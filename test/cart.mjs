@@ -26,12 +26,14 @@ function makeDB(cartRows = []) {
   const run = (sql, a) => {
     const s = sql.replace(/\s+/g, " ").trim();
 
-    if (s.startsWith("SELECT c.product_id, c.qty FROM cart_items c")) {
+    if (s.startsWith("SELECT c.product_id, c.qty, c.personalisation FROM cart_items c")) {
       const rows = db.cart_items
         .filter((r) => r.user_id === a[0])
         .filter((r) => db.products.some((p) => p.id === r.product_id && p.visible === 1))
         .sort((x, y) => x.updated_at - y.updated_at);
-      return { results: rows.map((r) => ({ product_id: r.product_id, qty: r.qty })) };
+      return { results: rows.map((r) => ({
+        product_id: r.product_id, qty: r.qty, personalisation: r.personalisation || "",
+      })) };
     }
     if (s.startsWith("SELECT id FROM products WHERE visible = 1 AND id IN")) {
       const want = new Set(a);
@@ -43,7 +45,8 @@ function makeDB(cartRows = []) {
       return { meta: { changes: n - db.cart_items.length } };
     }
     if (s.startsWith("INSERT INTO cart_items")) {
-      db.cart_items.push({ user_id: a[0], product_id: a[1], qty: a[2], updated_at: a[3] });
+      db.cart_items.push({ user_id: a[0], product_id: a[1], qty: a[2],
+                          personalisation: a[3], updated_at: a[4] });
       return { meta: { changes: 1 } };
     }
     throw new Error("unhandled SQL: " + s.slice(0, 100));
@@ -72,8 +75,17 @@ section("invariant 9 — the cart never stores a price");
     items: [{ product_id: "p-small", qty: 2, price_paise: 1, price: 1, name: "Free Sample", total: 1 }],
   });
   const row = env.DB._db.cart_items[0];
+  // Pinned as an exact set, not a "does not contain price" check: the invariant
+  // is that this table holds INTENT and nothing that decides money, and an
+  // allowlist is the only version of that which fails when a new column is added
+  // without someone thinking about which kind it is.
+  //
+  // `personalisation` was added deliberately and belongs on the intent side: it
+  // is what the customer wants printed, exactly as `qty` is how many they want.
+  // It reaches no arithmetic — priceCart() reads prices from `products` and never
+  // looks at it.
   ok("row has exactly the expected columns",
-     Object.keys(row).sort().join(",") === "product_id,qty,updated_at,user_id",
+     Object.keys(row).sort().join(",") === "personalisation,product_id,qty,updated_at,user_id",
      Object.keys(row).join(","));
   ok("no price_paise stored", !("price_paise" in row));
   ok("no name stored", !("name" in row));
@@ -221,6 +233,53 @@ section("hidden-since products disappear from an existing cart");
   const env = envWith([{ user_id: USER.id, product_id: "p-hidden", qty: 1, updated_at: 1 }]);
   const [, out] = await read(await getCart(env, USER));
   ok("unlisted product not returned", out.items.length === 0);
+}
+
+// ── personalisation round-trips through the server cart ───────────
+//
+// The point of the server cart is that it follows you between devices. A name
+// typed on a phone has to still be there on a laptop, or the customer types it
+// twice or - worse - assumes it carried and it did not.
+section("personalisation survives the server cart");
+{
+  const env = envWith();
+  await putCart(env, USER, {
+    items: [{ product_id: "p-small", qty: 1, personalisation: "SUNNY" }],
+  });
+  ok("stored", env.DB._db.cart_items[0].personalisation === "SUNNY",
+     JSON.stringify(env.DB._db.cart_items[0]));
+
+  const [, out] = await read(await getCart(env, USER));
+  ok("read back", out.items[0].personalisation === "SUNNY", JSON.stringify(out.items));
+
+  const clipped = envWith();
+  await putCart(clipped, USER, {
+    items: [{ product_id: "p-small", qty: 1, personalisation: "y".repeat(400) }],
+  });
+  ok("clipped to 120", clipped.DB._db.cart_items[0].personalisation.length === 120,
+     String(clipped.DB._db.cart_items[0].personalisation.length));
+}
+
+section("merge — the guest value beats a stored blank");
+{
+  // Signing in merges whatever was in localStorage. Someone who typed a name as a
+  // guest and then signed in must not lose it to the empty row already on the
+  // account - that empty row was never a decision.
+  const env = envWith([{ user_id: USER.id, product_id: "p-small", qty: 1,
+                         personalisation: "", updated_at: 1 }]);
+  await mergeCart(env, USER, {
+    items: [{ product_id: "p-small", qty: 1, personalisation: "SUNNY" }],
+  });
+  const row = env.DB._db.cart_items.find((r) => r.product_id === "p-small");
+  ok("guest value adopted", row.personalisation === "SUNNY", JSON.stringify(row));
+  ok("quantities still sum", row.qty === 2, String(row.qty));
+
+  // A stored value WAS a decision, so an empty guest cart must not wipe it.
+  const kept = envWith([{ user_id: USER.id, product_id: "p-small", qty: 1,
+                          personalisation: "ARJUN", updated_at: 1 }]);
+  await mergeCart(kept, USER, { items: [{ product_id: "p-small", qty: 1 }] });
+  ok("a stored value is not wiped by a blank",
+     kept.DB._db.cart_items.find((r) => r.product_id === "p-small").personalisation === "ARJUN");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

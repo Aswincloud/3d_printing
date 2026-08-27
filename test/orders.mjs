@@ -27,6 +27,8 @@ const PRODUCTS = [
   { id: "p-small", name: "Kingfisher", price_paise: 34900, visible: 1 },
   { id: "p-large", name: "Elephant", price_paise: 89900, visible: 1 },
   { id: "p-hidden", name: "Spider-Man", price_paise: 54900, visible: 0 },
+  { id: "p-name", name: "Plate Keychain", price_paise: 29900, visible: 1,
+    personalise_label: "Name or text to print", personalise_required: 1 },
 ];
 
 // ── in-memory D1 ──────────────────────────────────────────────────
@@ -50,7 +52,7 @@ function makeDB() {
   const run = (sql, args) => {
     const s = sql.replace(/\s+/g, " ").trim();
 
-    if (s.startsWith("SELECT id, name, price_paise FROM products")) {
+    if (s.startsWith("SELECT id, name, price_paise, personalise_label, personalise_required FROM products")) {
       const want = new Set(args);
       return { results: db.products.filter((p) => p.visible === 1 && want.has(p.id)) };
     }
@@ -65,8 +67,9 @@ function makeDB() {
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("INSERT INTO order_items")) {
-      const [id, order_id, product_id, name, price_paise, qty, pos] = args;
-      db.order_items.push({ id, order_id, product_id, name, price_paise, qty, pos });
+      const [id, order_id, product_id, name, price_paise, qty, personalisation, pos] = args;
+      db.order_items.push({ id, order_id, product_id, name, price_paise, qty,
+                            personalisation, pos });
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("SELECT id, receipt, status, total_paise FROM orders WHERE rzp_order_id")) {
@@ -94,12 +97,12 @@ function makeDB() {
     }
     // The receipt-subquery form must be matched BEFORE the plain order_id
     // form, since the latter is a prefix of it.
-    if (s.startsWith("SELECT name, price_paise, qty FROM order_items WHERE order_id = (SELECT id FROM orders WHERE receipt")) {
+    if (s.startsWith("SELECT name, price_paise, qty, personalisation FROM order_items WHERE order_id = (SELECT id FROM orders WHERE receipt")) {
       const o = db.orders.find((x) => x.receipt === args[0]);
       const rows = o ? db.order_items.filter((i) => i.order_id === o.id).sort((a, b) => a.pos - b.pos) : [];
       return { results: rows.map((r) => project(r, ["name", "price_paise", "qty"])) };
     }
-    if (s.startsWith("SELECT name, price_paise, qty FROM order_items WHERE order_id")) {
+    if (s.startsWith("SELECT name, price_paise, qty, personalisation FROM order_items WHERE order_id")) {
       const rows = db.order_items.filter((i) => i.order_id === args[0]).sort((a, b) => a.pos - b.pos);
       return { results: rows.map((r) => project(r, ["name", "price_paise", "qty"])) };
     }
@@ -725,6 +728,41 @@ section("GET /api/orders/:receipt");
     const [s] = await readJson(await getOrderHandler(env, bad));
     ok(`malformed receipt ${JSON.stringify(bad)} → 404`, s === 404);
   }
+}
+
+// ── personalisation reaches the order and the emails ──────────────
+//
+// The end of the chain the feature exists for. An order for a personalised item
+// is not actionable without this value, so it has to survive priceCart, the
+// order_items insert, and the read that builds the owner's mail.
+section("POST /api/orders — what to print is recorded and mailed");
+{
+  const env = ENV(); stubFetch();
+  const body = {
+    items: [{ product_id: "p-name", qty: 2, personalisation: "SUNNY" }],
+    delivery: "ship", customer: CUSTOMER,
+  };
+  const [status] = await readJson(await createOrderHandler(post(body), env, body));
+  ok("order created", status === 200);
+
+  const row = env.DB._db.order_items[0];
+  ok("stored on the line", row.personalisation === "SUNNY", JSON.stringify(row));
+  // One value for the whole line, which is what makes the duplicate-collapse
+  // safe to keep: both keychains say SUNNY.
+  ok("one line, qty 2", env.DB._db.order_items.length === 1 && row.qty === 2);
+}
+
+section("POST /api/orders — a required value cannot be skipped through the API");
+{
+  const env = ENV(); stubFetch();
+  // The browser disables the button, but the API is reachable without it and
+  // Buy-now skips the cart entirely. This is the check that actually holds.
+  const body = { items: [{ product_id: "p-name", qty: 1 }], delivery: "ship", customer: CUSTOMER };
+  const [status, out] = await readJson(await createOrderHandler(post(body), env, body));
+  ok("refused", status === 400, String(status));
+  ok("names the product", /Plate Keychain/.test(out.error || ""), out.error);
+  ok("no order was created", env.DB._db.orders.length === 0);
+  ok("and no line either", env.DB._db.order_items.length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

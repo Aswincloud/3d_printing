@@ -216,10 +216,14 @@ function orderCard(o) {
   const items = el('ul', 'order-items');
   for (const it of o.items || []) {
     const li = el('li');
-    li.append(
-      el('span', null, `${it.name} × ${it.qty}`),
-      el('strong', null, rupees(it.price_paise * it.qty)),
-    );
+    const label = el('span', null, `${it.name} × ${it.qty}`);
+    // The whole point of the feature lands here. An order for a personalised
+    // item is not actionable without this line, so it is rendered with the item
+    // rather than tucked into the order notes.
+    if (String(it.personalisation || '').trim()) {
+      label.appendChild(el('div', 'oi-pz', it.personalisation));
+    }
+    li.append(label, el('strong', null, rupees(it.price_paise * it.qty)));
     items.appendChild(li);
   }
   card.appendChild(items);
@@ -768,7 +772,7 @@ async function loadProducts() {
    here, and finding the rows that have none is one of the reasons to look. */
 function matchesQuery(p, terms) {
   if (!terms.length) return true;
-  const hay = [p.name, p.slug, p.description, p.category]
+  const hay = [p.name, p.slug, p.description, p.category, p.personalise_label]
     .filter(Boolean).join(' ').toLowerCase();
   return terms.every((t) => hay.includes(t));
 }
@@ -885,6 +889,10 @@ function productRow(p) {
   const shownVisible = 'visible' in pending ? pending.visible : visInitial;
   const descInitial = String(p.description || '');
   const shownDesc = 'description' in pending ? pending.description : descInitial;
+  const pzLabelInitial = String(p.personalise_label || '');
+  const pzReqInitial = Boolean(p.personalise_required);
+  const shownPzLabel = 'personalise_label' in pending ? pending.personalise_label : pzLabelInitial;
+  const shownPzReq = 'personalise_required' in pending ? pending.personalise_required : pzReqInitial;
 
   const row = el('div', 'product-row' + (shownVisible ? '' : ' is-hidden'));
   row.dataset.productId = p.id;
@@ -923,7 +931,8 @@ function productRow(p) {
   const onEdit = () => {
     const priceChanged = input.value !== initial;
     const descChanged = desc.value !== descInitial;
-    const changed = priceChanged || descChanged || vis.checked !== visInitial;
+    const pzChanged = pzLabel.value !== pzLabelInitial || pzReq.checked !== pzReqInitial;
+    const changed = priceChanged || descChanged || pzChanged || vis.checked !== visInitial;
     wrap.classList.toggle('dirty', priceChanged);
     panel.classList.toggle('dirty', descChanged);
     if (changed) {
@@ -934,6 +943,8 @@ function productRow(p) {
         price_paise: Number.isFinite(rupeeVal) && rupeeVal >= 0 ? Math.round(rupeeVal * 100) : NaN,
         visible: vis.checked,
         description: desc.value,
+        personalise_label: pzLabel.value,
+        personalise_required: pzReq.checked,
         // Display-only, stripped before the request. Keeping the raw text means a
         // half-typed or invalid price survives a re-render instead of silently
         // reverting to the server's value while the bar still counts the row.
@@ -979,7 +990,33 @@ function productRow(p) {
   recount();
   desc.addEventListener('input', () => { recount(); onEdit(); });
 
-  panel.append(desc, counter);
+  // What this product asks the buyer for. An empty label is the off switch — it
+  // is how a product stops asking — so it must be clearable, not just settable.
+  const pzRow = el('div', 'pr-pz-row');
+
+  const pzLabel = document.createElement('input');
+  pzLabel.type = 'text';
+  pzLabel.className = 'pr-pz-label';
+  pzLabel.maxLength = 80;   // MAXLEN.personalise in src/admin.js
+  pzLabel.value = shownPzLabel;
+  pzLabel.placeholder = 'Ask the buyer for… (blank = ask nothing)';
+  pzLabel.setAttribute('aria-label', 'Personalisation prompt for ' + p.name);
+
+  const pzReqWrap = el('label', 'toggle');
+  const pzReq = document.createElement('input');
+  pzReq.type = 'checkbox';
+  pzReq.checked = shownPzReq;
+  pzReqWrap.append(pzReq, el('span', null, 'Required'));
+
+  // A required flag with no prompt would block checkout on a question nobody was
+  // asked. Tie the control to the thing that makes it meaningful.
+  const syncPzReq = () => { pzReqWrap.hidden = !pzLabel.value.trim(); };
+  syncPzReq();
+  pzLabel.addEventListener('input', () => { syncPzReq(); onEdit(); });
+  pzReq.addEventListener('change', () => onEdit());
+
+  pzRow.append(pzLabel, pzReqWrap);
+  panel.append(desc, counter, pzRow);
   panel.classList.toggle('dirty', desc.value !== descInitial);
 
   const actions = el('div', 'pr-actions');
@@ -1013,6 +1050,8 @@ function productRow(p) {
         price_paise: paise,
         visible: vis.checked,
         description: desc.value,
+        personalise_label: pzLabel.value,
+        personalise_required: pzReq.checked,
       }),
     });
     wrap.classList.remove('dirty');
