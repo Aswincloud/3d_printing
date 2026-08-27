@@ -17,6 +17,7 @@ import {
 } from "../src/customers.js";
 import { currentOwner, currentAdmin, loginCallback } from "../src/auth.js";
 import { signToken } from "@aswincloud/auth";
+import worker from "../src/index.js";
 import { generateOtp, hashOtp, OTP_MAX_ATTEMPTS } from "@aswincloud/auth/d1";
 
 let pass = 0, fail = 0;
@@ -797,6 +798,51 @@ section("OAuth callback — customers");
     ok("empty email refused", /auth=(state|denied)/.test(res.headers.get("location")),
        res.headers.get("location"));
     ok("no account created", env.DB._db.users.length === 0);
+  }
+}
+
+// ── GET /api/me is answerable when signed out ─────────────────────
+//
+// Goes through the ROUTER, not the handler, because the behaviour under test IS
+// the gate: /api/me used to sit behind a blanket 401 for everything under
+// /api/me, so every signed-out visitor's page load produced a failed request.
+//
+// The line this defends is the one between "who am I?" — which has a correct
+// answer for a stranger — and "give me my orders", which does not.
+section("GET /api/me signed out — answered, not refused");
+{
+  const env = ENV({ users: [USER_A] });
+  const call = (path, method = "GET") =>
+    worker.fetch(new Request("https://x" + path, { method }), env, ctx());
+
+  const res = await call("/api/me");
+  const body = await res.json();
+  ok("200, not 401", res.status === 200, String(res.status));
+  ok("says signed out", body.signedIn === false, JSON.stringify(body));
+
+  // The whole point of the narrow branch: it must leak nothing. A stranger gets
+  // one boolean and no trace of any account.
+  ok("no email", !("email" in body), JSON.stringify(body));
+  ok("no name", !("name" in body));
+  ok("no admin flag", !("is_admin" in body));
+  ok("no address", !("phone" in body) && !("address" in body));
+  ok("body has exactly one key", Object.keys(body).length === 1, JSON.stringify(body));
+  ok("not cacheable", /no-store/.test(res.headers.get("cache-control") || ""),
+     res.headers.get("cache-control"));
+
+  // Everything else under /api/me asks for something that belongs to a person.
+  // "Nobody" is a real 401 for those, and widening the branch to cover them
+  // would be the actual mistake this test exists to catch.
+  for (const [path, method] of [
+    ["/api/me/orders", "GET"],
+    ["/api/me/cart", "GET"],
+    ["/api/me/cart", "PUT"],
+    ["/api/me/cart/merge", "POST"],
+    ["/api/me/logout", "POST"],
+    ["/api/me", "PATCH"],
+  ]) {
+    const r = await call(path, method);
+    ok(`${method} ${path} still 401`, r.status === 401, String(r.status));
   }
 }
 

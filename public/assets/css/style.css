@@ -12,6 +12,14 @@
   --text: #e8e8f0;
   --text-muted: #8888a0;
   --white: #ffffff;
+  /* Text that sits ON the orange — buttons, the cart badge, the active filter
+     chip. NOT white: white on #ff6b00 measures 2.86:1 and on the gradient's
+     lighter end 2.32:1, against WCAG AA's 4.5 for body text. It failed on the
+     one element that matters most, the primary CTA.
+     Darkening the text rather than the orange is what keeps the brand colour
+     intact — this scores 6.92 and 8.52 across the gradient. `--white` is still
+     correct for white on a DARK surface, which is most of its other uses. */
+  --on-orange: #0a0a0f;
   --red: #f87171;
   --red-glow: rgba(248, 113, 113, 0.12);
   --radius: 14px;
@@ -96,7 +104,7 @@ nav {
 
 .nav-cta {
   background: var(--orange);
-  color: var(--white) !important;
+  color: var(--on-orange) !important;
   padding: 0.45rem 1.2rem;
   border-radius: 8px;
   font-weight: 600 !important;
@@ -262,7 +270,7 @@ nav {
   align-items: center;
   gap: 8px;
   background: linear-gradient(135deg, var(--orange), var(--orange-light));
-  color: var(--white);
+  color: var(--on-orange);
   font-weight: 700;
   font-size: 1rem;
   padding: 0.8rem 2rem;
@@ -569,7 +577,7 @@ section { padding: 100px 5%; }
 .filter-btn:hover, .filter-btn.active {
   background: var(--orange);
   border-color: var(--orange);
-  color: var(--white);
+  color: var(--on-orange);
 }
 
 /* ===== LIGHTBOX ===== */
@@ -1402,7 +1410,7 @@ footer {
 .product-add:hover {
   background: var(--orange);
   border-color: var(--orange);
-  color: var(--white);
+  color: var(--on-orange);
 }
 
 /* Not-yet-priced photos.
@@ -1441,7 +1449,7 @@ footer {
 .product-add.added {
   background: var(--orange);
   border-color: var(--orange);
-  color: var(--white);
+  color: var(--on-orange);
 }
 
 /* ===== CART ===== */
@@ -1450,7 +1458,11 @@ footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px; height: 38px;
+  /* 44px, not 38. This class styles BOTH header buttons — #cartBtn and
+     #accountBtn — which are the most-tapped controls on the site and sit in a
+     fixed header where a missed tap is most annoying. 44 is the touch-target
+     minimum; the 18px icon inside is unchanged, only the box around it grew. */
+  width: 44px; height: 44px;
   background: var(--dark-3);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
@@ -1470,7 +1482,7 @@ footer {
   min-width: 18px; height: 18px;
   padding: 0 4px;
   background: var(--orange);
-  color: var(--white);
+  color: var(--on-orange);
   border-radius: 9px;
   font-size: 0.68rem;
   font-weight: 800;
@@ -1928,7 +1940,7 @@ footer {
   margin: 0 auto 0.4rem;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--orange), var(--orange-light));
-  color: var(--white);
+  color: var(--on-orange);
   font-size: 1.8rem;
   font-weight: 800;
   line-height: 56px;
@@ -2742,4 +2754,55 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 /* The two-up rows would squash Name and Email into unusable widths on a phone. */
 @media (max-width: 460px) {
   .quote-modal .co-row { grid-template-columns: 1fr; }
+}
+
+/* ===== REDUCED MOTION =====
+   The homepage animates 25 elements on scroll and `html` has scroll-behavior:
+   smooth. For a visitor with vestibular sensitivity that is not a preference,
+   it is a reason to leave, and the OS-level setting they already turned on was
+   being ignored.
+
+   Near-zero rather than `none`: a 0.01ms animation still FIRES, so anything
+   whose final state is applied by an animationend/transitionend handler still
+   arrives. `animation: none` would strand those elements in their start state
+   — invisible, if the start state is opacity 0. That is the classic way this
+   fix breaks a page, and .fade-up here starts at opacity 0.
+
+   scroll-behavior is the other half: a smooth-scrolling anchor is its own
+   vestibular trigger, independent of the animations. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Belt and braces: whatever the scroll observer is meant to reveal is visible
+     from the start, so nothing can be left hidden by a transition that no
+     longer runs. */
+  .fade-up, [data-delay] { opacity: 1 !important; transform: none !important; }
+}
+
+/* ===== SKIP LINK =====
+   Off-screen until focused. The nav is the first thing in the tab order on
+   every page, so without this a keyboard or screen-reader user tabs the whole
+   header before reaching anything they came for — on every page, every time. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 2000;
+  padding: 0.7rem 1.1rem;
+  background: var(--orange);
+  color: var(--on-orange);
+  font-weight: 700;
+  border-radius: 0 0 8px 0;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  left: 0;
 }
