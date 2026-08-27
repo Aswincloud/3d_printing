@@ -333,6 +333,22 @@ async function api(request, env, url, ctx) {
   // because the functions have nowhere to put one.
   if (p.startsWith("/api/me")) {
     const user = await currentCustomer(request, env);
+
+    // "Who am I?" has a correct answer for a signed-out visitor, and it is
+    // "nobody" — not an error. Every page calls this on load to decide whether
+    // to show the account menu, so a 401 meant every visitor who is not signed
+    // in generated a failed request and a red console line on every page view.
+    //
+    // Only GET /api/me. Everything else under /api/me/ asks for something that
+    // belongs to a specific person — orders, the saved cart, an address — and
+    // for those "nobody" is a genuine 401, so they fall through to the gate
+    // below. This branch discloses nothing: the body is exactly {signedIn:false}
+    // and the session cookie is HttpOnly, so this is the only way the page can
+    // find out, and the answer is one it is entitled to.
+    if (!user && p === "/api/me" && m === "GET") {
+      return json({ signedIn: false }, 200, { "cache-control": "private, no-store" });
+    }
+
     if (!user) return bad("unauthorized", 401);
 
     if (p === "/api/me" && m === "GET") {

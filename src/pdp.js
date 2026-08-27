@@ -211,6 +211,7 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
   <link rel="stylesheet" href="/assets/css/pdp.css" />
 </head>
 <body class="pdp-body">
+<a class="skip-link" href="#main">Skip to content</a>
 
 <nav>
   <a class="nav-logo" href="/">
@@ -227,7 +228,7 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
   </div>
 </nav>
 
-<main class="pdp-main">
+<main class="pdp-main" id="main" tabindex="-1">
   <nav class="pdp-crumbs" aria-label="Breadcrumb">${crumbHtml}</nav>
 
   <div class="pdp-top">
