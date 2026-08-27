@@ -737,6 +737,11 @@ function unlistedRow(img) {
   return row;
 }
 
+/* The catalogue as the server last gave it to us. Held so the search box can
+   re-render from memory: /api/admin/products returns every row in one response,
+   so filtering is a local operation and a round trip would only add latency. */
+let allProducts = [];
+
 async function loadProducts() {
   loadUnlisted();   // independent of the catalogue list; no need to await
 
@@ -753,25 +758,81 @@ async function loadProducts() {
     return;
   }
 
+  allProducts = data.products;
+  renderProducts();
+}
+
+/* Multi-word, all terms in any order, across every field worth searching by.
+   Matches the storefront's semantics so "search" means the same thing in both
+   places — and the description is included deliberately: it is now editable
+   here, and finding the rows that have none is one of the reasons to look. */
+function matchesQuery(p, terms) {
+  if (!terms.length) return true;
+  const hay = [p.name, p.slug, p.description, p.category]
+    .filter(Boolean).join(' ').toLowerCase();
+  return terms.every((t) => hay.includes(t));
+}
+
+function renderProducts() {
+  const box = $('productsList');
+  const q = ($('productSearch')?.value || '').trim().toLowerCase();
+  const terms = q ? q.split(/\s+/) : [];
+  const shown = allProducts.filter((p) => matchesQuery(p, terms));
+
   box.innerHTML = '';
-  if (!data.products.length) {
+  if (!allProducts.length) {
     box.appendChild(el('p', 'admin-muted', 'No products.'));
-    return;
+  } else if (!shown.length) {
+    // Naming the term beats a bare "no results": most misses here are a typo or
+    // a slug that reads differently from the name.
+    box.appendChild(el('p', 'admin-muted', `Nothing matches “${q}”.`));
+  } else {
+    for (const p of shown) box.appendChild(productRow(p));
   }
-  for (const p of data.products) box.appendChild(productRow(p));
 
   // A re-render builds new row elements, so any still-pending edit loses its
   // marker while pendingEdits still holds it — the bar would then claim unsaved
   // changes with nothing highlighted. Re-apply, and drop entries whose product
-  // has since disappeared.
+  // has since disappeared from the catalogue entirely. Note the test is against
+  // allProducts, NOT the filtered list: a row scrolled out of view by a search
+  // still has unsaved edits and must keep them.
+  const live = new Set(allProducts.map((p) => p.id));
   for (const id of [...pendingEdits.keys()]) {
+    if (!live.has(id)) { pendingEdits.delete(id); continue; }
     const row = [...box.querySelectorAll('.product-row')]
       .find((r) => r.dataset.productId === id);
-    if (row) row.classList.add('dirty-row');
-    else pendingEdits.delete(id);
+    row?.classList.add('dirty-row');
+  }
+
+  const clear = $('productSearchClear');
+  if (clear) clear.hidden = !q;
+  const count = $('productSearchCount');
+  if (count) {
+    count.textContent = !q ? `${allProducts.length} products`
+      : `${shown.length} of ${allProducts.length}`;
   }
   refreshBulkBar();
 }
+
+/* Filtering is instant on a list this size, so there is no debounce: the cost of
+   a keystroke is rebuilding ~30 rows, and a delay would only make it feel slower
+   than it is. */
+$('productSearch')?.addEventListener('input', renderProducts);
+$('productSearchClear')?.addEventListener('click', () => {
+  const input = $('productSearch');
+  if (!input) return;
+  input.value = '';
+  renderProducts();
+  input.focus();
+});
+// Escape clears the box rather than the browser's own search-field behaviour,
+// which varies and sometimes does nothing.
+$('productSearch')?.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !e.currentTarget.value) return;
+  e.preventDefault();
+  e.currentTarget.value = '';
+  renderProducts();
+});
 
 /* Rows with unsaved edits. Keyed by product id so re-rendering the list can't
    duplicate an entry, and so the bulk save sends each product once. */
@@ -786,6 +847,20 @@ function refreshBulkBar() {
   if (count) {
     count.textContent = n === 1 ? '1 unsaved change' : `${n} unsaved changes`;
   }
+
+  // How many of those edits belong to rows the current search is hiding. Saving
+  // writes all of them, so the bar has to say so — otherwise the honest reading
+  // of "3 unsaved changes" above a single highlighted row is that two were lost.
+  const note = $('bulkHiddenNote');
+  if (!note) return;
+  const visible = new Set(
+    [...document.querySelectorAll('#productsList .product-row')].map((r) => r.dataset.productId),
+  );
+  const offscreen = [...pendingEdits.keys()].filter((id) => !visible.has(id)).length;
+  note.hidden = offscreen === 0;
+  note.textContent = offscreen === 1
+    ? '1 is hidden by the search — it will still be saved'
+    : `${offscreen} are hidden by the search — they will still be saved`;
 }
 
 function markDirty(id, patch, rowEl) {
@@ -801,7 +876,17 @@ function clearDirty(id, rowEl) {
 }
 
 function productRow(p) {
-  const row = el('div', 'product-row' + (p.visible ? '' : ' is-hidden'));
+  // A pending edit is what the boxes show. Every search keystroke rebuilds these
+  // rows from the last server response, so seeding purely from `p` would wipe an
+  // unsaved edit off the screen while the bulk bar went on counting it — the row
+  // would look untouched and still be saved on the next "Save all changes".
+  const pending = pendingEdits.get(p.id) || {};
+  const visInitial = Boolean(p.visible);
+  const shownVisible = 'visible' in pending ? pending.visible : visInitial;
+  const descInitial = String(p.description || '');
+  const shownDesc = 'description' in pending ? pending.description : descInitial;
+
+  const row = el('div', 'product-row' + (shownVisible ? '' : ' is-hidden'));
   row.dataset.productId = p.id;
 
   const img = document.createElement('img');
@@ -812,6 +897,13 @@ function productRow(p) {
 
   const info = el('div', 'pr-info');
   info.append(el('div', 'pr-name', p.name), el('div', 'pr-slug', p.slug));
+  // A row with no description renders a thin product page. Flagging it here is
+  // what makes the long-blank rows findable at a glance rather than by opening
+  // each one. Reads the SHOWN value, not the saved one, so it clears as soon as
+  // you type — leaving it up beside a filled-in box would read as a bug.
+  if (!shownDesc.trim()) {
+    info.appendChild(el('div', 'pr-nodesc', 'No description'));
+  }
   row.appendChild(info);
 
   // Prices are edited in RUPEES for sanity, converted to paise on save. The
@@ -822,12 +914,18 @@ function productRow(p) {
   const input = document.createElement('input');
   input.type = 'text';
   input.inputMode = 'decimal';
-  input.value = String(p.price_paise / 100);
+  // `initial` is the SERVER's value and stays that way — it is what "has this
+  // been edited?" is measured against. What the box SHOWS is the pending edit
+  // when there is one, which is not the same thing.
+  const initial = String(p.price_paise / 100);
+  input.value = '_text' in pending ? pending._text : initial;
   input.setAttribute('aria-label', 'Price for ' + p.name);
-  const initial = input.value;
   const onEdit = () => {
-    const changed = input.value !== initial || vis.checked !== Boolean(p.visible);
-    wrap.classList.toggle('dirty', input.value !== initial);
+    const priceChanged = input.value !== initial;
+    const descChanged = desc.value !== descInitial;
+    const changed = priceChanged || descChanged || vis.checked !== visInitial;
+    wrap.classList.toggle('dirty', priceChanged);
+    panel.classList.toggle('dirty', descChanged);
     if (changed) {
       // Send rupees -> paise here so the bar holds exactly what will be saved.
       const rupeeVal = Number(input.value.trim());
@@ -835,6 +933,11 @@ function productRow(p) {
         id: p.id,
         price_paise: Number.isFinite(rupeeVal) && rupeeVal >= 0 ? Math.round(rupeeVal * 100) : NaN,
         visible: vis.checked,
+        description: desc.value,
+        // Display-only, stripped before the request. Keeping the raw text means a
+        // half-typed or invalid price survives a re-render instead of silently
+        // reverting to the server's value while the bar still counts the row.
+        _text: input.value,
       }, row);
     } else {
       clearDirty(p.id, row);
@@ -847,12 +950,58 @@ function productRow(p) {
   const visWrap = el('label', 'toggle pr-visible');
   const vis = document.createElement('input');
   vis.type = 'checkbox';
-  vis.checked = Boolean(p.visible);
+  vis.checked = shownVisible;
   vis.addEventListener('change', () => onEdit());
   visWrap.append(vis, el('span', null, 'Listed'));
   row.appendChild(visWrap);
 
+  // ── description ───────────────────────────────────────────────────
+  // A second grid row spanning every column, rather than a sixth column: the
+  // list is scanned during a pricing pass and a textarea in every row would
+  // treble its height. Collapsed by default, and only the rows being worked on
+  // are open.
+  const panel = el('div', 'pr-desc');
+  panel.hidden = true;
+
+  const desc = document.createElement('textarea');
+  desc.className = 'pr-desc-input';
+  desc.rows = 3;
+  // Matches MAXLEN.desc in src/admin.js. The server clips rather than rejects,
+  // so this is a courtesy that stops you writing past the limit unknowingly —
+  // it is not the enforcement.
+  desc.maxLength = 2000;
+  desc.value = shownDesc;
+  desc.placeholder = 'What it is, what it is printed in, what makes it worth buying…';
+  desc.setAttribute('aria-label', 'Description for ' + p.name);
+
+  const counter = el('div', 'pr-desc-count');
+  const recount = () => { counter.textContent = `${desc.value.length} / 2000`; };
+  recount();
+  desc.addEventListener('input', () => { recount(); onEdit(); });
+
+  panel.append(desc, counter);
+  panel.classList.toggle('dirty', desc.value !== descInitial);
+
   const actions = el('div', 'pr-actions');
+
+  const descToggle = el('button', 'admin-btn-ghost pr-desc-toggle',
+                        descInitial ? 'Description' : 'Add description');
+  descToggle.type = 'button';
+  descToggle.setAttribute('aria-expanded', 'false');
+  const setOpen = (open) => {
+    panel.hidden = !open;
+    descToggle.setAttribute('aria-expanded', String(open));
+    descToggle.classList.toggle('is-open', open);
+  };
+  descToggle.addEventListener('click', () => {
+    const open = panel.hidden;
+    setOpen(open);
+    if (open) desc.focus();
+  });
+  // An unsaved description must be visible, or a re-render would hide the very
+  // edit the bulk bar is counting behind a collapsed toggle.
+  if (desc.value !== descInitial) setOpen(true);
+  actions.appendChild(descToggle);
 
   const save = actionBtn('Save', 'admin-btn', async () => {
     const rupeeVal = Number(input.value.trim());
@@ -860,11 +1009,21 @@ function productRow(p) {
     const paise = Math.round(rupeeVal * 100);
     const out = await api(`/api/admin/products/${p.id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ price_paise: paise, visible: vis.checked }),
+      body: JSON.stringify({
+        price_paise: paise,
+        visible: vis.checked,
+        description: desc.value,
+      }),
     });
     wrap.classList.remove('dirty');
+    panel.classList.remove('dirty');
     clearDirty(p.id, row);
     row.classList.toggle('is-hidden', !out.product.visible);
+    // The saved row is now the baseline, so the cached catalogue has to move with
+    // it. Without this a later search keystroke would rebuild this row from the
+    // pre-save copy and show the old text back.
+    const cached = allProducts.find((x) => x.id === p.id);
+    if (cached) Object.assign(cached, out.product);
     flash(`${p.name} updated — ${rupees(out.product.price_paise)}${out.product.visible ? '' : ' (hidden)'}.`);
     loadStats();
   });
@@ -878,6 +1037,8 @@ function productRow(p) {
   }));
 
   row.appendChild(actions);
+  // Last, so it lands on the implicit second grid row underneath everything else.
+  row.appendChild(panel);
   return row;
 }
 
@@ -899,9 +1060,15 @@ $('bulkSave')?.addEventListener('click', async () => {
   const label = btn.textContent;
   btn.textContent = 'Saving…';
   try {
+    // Underscore-prefixed keys are for redisplay only and are not part of the
+    // API's shape. Stripped here rather than never stored, so there is exactly
+    // one record of what is pending.
+    const items = [...pendingEdits.values()].map((x) => Object.fromEntries(
+      Object.entries(x).filter(([k]) => !k.startsWith('_')),
+    ));
     const out = await api('/api/admin/products', {
       method: 'PATCH',
-      body: JSON.stringify({ items: [...pendingEdits.values()] }),
+      body: JSON.stringify({ items }),
     });
     pendingEdits.clear();
     refreshBulkBar();

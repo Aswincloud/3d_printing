@@ -2660,3 +2660,86 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 }
 
 .pdp-now { font-size: inherit; font-weight: inherit; color: inherit; }
+
+/* ===== QUOTE MODAL =====
+   Almost everything is inherited from .checkout-modal and .co-field, which is the
+   point of building it on that shell. Only what is genuinely new lives here: the
+   strip naming the product being asked about, and the sent state. */
+
+.qm-ref {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  background: rgba(255,107,0,0.05);
+}
+
+.qm-ref img {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--dark-4);
+}
+
+.qm-ref img[hidden] { display: none; }
+
+.qm-ref-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.qm-ref-text strong { font-size: 0.95rem; font-weight: 600; }
+.qm-ref-text span { font-size: 0.8rem; color: var(--text-muted); }
+
+/* Errors the server reported, as opposed to the per-field ones — a rate limit or
+   a mail failure belongs to the whole request, not to one input. */
+.qm-banner {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--red);
+  border-radius: 10px;
+  background: var(--red-glow);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.qm-banner[hidden] { display: none; }
+
+.qm-foot {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.qm-done {
+  padding: 2rem 1.5rem 1.75rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.qm-done[hidden] { display: none; }
+
+.qm-done-tick {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255,107,0,0.12);
+  color: var(--orange);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.qm-done h4 { font-size: 1.05rem; font-weight: 700; }
+.qm-done p { font-size: 0.88rem; color: var(--text-muted); max-width: 34ch; }
+.qm-done button { margin-top: 0.4rem; }
+
+/* The two-up rows would squash Name and Email into unusable widths on a phone. */
+@media (max-width: 460px) {
+  .quote-modal .co-row { grid-template-columns: 1fr; }
+}

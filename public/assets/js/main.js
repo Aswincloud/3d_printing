@@ -1795,7 +1795,25 @@ document.getElementById('receiptOverlay')?.addEventListener('click', closeReceip
 // pass 'product' — so the gallery branches are gone rather than left as
 // unreachable conditionals. The parameter is kept because it still reads at the
 // call site and would be needed again if a non-product image surface came back.
+// Opens the shared dialog from assets/js/quote-modal.js rather than scrolling to
+// the page-bottom form. Asking about a product used to mean being sent to the
+// other end of the page, which took away the photo, the price and the size you
+// were looking at — the context the question was about.
+//
+// The page-bottom form is still there and still the target of #quote links; this
+// is the item-specific path. The reference string handed over is byte-identical
+// to the one this function used to write into #refItem, so the owner's email is
+// unchanged whichever route a request arrives by.
 function startQuoteFor({ name, image, kind = 'product' }) {
+  closeLightbox?.();
+
+  if (typeof window.openQuoteModal === 'function') {
+    window.openQuoteModal({ name, image });
+    return;
+  }
+
+  // quote-modal.js failed to load. Falling back to the old behaviour beats a
+  // button that does nothing: the form below can carry the same request.
   const box = document.getElementById('quoteRef');
   const hidden = document.getElementById('refItem');
   if (!box || !hidden) return;
@@ -1805,19 +1823,14 @@ function startQuoteFor({ name, image, kind = 'product' }) {
   document.getElementById('quoteRefImg').alt = label;
   document.getElementById('quoteRefName').textContent = label;
   document.getElementById('quoteRefNote').textContent = 'A variation of this listed item';
-
-  // The server receives this as one short string; it is escaped into the email
-  // like every other field.
   hidden.value = 'Product: ' + label + (image ? ' (' + image + ')' : '');
   box.hidden = false;
 
-  // Nudge the description so the box isn't the only hint about what to write.
   const desc = document.getElementById('desc');
   if (desc && !desc.value.trim()) {
     desc.placeholder = 'What would you like changed? Colour, size, material, quantity…';
   }
 
-  closeLightbox?.();
   document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   setTimeout(() => document.getElementById('name')?.focus(), 600);
 }

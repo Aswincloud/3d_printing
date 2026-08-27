@@ -35,7 +35,10 @@ console.log("\nEVERYTHING else under /api/admin/ is refused");
 // session has that this token must not: editing live prices, reading customer
 // orders, moving money, minting discounts.
 for (const [m, p, why] of [
-  ["PATCH",  "/api/admin/products",              "bulk price edit over EXISTING rows"],
+  // Bulk now sets descriptions as well as prices, so this line guards more than it
+  // used to: the agent's describe route can only fill a BLANK description, while
+  // this one overwrites any of them.
+  ["PATCH",  "/api/admin/products",              "bulk price/visibility/description edit over EXISTING rows"],
   ["POST",   "/api/admin/products",              "single create, no manifest check"],
   ["GET",    "/api/admin/products",              "full product list"],
   ["DELETE", "/api/admin/products/abc",          "delete a product"],

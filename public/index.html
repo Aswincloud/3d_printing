@@ -811,6 +811,10 @@
 <!-- Razorpay Standard Checkout. Must be loaded from their CDN — self-hosting
      this file is unsupported and there is no v2. -->
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<!-- Shared with the product pages, which load product.js rather than main.js.
+     Before main.js so window.openQuoteModal exists by the time anything can call
+     it, though in practice nothing does until a click. -->
+<script src="assets/js/quote-modal.js"></script>
 <script src="assets/js/main.js"></script>
 <!-- Live chat. External file, not an inline block: script-src has no
      'unsafe-inline', so the snippet the portfolio uses would be blocked here.
