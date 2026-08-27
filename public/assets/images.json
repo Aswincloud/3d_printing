@@ -1,7 +1,12 @@
 {
-  "generated_at": "2026-08-27T11:35:38Z",
-  "count": 82,
+  "generated_at": "2026-08-27T11:42:18Z",
+  "count": 83,
   "images": [
+    {
+      "file": "luffy.jpg",
+      "bytes": 107727,
+      "hash": "3c4b7e69"
+    },
     {
       "file": "goku.jpg",
       "bytes": 150256,
