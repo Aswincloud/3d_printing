@@ -973,3 +973,133 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── quotes ────────────────────────────────────────────────────── */
+.quote-filterbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.quote-filterbar select {
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.quotes-list { display: flex; flex-direction: column; gap: 0.9rem; }
+
+.quote-card {
+  background: var(--dark-2);
+  border: 1px solid var(--dark-4);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.quote-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.quote-head strong { font-size: 0.98rem; }
+.quote-meta { margin-left: auto; font-size: 0.74rem; color: var(--text-muted); }
+
+.quote-status {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.quote-status.status-new     { color: var(--orange); }
+.quote-status.status-replied { color: #8ab4f8; }
+.quote-status.status-paid    { color: #6ee7a8; }
+.quote-status.status-won     { color: #6ee7a8; }
+.quote-status.status-lost    { color: var(--text-muted); }
+
+.quote-who { font-size: 0.82rem; }
+.quote-who a { color: var(--orange); text-decoration: none; }
+
+.quote-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 0.7rem;
+  font-size: 0.8rem;
+}
+.qf-k { color: var(--text-muted); }
+
+.quote-desc {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-left: 2px solid var(--dark-4);
+  padding-left: 0.7rem;
+}
+
+.quote-file { font-size: 0.8rem; color: var(--orange); text-decoration: none; }
+
+/* Not an error - a quote request never asks for an address, so a paid one
+   legitimately arrives without it. It still has to be chased before packing. */
+.quote-warn {
+  font-size: 0.8rem;
+  color: var(--orange);
+  border: 1px solid rgba(255,107,0,0.35);
+  background: rgba(255,107,0,0.06);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+}
+
+.quote-reply,
+.quote-sent {
+  border-top: 1px solid var(--dark-4);
+  padding-top: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.quote-reply-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.quote-reply-row .price-input { flex: 0 1 150px; }
+
+.quote-days {
+  width: 60px;
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.5rem;
+}
+
+.quote-note-input {
+  width: 100%;
+  resize: vertical;
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 0.55rem 0.7rem;
+}
+
+.quote-note-input:focus-visible,
+.quote-days:focus-visible { outline: none; border-color: var(--orange); }
+
+.quote-reply .admin-btn { align-self: flex-start; }
+
+.quote-price { font-size: 1.15rem; font-weight: 800; color: var(--orange); }
+.quote-note { font-size: 0.84rem; white-space: pre-wrap; color: var(--text-muted); }
+.quote-link { font-size: 0.78rem; color: var(--orange); word-break: break-all; }
+
+.quote-actions { display: flex; gap: 0.4rem; }

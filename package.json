@@ -10,7 +10,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply 3dprints-db --remote",
     "deploy": "wrangler deploy",
     "images": "node scripts/build-image-manifest.mjs",
-    "test": "node test/run.mjs && node test/shop.mjs && node test/payments.mjs && node test/orders.mjs && node test/admin.mjs && node test/customers.mjs && node test/cart.mjs && node test/coupons.mjs && node test/chatcoupons.mjs && node test/manifest.mjs && node test/seo.mjs && node test/pdp.mjs"
+    "test": "node test/run.mjs && node test/shop.mjs && node test/payments.mjs && node test/orders.mjs && node test/admin.mjs && node test/customers.mjs && node test/cart.mjs && node test/coupons.mjs && node test/chatcoupons.mjs && node test/manifest.mjs && node test/seo.mjs && node test/pdp.mjs && node test/quotes.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.118.0"

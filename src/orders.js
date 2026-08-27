@@ -331,6 +331,8 @@ export async function razorpayWebhook(request, env, ctx) {
   // second API call needed.
   if (eventType === "order.paid") {
     await handleOrderPaid(env, ctx, evt);
+  } else if (eventType === "payment_link.paid") {
+    await handleQuotePaid(env, ctx, evt);
   } else if (eventType === "payment.failed") {
     // NOT terminal: Razorpay may still capture this payment after a UPI retry,
     // so the order stays 'pending' and just gets a note.
@@ -341,6 +343,93 @@ export async function razorpayWebhook(request, env, ctx) {
   // Razorpay times out at ~5s, so return immediately; email goes out in the
   // background via ctx.waitUntil.
   return json({ ok: true });
+}
+
+// ── a quotation was paid ──────────────────────────────────────────
+//
+// Answering a quote from the dashboard creates a Razorpay payment link. When it
+// is paid, THIS is where the money becomes a real order — with a receipt, the
+// paid emails, the invoice, and a shipping status — rather than an amount that
+// arrived with no record attached to it.
+//
+// The link's `reference_id` is the quote's receipt, and it is the only field of
+// ours that survives the round trip. Everything else here is Razorpay's.
+//
+// Note `order.paid` ALSO fires for this same payment, a few moments apart. It
+// runs handleOrderPaid(), finds no orders row for that rzp_order_id, logs and
+// returns — harmless, and asserted in test/orders.mjs so a future change to that
+// branch cannot start doing something on a payment it does not own.
+async function handleQuotePaid(env, ctx, evt) {
+  const link = evt?.payload?.payment_link?.entity || {};
+  const rzpOrder = evt?.payload?.order?.entity || {};
+  const payment = evt?.payload?.payment?.entity || {};
+
+  const receipt = link.reference_id || "";
+  if (!receipt) {
+    console.error("payment_link.paid with no reference_id", link.id);
+    return;
+  }
+
+  const quote = await env.DB.prepare(
+    `SELECT * FROM quotes WHERE receipt = ?`
+  ).bind(receipt).first();
+  if (!quote) {
+    console.error("payment_link.paid for an unknown quote", receipt);
+    return;
+  }
+
+  // Already converted. The webhook_events primary key stops an identical
+  // redelivery, but this also covers a DIFFERENT event id arriving for the same
+  // link — the same belt-and-braces the order.paid handler applies with its
+  // `AND status = 'pending'`.
+  if (quote.order_id) return;
+
+  // Charge what Razorpay says was actually paid, never what we quoted. If those
+  // ever disagree — a partial payment, an edited link — the order must record the
+  // money that moved.
+  const paid = Number(rzpOrder.amount_paid ?? payment.amount ?? quote.quoted_paise) || 0;
+
+  const orderId = uid();
+  const orderReceipt = "AP-" + orderId.replace(/-/g, "").slice(0, 8).toUpperCase();
+  const t = now();
+
+  // The address is deliberately blank: a quote request never asks for one. The
+  // dashboard flags this order as needing an address, and Aswin is already in an
+  // email thread with the customer by the time it is paid.
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO orders (id, receipt, rzp_order_id, rzp_payment_id, status,
+                           subtotal_paise, shipping_paise, total_paise, currency,
+                           delivery, cust_name, cust_email, cust_phone,
+                           notes, created_at, paid_at)
+       VALUES (?,?,?,?,'paid',?,0,?,'INR','ship',?,?,?,?,?,?)`
+    ).bind(orderId, orderReceipt, rzpOrder.id || payment.order_id || null,
+           payment.id || null, paid, paid,
+           quote.cust_name, quote.cust_email, quote.cust_phone,
+           `Quotation ${quote.receipt}`, t, t),
+
+    // product_id NULL — the column is nullable for exactly this: a line that
+    // never came from the catalogue.
+    env.DB.prepare(
+      `INSERT INTO order_items
+         (id, order_id, product_id, name, price_paise, qty, personalisation, pos)
+       VALUES (?,?,NULL,?,?,1,?,0)`
+    ).bind(uid(), orderId, `Custom print — ${quote.receipt}`, paid,
+           String(quote.description || "").slice(0, 500)),
+
+    env.DB.prepare(
+      `UPDATE quotes SET status = 'paid', order_id = ?, updated_at = ? WHERE id = ?`
+    ).bind(orderId, t, quote.id),
+  ]);
+
+  const order = await env.DB.prepare(`SELECT * FROM orders WHERE id = ?`).bind(orderId).first();
+  const { results: items } = await env.DB.prepare(
+    `SELECT name, price_paise, qty, personalisation FROM order_items WHERE order_id = ? ORDER BY pos`
+  ).bind(orderId).all();
+
+  // The same notification path a normal paid order takes, so a quotation sale is
+  // not a second class of order with its own half-built plumbing.
+  notifyPaid(env, ctx, order, items || []);
 }
 
 async function handleOrderPaid(env, ctx, evt) {
@@ -389,6 +478,21 @@ async function handleOrderPaid(env, ctx, evt) {
   ).bind(order.id).all();
 
   const paid = { ...order, status: "paid", rzp_payment_id: payment.id || order.rzp_payment_id };
+  notifyPaid(env, ctx, paid, items || []);
+}
+
+// Receipt to the customer, notification to Aswin, invoice raised — the three
+// things that happen when money lands.
+//
+// EXTRACTED so a quotation payment takes the identical path. It used to be inline
+// in handleOrderPaid, and a second copy for payment links is exactly how the two
+// drift until one of them quietly stops invoicing.
+//
+// The caller is responsible for having established that this is the FIRST time
+// this order has been paid — every guard against emailing twice lives upstream,
+// in handleOrderPaid's `changes === 0` check and handleQuotePaid's `order_id`
+// check.
+function notifyPaid(env, ctx, paid, items) {
   const owner = env.OWNER_EMAIL || "aswin@aswincloud.com";
 
   ctx.waitUntil(Promise.all([
@@ -396,7 +500,7 @@ async function handleOrderPaid(env, ctx, evt) {
       to: paid.cust_email,
       replyTo: owner,
       subject: `Order confirmed — ${paid.receipt}`,
-      html: orderCustomerEmail(env, paid, items || []),
+      html: orderCustomerEmail(env, paid, items),
       text: `Payment received. Your order ${paid.receipt} is confirmed.\n`,
     }).then((r) => { if (!r.ok) console.error("customer order email failed", r.status, r.error); }),
 
@@ -404,7 +508,7 @@ async function handleOrderPaid(env, ctx, evt) {
       to: owner,
       replyTo: paid.cust_email,
       subject: `💰 New paid order — ${paid.receipt}`,
-      html: orderOwnerEmail(env, paid, items || []),
+      html: orderOwnerEmail(env, paid, items),
       text: `New paid order ${paid.receipt} from ${paid.cust_name} <${paid.cust_email}>\n`,
     }).then((r) => { if (!r.ok) console.error("owner order email failed", r.status, r.error); }),
 
@@ -419,6 +523,6 @@ async function handleOrderPaid(env, ctx, evt) {
     // sendOrderInvoice never throws (see the note at the top of invoicing.js):
     // an invoicing outage must not fail this webhook and trigger Razorpay
     // retries on a payment that already succeeded.
-    sendOrderInvoice(env, paid, items || []),
+    sendOrderInvoice(env, paid, items),
   ]));
 }

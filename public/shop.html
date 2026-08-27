@@ -67,6 +67,8 @@
             aria-selected="false" data-panel="productsPanel">Products</button>
     <button class="admin-tab" id="tabCoupons" role="tab" type="button"
             aria-selected="false" data-panel="couponsPanel">Coupons</button>
+    <button class="admin-tab" id="tabQuotes" role="tab" type="button"
+            aria-selected="false" data-panel="quotesPanel">Quotes</button>
   </div>
 
   <div class="admin-alert admin-alert-err" id="adminError" hidden></div>
@@ -164,6 +166,31 @@
         <button type="button" class="admin-btn" id="bulkSave">Save all changes</button>
       </div>
     </div>
+  </section>
+
+  <!-- Quotes -->
+  <!-- Requests used to exist only as two emails. This is the record, and the
+       place they get answered so every quotation goes out in one format. -->
+  <section class="admin-panel" id="quotesPanel" hidden>
+    <div class="panel-head">
+      <h2>Quotes</h2>
+      <span class="admin-muted" id="quoteHint">Answer with a price and the customer gets a payment link.</span>
+    </div>
+
+    <div class="quote-filterbar">
+      <label class="admin-muted" for="quoteFilter">Show</label>
+      <select id="quoteFilter">
+        <option value="">All</option>
+        <option value="new" selected>New</option>
+        <option value="replied">Replied</option>
+        <option value="paid">Paid</option>
+        <option value="won">Won</option>
+        <option value="lost">Lost</option>
+      </select>
+      <span class="admin-muted" id="quoteCounts"></span>
+    </div>
+
+    <div id="quotesList" class="quotes-list"><p class="admin-muted">Loading…</p></div>
   </section>
 
   <!-- Coupons -->

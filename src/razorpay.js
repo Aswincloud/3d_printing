@@ -59,6 +59,62 @@ export async function createOrder(env, { amountPaise, receipt, notes }) {
   return { ok: true, order: body };
 }
 
+// ── payment links ─────────────────────────────────────────────────
+// Used to answer a quote request with a price the customer can just pay. Unlike
+// createOrder(), the amount here is TYPED BY THE OWNER rather than computed from
+// the catalogue, so the bounds below are the only thing between a slipped digit
+// and a live link for the wrong money. They are deliberately wide enough never to
+// block real work and narrow enough to catch an extra two zeros.
+export const QUOTE_MIN_PAISE = 100;          // Razorpay's own floor: ₹1
+export const QUOTE_MAX_PAISE = 50000000;     // ₹5,00,000
+
+export async function createPaymentLink(env, {
+  amountPaise, referenceId, description, customer, expireBy, callbackUrl,
+}) {
+  if (!Number.isInteger(amountPaise)
+      || amountPaise < QUOTE_MIN_PAISE || amountPaise > QUOTE_MAX_PAISE) {
+    return { ok: false, status: 400, error: "Amount is outside the allowed range." };
+  }
+  if (!referenceId) {
+    // Without this the payment_link.paid webhook has no way back to the quote,
+    // and a payment would arrive that we cannot attribute to anything.
+    return { ok: false, status: 400, error: "A reference is required." };
+  }
+
+  const body = {
+    amount: amountPaise,
+    currency: "INR",
+    // Ours, and the only field of ours that comes back in the webhook.
+    reference_id: String(referenceId).slice(0, 40),
+    description: String(description || "").slice(0, 2048),
+    customer: {
+      name: String(customer?.name || "").slice(0, 120),
+      email: String(customer?.email || "").slice(0, 160),
+      contact: String(customer?.phone || "").slice(0, 20),
+    },
+    // Razorpay emails and SMSes the link itself. We send our own branded
+    // quotation as well, which is the whole point of answering from the
+    // dashboard — but theirs is a useful second delivery of the same link.
+    notify: { email: true, sms: false },
+    reminder_enable: true,
+    // A quoted price is not open forever, and a stale link paid months later at
+    // last season's price is a real loss.
+    ...(expireBy ? { expire_by: Math.floor(expireBy / 1000) } : {}),
+    ...(callbackUrl ? { callback_url: callbackUrl, callback_method: "get" } : {}),
+  };
+
+  const r = await fetch(`${API}/payment_links`, {
+    method: "POST",
+    headers: { Authorization: authHeader(env), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    return { ok: false, status: r.status, error: out?.error?.description || "", body: out };
+  }
+  return { ok: true, link: out };
+}
+
 export async function fetchPayment(env, paymentId) {
   const r = await fetch(`${API}/payments/${encodeURIComponent(paymentId)}`, {
     headers: { Authorization: authHeader(env) },

@@ -217,6 +217,65 @@ export function orderShippedEmail(env, order, { courier, tracking, trackingUrl }
   );
 }
 
+// ── the quotation → customer ──────────────────────────────────────
+// The reason the dashboard reply exists. Every quote used to be answered by hand,
+// so pricing emails looked different every time; this is the one format, with the
+// price and the Pay button in it.
+export function quotationEmail(env, quote) {
+  const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
+  const asked = [
+    quote.ref_item ? ["About", quote.ref_item] : null,
+    quote.type ? ["Type", quote.type] : null,
+    ["Quantity", String(quote.qty || 1)],
+  ].filter(Boolean);
+
+  const expires = Number(quote.plink_expires) > 0
+    ? new Date(Number(quote.plink_expires)).toLocaleDateString("en-IN",
+        { day: "numeric", month: "long", year: "numeric" })
+    : "";
+
+  return shell(
+    header("Your Quote", `${esc(quote.receipt)}`) +
+    `<div style="padding:28px 32px 32px">` +
+    `<p style="font-size:15px;margin:0 0 18px">Hi ${esc(quote.cust_name || "there")},</p>` +
+
+    (quote.reply_note
+      ? `<div style="font-size:14px;line-height:1.65;white-space:pre-wrap;margin-bottom:22px">${esc(quote.reply_note)}</div>`
+      : "") +
+
+    // The number, given its own block. A price buried in a paragraph is a price
+    // that gets missed and asked about again.
+    `<div style="border:1px solid ${LINE};border-radius:12px;padding:18px;text-align:center;margin-bottom:22px">` +
+      `<div style="font-size:12px;color:${MUTED};text-transform:uppercase;letter-spacing:0.06em">Your price</div>` +
+      `<div style="font-size:30px;font-weight:800;color:${ORANGE};margin-top:4px">${rupees(quote.quoted_paise)}</div>` +
+    `</div>` +
+
+    (quote.plink_url
+      ? `<div style="text-align:center;margin-bottom:8px">` +
+        `<a href="${esc(quote.plink_url)}" style="display:inline-block;background:${ORANGE};` +
+        `color:#0a0a0f;font-weight:700;font-size:15px;text-decoration:none;` +
+        `padding:13px 34px;border-radius:10px">Accept &amp; Pay ${esc(rupees(quote.quoted_paise))}</a></div>` +
+        (expires ? `<p style="text-align:center;font-size:12px;color:${MUTED};margin:10px 0 0">` +
+                   `This link is valid until ${esc(expires)}.</p>` : "")
+      : "") +
+
+    `<table style="width:100%;border-collapse:collapse;margin-top:26px">` +
+    asked.map(([k, v]) =>
+      `<tr><td style="padding:7px 0;border-bottom:1px solid ${LINE};font-size:13px;color:${MUTED};width:110px">${esc(k)}</td>` +
+      `<td style="padding:7px 0;border-bottom:1px solid ${LINE};font-size:13px">${esc(v)}</td></tr>`
+    ).join("") +
+    `</table>` +
+
+    `<p style="font-size:13px;color:${MUTED};margin-top:22px;line-height:1.6">` +
+    `Reply to this email if anything needs changing before you pay — the price, the ` +
+    `colour, the quantity. I'll send an updated quote.</p>` +
+
+    `<p style="font-size:13px;color:${MUTED};margin-top:18px">— Aswin<br>` +
+    `<a href="${esc(base)}" style="color:${ORANGE}">${esc(base.replace(/^https?:\/\//, ""))}</a></p>` +
+    `</div>`
+  );
+}
+
 // ── order notification → owner ────────────────────────────────────
 export function orderOwnerEmail(env, order, items) {
   const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";

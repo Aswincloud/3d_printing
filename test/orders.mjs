@@ -47,11 +47,32 @@ const columnsOf = (sql) =>
 
 function makeDB() {
   const db = { products: [...PRODUCTS], orders: [], order_items: [], webhook_events: [],
-               coupons: [{ id: "c-1", code: "CHAT-ABC123", uses: 0 }], coupon_redemptions: [] };
+               coupons: [{ id: "c-1", code: "CHAT-ABC123", uses: 0 }], coupon_redemptions: [],
+               quotes: [] };
 
   const run = (sql, args) => {
     const s = sql.replace(/\s+/g, " ").trim();
 
+    if (s.startsWith("SELECT * FROM quotes WHERE receipt")) {
+      return { first: db.quotes.find((q) => q.receipt === args[0]) || null };
+    }
+    if (s.startsWith("UPDATE quotes SET status = 'paid'")) {
+      const q = db.quotes.find((x) => x.id === args[2]);
+      if (q) { q.status = "paid"; q.order_id = args[0]; q.updated_at = args[1]; }
+      return { meta: { changes: q ? 1 : 0 } };
+    }
+    if (s.startsWith("SELECT * FROM orders WHERE id = ?")) {
+      return { first: db.orders.find((o) => o.id === args[0]) || null };
+    }
+    if (s.startsWith("INSERT INTO orders (id, receipt, rzp_order_id, rzp_payment_id, status, subtotal_paise, shipping_paise, total_paise, currency, delivery, cust_name, cust_email, cust_phone, notes, created_at, paid_at)")) {
+      const [id, receipt, rzp_order_id, rzp_payment_id, subtotal_paise, total_paise,
+             cust_name, cust_email, cust_phone, notes, created_at, paid_at] = args;
+      db.orders.push({ id, receipt, rzp_order_id, rzp_payment_id, status: "paid",
+        subtotal_paise, shipping_paise: 0, total_paise, currency: "INR", delivery: "ship",
+        cust_name, cust_email, cust_phone, addr_line: "", addr_city: "", addr_state: "",
+        addr_pin: "", notes, created_at, paid_at, shipped_at: null });
+      return { meta: { changes: 1 } };
+    }
     if (s.startsWith("SELECT id, name, price_paise, personalise_label, personalise_required FROM products")) {
       const want = new Set(args);
       return { results: db.products.filter((p) => p.visible === 1 && want.has(p.id)) };
@@ -64,6 +85,14 @@ function makeDB() {
         subtotal_paise, shipping_paise, total_paise, currency, delivery,
         cust_name, cust_email, cust_phone, addr_line, addr_city, addr_state,
         addr_pin, notes, created_at, paid_at: null });
+      return { meta: { changes: 1 } };
+    }
+    if (s.startsWith("INSERT INTO order_items (id, order_id, product_id, name, price_paise, qty, personalisation, pos) VALUES (?,?,NULL,")) {
+      // The quotation line: product_id is inlined as NULL because it never came
+      // from the catalogue, so only five values are bound.
+      const [id, order_id, name, price_paise, personalisation] = args;
+      db.order_items.push({ id, order_id, product_id: null, name, price_paise,
+                            qty: 1, personalisation, pos: 0 });
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("INSERT INTO order_items")) {
@@ -763,6 +792,118 @@ section("POST /api/orders — a required value cannot be skipped through the API
   ok("names the product", /Plate Keychain/.test(out.error || ""), out.error);
   ok("no order was created", env.DB._db.orders.length === 0);
   ok("and no line either", env.DB._db.order_items.length === 0);
+}
+
+// ── payment_link.paid: a quotation becomes a real order ───────────
+//
+// Answering a quote from the dashboard mints a Razorpay payment link. This is
+// where the money becomes an order with a receipt, emails and an invoice, rather
+// than an amount that arrived attached to nothing.
+const QUOTE_ROW = {
+  id: "q-1", receipt: "QT-ABCD1234", status: "replied",
+  cust_name: "Priya", cust_email: "priya@example.com", cust_phone: "9000090000",
+  description: "A keychain with a name on it.", quoted_paise: 49900,
+  rzp_plink_id: "plink_1", order_id: null,
+};
+
+const linkPaidBody = (ref = "QT-ABCD1234", amount = 49900) => JSON.stringify({
+  event: "payment_link.paid",
+  payload: {
+    payment_link: { entity: { id: "plink_1", reference_id: ref, status: "paid" } },
+    order: { entity: { id: "order_PL1", amount, amount_paid: amount, status: "paid" } },
+    payment: { entity: { id: "pay_PL1", order_id: "order_PL1", status: "captured", amount } },
+  },
+});
+
+section("POST /api/webhook/razorpay — payment_link.paid");
+{
+  const env = ENV(); const calls = stubFetch();
+  env.DB._db.quotes.push({ ...QUOTE_ROW });
+  const raw = linkPaidBody();
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const ctx = makeCtx();
+
+  const res = await razorpayWebhook(webhookReq(raw, sig, "evt_pl_1"), env, ctx);
+  await settle(ctx);
+
+  ok("200", res.status === 200);
+  const order = env.DB._db.orders[0];
+  ok("an order was created", Boolean(order), JSON.stringify(env.DB._db.orders));
+  ok("it is paid", order.status === "paid");
+  ok("it has a receipt", /^AP-[0-9A-F]{8}$/.test(order.receipt), order.receipt);
+  ok("razorpay ids recorded", order.rzp_order_id === "order_PL1" && order.rzp_payment_id === "pay_PL1");
+  // What Razorpay says was PAID, never what we quoted - if those disagree the
+  // order must record the money that actually moved.
+  ok("total is the amount paid", order.total_paise === 49900, String(order.total_paise));
+  ok("no shipping added to a quoted price", order.shipping_paise === 0);
+  ok("names the quote in notes", /QT-ABCD1234/.test(order.notes), order.notes);
+  // A quote request never asks for one; the dashboard flags it instead.
+  ok("address is blank, as expected", order.addr_line === "");
+
+  const line = env.DB._db.order_items[0];
+  ok("one line item", env.DB._db.order_items.length === 1);
+  ok("not a catalogue product", line.product_id === null || line.product_id === undefined);
+  ok("line carries the quote", /QT-ABCD1234/.test(line.name), line.name);
+
+  ok("the quote is marked paid", env.DB._db.quotes[0].status === "paid");
+  ok("and linked to the order", env.DB._db.quotes[0].order_id === order.id);
+
+  ok("customer and owner were emailed", calls.resend.length >= 2, String(calls.resend.length));
+  ok("an invoice was raised", calls.invoicer.length === 1, String(calls.invoicer.length));
+}
+
+section("payment_link.paid — a redelivery does nothing twice");
+{
+  const env = ENV(); stubFetch();
+  env.DB._db.quotes.push({ ...QUOTE_ROW });
+  const raw = linkPaidBody();
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+
+  const c1 = makeCtx();
+  await razorpayWebhook(webhookReq(raw, sig, "evt_pl_2"), env, c1); await settle(c1);
+  // Same event id: stopped by the webhook_events primary key.
+  const c2 = makeCtx();
+  await razorpayWebhook(webhookReq(raw, sig, "evt_pl_2"), env, c2); await settle(c2);
+  // DIFFERENT event id for the same link: stopped by quotes.order_id instead.
+  const c3 = makeCtx();
+  await razorpayWebhook(webhookReq(raw, sig, "evt_pl_3"), env, c3); await settle(c3);
+
+  ok("exactly one order", env.DB._db.orders.length === 1, String(env.DB._db.orders.length));
+  ok("exactly one line", env.DB._db.order_items.length === 1);
+}
+
+section("payment_link.paid — an unknown reference is refused quietly");
+{
+  const env = ENV(); stubFetch();
+  const raw = linkPaidBody("QT-NOSUCH");
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const ctx = makeCtx();
+  const res = await razorpayWebhook(webhookReq(raw, sig, "evt_pl_4"), env, ctx);
+  await settle(ctx);
+  // 200 so Razorpay stops retrying something we can never resolve.
+  ok("200", res.status === 200);
+  ok("no order invented", env.DB._db.orders.length === 0);
+}
+
+section("order.paid for a payment link is harmless");
+{
+  // Razorpay fires order.paid for this payment too, moments apart. It finds no
+  // orders row for that rzp_order_id and must do nothing - if this branch ever
+  // starts acting on payments it does not own, this is what catches it.
+  const env = ENV(); stubFetch();
+  env.DB._db.quotes.push({ ...QUOTE_ROW });
+  const raw = JSON.stringify({
+    event: "order.paid",
+    payload: { order: { entity: { id: "order_PL1" } },
+               payment: { entity: { id: "pay_PL1", order_id: "order_PL1" } } },
+  });
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const ctx = makeCtx();
+  const res = await razorpayWebhook(webhookReq(raw, sig, "evt_op_1"), env, ctx);
+  await settle(ctx);
+  ok("200", res.status === 200);
+  ok("no order created by this path", env.DB._db.orders.length === 0);
+  ok("the quote is untouched", env.DB._db.quotes[0].status === "replied");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

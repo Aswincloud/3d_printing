@@ -4,7 +4,7 @@
 // binding; everything else falls through to api(). Same shape as
 // ~/projects/invoicer, which runs this config in production.
 
-import { json, bad, isEmail, sendEmail } from "./lib.js";
+import { json, bad, isEmail, sendEmail, now } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
@@ -18,6 +18,7 @@ import {
   couponRedemptions as adminCouponRedemptions,
 } from "./coupons.js";
 import { chatCouponHandler } from "./chatcoupons.js";
+import { listQuotes, replyToQuote, updateQuoteStatus } from "./quotes.js";
 import { agentVerdict } from "./agent.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
@@ -445,6 +446,20 @@ async function api(request, env, url, ctx) {
     if (coup && m === "PATCH") return adminUpdateCoupon(env, coup[1], body);
     if (coup && m === "DELETE") return adminDeleteCoupon(env, coup[1]);
 
+    // ── quotes ──
+    // Owner-only, like everything else in this block, and absent from
+    // AGENT_ROUTES: these read customer names, emails and phone numbers, and
+    // /reply mints a live payment link.
+    if (p === "/api/admin/quotes" && m === "GET") return listQuotes(env, url);
+
+    // Longest path first — /reply would otherwise be shadowed by the bare :id
+    // form below, the same ordering trap the coupon routes above call out.
+    const qreply = p.match(/^\/api\/admin\/quotes\/([0-9a-f-]{36})\/reply$/);
+    if (qreply && m === "POST") return replyToQuote(env, qreply[1], body);
+
+    const quo = p.match(/^\/api\/admin\/quotes\/([0-9a-f-]{36})$/);
+    if (quo && m === "PATCH") return updateQuoteStatus(env, quo[1], body);
+
     return bad("not found", 404);
   }
 
@@ -497,6 +512,27 @@ function validateQuote(b) {
 async function quote(request, env, ctx, body) {
   const { q, errors } = validateQuote(body);
   if (errors.length) return json({ error: errors[0], errors }, 400);
+
+  // Record it before mailing. A request used to exist ONLY as two emails, so
+  // losing the email lost the job — including the uploaded model, which was a
+  // link inside that one message and nowhere else.
+  //
+  // Deliberately non-fatal: a D1 failure must not swallow a real customer's
+  // request when the email would have gone out fine. The mail is still the thing
+  // that reaches Aswin; this is the record beside it.
+  const receipt = "QT-" + crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
+  try {
+    const t = now();
+    await env.DB.prepare(
+      `INSERT INTO quotes (id, receipt, status, cust_name, cust_email, cust_phone,
+                           type, qty, description, ref_item, file_url, file_name,
+                           created_at, updated_at)
+       VALUES (?,?,'new',?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(crypto.randomUUID(), receipt, q.name, q.email, q.phone,
+           q.type, q.qty, q.desc, q.ref_item, q.file_url, q.file_name, t, t).run();
+  } catch (e) {
+    console.error("quote not recorded", receipt, e?.message || e);
+  }
 
   if (!env.RESEND_API_KEY) {
     console.error("quote received but RESEND_API_KEY is unset");
