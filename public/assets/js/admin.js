@@ -1637,6 +1637,204 @@ $('couponForm')?.addEventListener('submit', async (e) => {
 // version was `const isOrders = …` with four negated toggles, which worked for
 // exactly two tabs and needed rewriting to add a third — so it is written once
 // here to iterate instead.
+/* ── quotes ────────────────────────────────────────────────────────
+   A quote request used to be two emails and nothing else. This is the record,
+   and the place it gets answered: a price, a note, and a Razorpay payment link
+   the customer can just pay — which arrives back as a real order through the
+   payment_link.paid webhook. */
+
+const quoteStatusLabel = {
+  new: 'New', replied: 'Replied', paid: 'Paid', won: 'Won', lost: 'Lost',
+};
+
+async function loadQuotes() {
+  const box = $('quotesList');
+  if (!box) return;
+  box.innerHTML = '';
+  box.appendChild(el('p', 'admin-muted', 'Loading…'));
+
+  const status = $('quoteFilter')?.value || '';
+  let data;
+  try {
+    data = await api('/api/admin/quotes' + (status ? `?status=${encodeURIComponent(status)}` : ''));
+  } catch (e) {
+    box.innerHTML = '';
+    box.appendChild(el('p', 'admin-muted', e.message));
+    return;
+  }
+
+  const counts = data.counts || {};
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const cs = $('quoteCounts');
+  if (cs) {
+    cs.textContent = total
+      ? Object.entries(counts).map(([k, n]) => `${quoteStatusLabel[k] || k}: ${n}`).join(' · ')
+      : 'No quote requests yet.';
+  }
+
+  box.innerHTML = '';
+  if (!data.quotes.length) {
+    box.appendChild(el('p', 'admin-muted', status
+      ? `No ${quoteStatusLabel[status] || status} quotes.`
+      : 'No quote requests yet.'));
+    return;
+  }
+  for (const q of data.quotes) box.appendChild(quoteCard(q));
+}
+
+function quoteCard(q) {
+  const card = el('div', 'quote-card');
+
+  const head = el('div', 'quote-head');
+  head.append(
+    el('strong', null, q.cust_name || '(no name)'),
+    el('span', 'quote-status status-' + q.status, quoteStatusLabel[q.status] || q.status),
+  );
+  const meta = el('div', 'quote-meta');
+  meta.textContent = `${q.receipt} · ${when(q.created_at)}`;
+  head.appendChild(meta);
+  card.appendChild(head);
+
+  const who = el('div', 'quote-who');
+  const mail = document.createElement('a');
+  mail.href = 'mailto:' + q.cust_email;
+  mail.textContent = q.cust_email;
+  who.append(mail);
+  if (q.cust_phone) who.append(el('span', null, ' · ' + q.cust_phone));
+  card.appendChild(who);
+
+  const facts = [
+    q.ref_item ? ['About', q.ref_item] : null,
+    q.type ? ['Type', q.type] : null,
+    ['Qty', String(q.qty || 1)],
+  ].filter(Boolean);
+  const dl = el('div', 'quote-facts');
+  for (const [k, v] of facts) {
+    dl.append(el('span', 'qf-k', k), el('span', 'qf-v', v));
+  }
+  card.appendChild(dl);
+
+  if (q.description) card.appendChild(el('div', 'quote-desc', q.description));
+
+  // The uploaded model. It used to live only as a link inside one email, so
+  // losing that email lost the thing the customer wanted printed.
+  if (q.file_url) {
+    const a = document.createElement('a');
+    a.href = q.file_url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.className = 'quote-file';
+    a.textContent = '📎 ' + (q.file_name || 'attachment');
+    card.appendChild(a);
+  }
+
+  // A paid quote whose order has nowhere to ship. A quote request never asks for
+  // an address, so this is expected rather than broken - but it has to be chased
+  // before anything goes in a box.
+  if (q.needs_address) {
+    card.appendChild(el('div', 'quote-warn',
+      'Paid, but this order has no delivery address — ask the customer before shipping.'));
+  }
+
+  card.appendChild(q.quoted_paise != null ? quoteSent(q) : quoteReplyForm(q));
+
+  if (q.status !== 'paid') {
+    const actions = el('div', 'quote-actions');
+    for (const [label, next] of [['Mark won', 'won'], ['Mark lost', 'lost']]) {
+      if (q.status === next) continue;
+      actions.appendChild(actionBtn(label, 'admin-btn-ghost', async () => {
+        await api(`/api/admin/quotes/${q.id}`, {
+          method: 'PATCH', body: JSON.stringify({ status: next }),
+        });
+        flash(`${q.receipt} marked ${next}.`);
+        await loadQuotes();
+      }));
+    }
+    card.appendChild(actions);
+  }
+
+  return card;
+}
+
+/* What was already sent. Shown instead of the form, because a second link for
+   one job is the one thing this must not allow - the server refuses it too. */
+function quoteSent(q) {
+  const box = el('div', 'quote-sent');
+  box.appendChild(el('div', 'quote-price', rupees(q.quoted_paise)));
+  if (q.reply_note) box.appendChild(el('div', 'quote-note', q.reply_note));
+  if (q.plink_url) {
+    const a = document.createElement('a');
+    a.href = q.plink_url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = q.plink_url;
+    a.className = 'quote-link';
+    box.append(el('div', 'admin-muted', 'Payment link'), a);
+  }
+  if (q.plink_expires) {
+    box.appendChild(el('div', 'admin-muted',
+      q.status === 'paid' ? 'Paid.' : 'Valid until ' + onlyDate(q.plink_expires)));
+  }
+  return box;
+}
+
+function quoteReplyForm(q) {
+  const form = el('div', 'quote-reply');
+
+  const amtWrap = el('div', 'price-input');
+  amtWrap.appendChild(el('span', null, '₹'));
+  const amt = document.createElement('input');
+  amt.type = 'text';
+  amt.inputMode = 'decimal';
+  amt.placeholder = 'Your price';
+  amt.setAttribute('aria-label', 'Quoted amount for ' + q.receipt);
+  amtWrap.appendChild(amt);
+
+  const note = document.createElement('textarea');
+  note.className = 'quote-note-input';
+  note.rows = 3;
+  note.maxLength = 3000;
+  note.placeholder = 'What they get for it, timeline, anything they should know…';
+  note.setAttribute('aria-label', 'Note to the customer for ' + q.receipt);
+
+  const days = document.createElement('input');
+  days.type = 'number';
+  days.min = '1';
+  days.max = '60';
+  days.value = '7';
+  days.className = 'quote-days';
+  days.setAttribute('aria-label', 'Days until the payment link expires');
+
+  const row = el('div', 'quote-reply-row');
+  row.append(amtWrap, el('span', 'admin-muted', 'valid for'), days, el('span', 'admin-muted', 'days'));
+
+  const send = actionBtn('Send quotation', 'admin-btn', async () => {
+    const rupeeVal = Number(amt.value.trim());
+    if (!Number.isFinite(rupeeVal) || rupeeVal <= 0) throw new Error('Enter a valid amount.');
+    // This creates a LIVE payment link and emails it. Worth one confirmation:
+    // the amount is typed by hand and there is no undo on a sent quotation.
+    if (!confirm(`Send ${q.cust_name} a quote for ${rupees(Math.round(rupeeVal * 100))}?\n\n`
+               + `This emails them a payment link they can pay immediately.`)) return;
+    const out = await api(`/api/admin/quotes/${q.id}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({
+        amount_rupees: rupeeVal,
+        note: note.value,
+        expiry_days: parseInt(days.value, 10) || 7,
+      }),
+    });
+    flash(out.emailed
+      ? `Quotation sent to ${q.cust_email}.`
+      : `Link created, but the email failed — copy it from the card.`, !out.emailed);
+    await loadQuotes();
+  });
+
+  form.append(row, note, send);
+  return form;
+}
+
+$('quoteFilter')?.addEventListener('change', loadQuotes);
+
 function selectTab(panelId) {
   for (const tab of document.querySelectorAll('.admin-tab')) {
     const target = tab.dataset.panel;
@@ -1649,7 +1847,10 @@ function selectTab(panelId) {
 }
 
 for (const tab of document.querySelectorAll('.admin-tab')) {
-  tab.addEventListener('click', () => selectTab(tab.dataset.panel));
+  tab.addEventListener('click', () => {
+    selectTab(tab.dataset.panel);
+    if (tab.dataset.panel === 'quotesPanel') loadQuotes();
+  });
 }
 
 boot();

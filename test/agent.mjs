@@ -52,6 +52,12 @@ for (const [m, p, why] of [
   ["POST",   "/api/admin/coupons",               "mint a coupon"],
   ["PATCH",  "/api/admin/coupons/abc",           "edit a coupon"],
   ["GET",    "/api/admin/customers",             "customer list"],
+  // Quotes carry customer names, emails and phone numbers, and /reply mints a
+  // LIVE payment link - the agent must reach none of it.
+  ["GET",    "/api/admin/quotes",                "quote requests with customer contact details"],
+  ["POST",   "/api/admin/quotes",                "no create route, but must not fall through"],
+  ["PATCH",  "/api/admin/quotes/abc",            "change a quote's status"],
+  ["POST",   "/api/admin/quotes/abc/reply",      "MINT A LIVE PAYMENT LINK"],
 ]) {
   ok(`${m} ${p} → forbidden (${why})`, await verdict(p, { method: m }) === "forbidden");
 }
