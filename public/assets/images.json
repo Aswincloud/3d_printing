@@ -1,7 +1,12 @@
 {
-  "generated_at": "2026-08-27T11:32:06Z",
-  "count": 81,
+  "generated_at": "2026-08-27T11:35:38Z",
+  "count": 82,
   "images": [
+    {
+      "file": "goku.jpg",
+      "bytes": 150256,
+      "hash": "47f20330"
+    },
     {
       "file": "naruto.jpg",
       "bytes": 187273,
