@@ -39,6 +39,16 @@
      the same reason product.js duplicates the cart contract: there is no module
      system here. These checks are for UX — the server's copy is the one that
      decides, and it re-runs every one of them. */
+
+  /* The same expression main.js uses, so the two quote forms on this site agree
+     about what an email address is. It is deliberately a shade stricter than the
+     server's isEmail() in src/lib.js, which allows a consecutive or trailing dot
+     in the domain ("a@b..c", "a@b.c."). Those are the ONLY two shapes the two
+     disagree on, and both would bounce if we mailed them, so the stricter side is
+     the right one to fail on.
+     What must never happen is the reverse — this accepting something the server
+     rejects, which would show a valid-looking form and then a 400. It does not:
+     every pattern the server refuses, this refuses too. */
   const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
   const MIN_DESC = 10;      // src/index.js: q.desc.length < 10
   const MAX_QTY = 1000;     // src/index.js clamps to this

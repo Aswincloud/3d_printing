@@ -634,7 +634,7 @@ export async function updateProduct(env, id, body) {
 }
 
 // ── bulk update ───────────────────────────────────────────────────
-// PATCH /api/admin/products with [{id, price_paise?, visible?}].
+// PATCH /api/admin/products with { items: [{id, price_paise?, visible?, description?}] }.
 //
 // Exists because correcting the seeded placeholder prices meant 26 separate
 // round trips through the single-row endpoint. Same validation as
