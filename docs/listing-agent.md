@@ -28,6 +28,37 @@ immediately.
 
 ## What the agent does
 
+**0. Push the photo — and regenerate the manifest with `npm run images`.**
+
+    git add public/assets/images/<file>.jpg
+    npm run images                       # rewrites public/assets/images.json
+    git add public/assets/images.json
+    git commit -m "Add <name> product photo"
+    git push
+
+**Never hand-write `public/assets/images.json`.** Adding the entry by hand looks
+like it works — the photo appears, the count goes up, the shop lists it — and it is
+wrong in a way nothing visible reports.
+
+A Worker cannot list a directory, so that file is the *only* index of what exists;
+`planRowsFor()` rejects any file missing from it, and the shop builds every image URL
+as `?v=<hash>` from it. The hash is a real sha256 of the file's bytes, truncated to
+eight characters. It cannot be guessed, and a wrong one silently decouples the cache
+key from the contents, so a re-cropped photo keeps serving the old crop until the
+cache expires.
+
+This has already happened twice. `hulk.jpg` and `plate_keychains.jpg` carried hashes
+that never matched their files from the day they were added — both were committed in
+a single commit each and never touched since, so the entries were wrong when written
+rather than having gone stale. `generated_at` was written as an ISO string where the
+generator emits `Date.now()`, which is the same tell.
+
+`npm run images` takes under a second and cannot get any of this wrong. **CI now runs
+`npm test` on every push, and `test/manifest.mjs` recomputes every hash from the files
+on disk** — so a hand-edited manifest is a red build on `main`, not a quiet defect.
+The step below depends on this one: a photo missing from the manifest is a photo the
+batch route will refuse to list.
+
 **1. Ask which photos have no product row yet.**
 
     curl -sS https://3d-prints.aswincloud.com/api/admin/products/unlisted \
