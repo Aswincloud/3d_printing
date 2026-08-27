@@ -1,0 +1,43 @@
+name: Tests
+
+# Every push and every PR. The suite is offline by design — no network, no D1,
+# no secrets — so there is nothing to gate it on and no reason not to run it
+# everywhere.
+#
+# This exists because for four months the only automated things that happened to
+# a pull request on this repo were "approve it" and "deploy it to production".
+# 1,400-odd assertions covering payments, refunds, order state, the admin auth
+# gate and coupon arithmetic sat in test/ and never ran unless someone
+# remembered to type `npm test`.
+on:
+  push:
+  pull_request:
+
+# Read-only. This workflow reports; it must never be able to change anything.
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: npm test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # `ci` rather than `install`: it installs exactly the lockfile and fails if
+      # package.json and package-lock.json have drifted, which is itself worth
+      # knowing. --ignore-scripts because nothing here needs a package's install
+      # hook to run, and this job checks out pull request code.
+      - run: npm ci --ignore-scripts
+
+      - run: npm test
