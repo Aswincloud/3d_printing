@@ -1,7 +1,12 @@
 {
-  "generated_at": "2026-08-23T15:20:00Z",
-  "count": 79,
+  "generated_at": "2026-08-27T06:23:24Z",
+  "count": 80,
   "images": [
+    {
+      "file": "spiderman_crouch.jpg",
+      "bytes": 122267,
+      "hash": "7d3c1c0c"
+    },
     {
       "file": "toco_toucan.jpg",
       "bytes": 464669,
