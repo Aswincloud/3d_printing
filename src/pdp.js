@@ -123,12 +123,23 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
       `</div>`
     : "";
 
+  // Both quote links keep their href to the homepage form: it is a real page that
+  // can take the request, so with JS unavailable the button still works. product.js
+  // intercepts the click and opens the shared modal instead, which is the point —
+  // asking about this piece should not navigate away from it.
+  //
+  // The image is the stored path, no leading slash, exactly as the grid passes it
+  // on the homepage, so the "About" line in the owner's email reads the same from
+  // either surface.
+  const quoteAttrs = `data-quote data-quote-name="${esc(product.name)}" `
+    + `data-quote-image="${esc(product.image)}"`;
+
   // Buy controls, or a quote button when there is no price. Mirrors the grid so
   // the two surfaces cannot disagree about what is purchasable.
   const buyBlock = quoteOnly
     ? `<div class="pdp-price is-quote">Price on request</div>
        <div class="pdp-actions">
-         <a class="pdp-btn pdp-btn-primary" href="${base}/#quote">Request a quote</a>
+         <a class="pdp-btn pdp-btn-primary" href="${base}/#quote" ${quoteAttrs}>Request a quote</a>
        </div>
        <p class="pdp-note">This piece isn't priced yet — ask and you'll get a
           quote, usually within 24–48 hours.</p>`
@@ -156,7 +167,7 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
          </div>
        </div>
 
-       <p class="pdp-note"><a href="${base}/#quote">Want it in another colour or size? Ask for a quote</a></p>`;
+       <p class="pdp-note"><a href="${base}/#quote" ${quoteAttrs}>Want it in another colour or size? Ask for a quote</a></p>`;
 
   // Always present, for every product. This is what stops a page with one photo
   // and one line of text from looking unfinished.
@@ -270,6 +281,7 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
   <p>© 2026 AswinPrints · Pondicherry, India</p>
 </footer>
 
+<script src="/assets/js/quote-modal.js" defer></script>
 <script src="/assets/js/product.js" defer></script>
 <script src="/assets/js/chat.js" defer></script>
 </body>

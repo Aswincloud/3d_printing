@@ -143,11 +143,34 @@ that previously carried `alt="3D print sample"`). Four are seeded `visible = 0`
 pending a decision — see that migration's comments.
 
 Every gallery photo also has **"Request a quote for this"** in its
-lightbox, and every product card has **"Different colour or size?"**. Both
-scroll to the existing quote form with a visible reference attached (thumbnail,
-name, and whether it's a listed item), which travels as `ref_item` and appears
-as an "About" row in the owner email. Without that, a request about one of the
-18 would arrive with no way to tell which photo it meant.
+lightbox, every product card has **"Different colour or size?"**, and every
+product page has both. All of them open a **modal** — `assets/js/quote-modal.js`
+— carrying a thumbnail and the item's name, which travels as `ref_item` and
+appears as an "About" row in the owner email. Without that, a request about one
+of the 18 would arrive with no way to tell which photo it meant.
+
+They used to scroll to the page-bottom form instead, and from a product page they
+navigated to it. Both took away the photo, the price and the size the question was
+about, which is most of what the person was looking at when they decided to ask.
+
+The modal posts to the **same `POST /api/quote`** as that form — same server-side
+validation, same `RL_QUOTE` rate limit, same two emails (owner with `Reply-To` set
+to the customer, customer acknowledgement via `ctx.waitUntil`). A second endpoint
+would have been a second thing to remember to rate limit.
+
+It asks for name, email, phone, quantity and details. It does **not** ask the
+category the page-bottom form asks for — someone who clicked "different colour or
+size" on a specific product has already answered that — so `type` is sent as
+"Variation of a listed item".
+
+The script is shared by the homepage and the product pages, which load different
+scripts (`main.js` and `product.js`), and it builds its own markup rather than
+having it written into both `public/index.html` and `src/pdp.js`, where the two
+copies would drift. The product-page links keep their `href` to `/#quote` as a
+no-JS fallback; the click is intercepted only when the modal is actually loaded.
+
+The page-bottom form stays: it is the `#quote` anchor target, it takes file
+attachments, and it handles requests that aren't about any one product.
 
 `ref_item` is customer-controlled text, so it's clipped and escaped like every
 other field — never used as a URL or a lookup key.
@@ -335,14 +358,30 @@ describe route's `UPDATE` carries `AND (description IS NULL OR TRIM(description)
 — so **an existing price, name or description cannot be changed through this token at
 all**, whatever reaches the handler. `price_paise` is not even in that statement.
 
-Products can be edited **in bulk**: change any number of prices or visibility
-toggles, then "Save all changes" sends one `PATCH /api/admin/products` instead of
-one request per row. The write is all-or-nothing — every row is validated before
-anything is written, because a partial write would leave you unable to tell which
-of 26 prices took. Per-row Save is still there for a single tweak.
+Products can be edited **in bulk**: change any number of prices, visibility
+toggles or descriptions, then "Save all changes" sends one
+`PATCH /api/admin/products` instead of one request per row. The write is
+all-or-nothing — every row is validated before anything is written, because a
+partial write would leave you unable to tell which of 26 prices took. Per-row
+Save is still there for a single tweak.
 
-`/shop.html` — orders (with status controls and refunds) and products (price and
-visibility editing). Sign-in goes through the central broker at
+A **search box** filters the list by name, slug, description or category. It runs
+against the catalogue already in the page — `/api/admin/products` returns every
+row in one response, so there is nothing a round trip could add. A row hidden by
+the search keeps any unsaved edit, and the bulk bar says how many of the changes
+it is counting are currently out of view, because otherwise "3 unsaved changes"
+above a single highlighted row reads as two of them having been lost.
+
+**Descriptions are editable here**, in a panel that opens under the row. Before
+this they could only be written by the listing agent or by hand in a migration,
+which is why two rows sat blank for weeks; rows without one are now flagged in the
+list, so the search finds them. `updateProduct()` already accepted the field — it
+was the UI that never sent it. Widening the bulk route does **not** widen the
+listing agent: `AGENT_ROUTES` omits `PATCH /api/admin/products` by exact match,
+and `test/agent.mjs` asserts it.
+
+`/shop.html` — orders (with status controls and refunds) and products (price,
+visibility and description editing, with search). Sign-in goes through the central broker at
 `auth.aswincloud.com`: it authenticates with Google/GitHub/Microsoft and relays
 the verified email back, signed with this site's `RELAY_SECRET`. There are no
 local user or session tables — the session is a signed token in a cookie, and

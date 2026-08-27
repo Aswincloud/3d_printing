@@ -619,6 +619,102 @@
   padding-left: calc(1rem - 3px);
 }
 
+/* Sits beside the count, not under it, so the bar keeps its height and the list
+   below does not jump as a search narrows. */
+.bulk-hidden-note {
+  font-size: 0.78rem;
+  color: var(--orange);
+}
+
+/* ── product search ────────────────────────────────────────────── */
+.product-search {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.product-search input {
+  flex: 1 1 260px;
+  min-width: 0;
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  padding: 0.55rem 0.75rem;
+}
+
+.product-search input:focus-visible {
+  outline: none;
+  border-color: var(--orange);
+}
+
+.product-search input::placeholder { color: var(--text-muted); }
+
+/* Safari draws its own clear affordance inside a type=search box, which would
+   sit next to ours saying the same thing. */
+.product-search input::-webkit-search-cancel-button { display: none; }
+
+/* ── description editor ────────────────────────────────────────────
+   Spans every column, so it lands on an implicit second grid row under the
+   whole row rather than squeezing the price and actions into less space. On the
+   narrow layout the parent switches to grid-template-areas; an item with no area
+   assigned is auto-placed after the named ones, which is exactly where this
+   belongs, so it needs no override there. */
+.pr-desc {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--dark-4);
+  padding-top: 0.75rem;
+}
+
+.pr-desc-input {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 0.55rem 0.7rem;
+}
+
+.pr-desc-input:focus-visible {
+  outline: none;
+  border-color: var(--orange);
+}
+
+.pr-desc.dirty .pr-desc-input { border-color: var(--orange); }
+
+.pr-desc-count {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.pr-desc-toggle.is-open {
+  color: var(--orange);
+  border-color: var(--orange);
+}
+
+/* Not an error — plenty of rows are fine without one — but it is the thing you
+   are looking for when you go looking, so it reads as a flag rather than prose. */
+.pr-nodesc {
+  margin-top: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--orange);
+  opacity: 0.75;
+}
+
 /* ── coupons ───────────────────────────────────────────────────── */
 
 /* The create form. auto-fit rather than a fixed column count so it collapses to

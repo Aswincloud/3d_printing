@@ -1211,6 +1211,71 @@ section("bulk update — zero is a legitimate price");
   ok("applied", env.DB._db.products[0].price_paise === 0);
 }
 
+// ── descriptions in bulk ────────────────────────────────────────────
+// The dashboard edits price, visibility and description in one pass and saves them
+// through this one endpoint, so a description must ride the same all-or-nothing
+// transaction as the prices beside it. The failure this guards against is an edit
+// that appears saved because the batch reported success while that field was
+// quietly dropped.
+section("bulk update — descriptions");
+{
+  const env = envDB({ products: [
+    { ...PRODUCT, id: "p1", slug: "one", price_paise: 10000, description: "old copy" },
+    { ...PRODUCT, id: "p2", slug: "two", price_paise: 20000, description: "" },
+  ] });
+  const [status, out] = await read(await bulkUpdateProducts(env, { items: [
+    { id: "p1", price_paise: 15000, description: "New copy, written in the dashboard." },
+    { id: "p2", description: "Filling in a blank one." },
+  ] }));
+  ok("200", status === 200, JSON.stringify(out));
+  const byId = Object.fromEntries(env.DB._db.products.map((p) => [p.id, p]));
+  ok("description written alongside a price", byId.p1.description === "New copy, written in the dashboard.",
+     byId.p1.description);
+  ok("the price in the same row still applied", byId.p1.price_paise === 15000);
+  ok("a blank description can be filled", byId.p2.description === "Filling in a blank one.");
+  ok("description-only row keeps its price", byId.p2.price_paise === 20000);
+  ok("description-only row keeps its visibility", byId.p2.visible === 1);
+}
+
+section("bulk update — a description can be cleared, and is trimmed and clipped");
+{
+  const env = envDB({ products: [
+    { ...PRODUCT, id: "p1", slug: "one", description: "something" },
+    { ...PRODUCT, id: "p2", slug: "two", description: "something" },
+    { ...PRODUCT, id: "p3", slug: "three", description: "something" },
+  ] });
+  const [status] = await read(await bulkUpdateProducts(env, { items: [
+    { id: "p1", description: "" },
+    { id: "p2", description: "   padded   " },
+    { id: "p3", description: "x".repeat(5000) },
+  ] }));
+  ok("accepted", status === 200);
+  const byId = Object.fromEntries(env.DB._db.products.map((p) => [p.id, p]));
+  // Emptying is a legitimate edit: it is how you undo a description you dislike.
+  ok("an empty string clears it", byId.p1.description === "");
+  ok("whitespace is trimmed", byId.p2.description === "padded");
+  // Clipped rather than rejected, so one over-long box cannot discard every other
+  // edit in the batch.
+  ok("over-long is clipped to 2000, not rejected", byId.p3.description.length === 2000,
+     String(byId.p3.description.length));
+}
+
+section("bulk update — a bad price still rejects a batch carrying descriptions");
+{
+  const env = envDB({ products: [
+    { ...PRODUCT, id: "p1", slug: "one", price_paise: 10000, description: "before" },
+    { ...PRODUCT, id: "p2", slug: "two", price_paise: 20000, description: "before" },
+  ] });
+  const [status] = await read(await bulkUpdateProducts(env, { items: [
+    { id: "p1", description: "a perfectly good description" },
+    { id: "p2", price_paise: 12.5 },
+  ] }));
+  ok("400", status === 400);
+  // The point of all-or-nothing: the good description must not have landed either.
+  ok("the valid description was not written",
+     env.DB._db.products.find((p) => p.id === "p1").description === "before");
+}
+
 
 // ── describeProducts: fill a MISSING description ────────────────────
 //

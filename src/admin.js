@@ -634,12 +634,22 @@ export async function updateProduct(env, id, body) {
 }
 
 // ── bulk update ───────────────────────────────────────────────────
-// PATCH /api/admin/products with [{id, price_paise?, visible?}].
+// PATCH /api/admin/products with { items: [{id, price_paise?, visible?, description?}] }.
 //
 // Exists because correcting the seeded placeholder prices meant 26 separate
 // round trips through the single-row endpoint. Same validation as
-// updateProduct(); only price and visibility are settable in bulk, since those
-// are the two things a pricing pass actually changes.
+// updateProduct().
+//
+// Price, visibility and description are settable in bulk — the three things a
+// catalogue pass actually changes. Description was added last: it was already
+// settable one row at a time through updateProduct(), so the dashboard could
+// offer it per-row and not in "Save all changes", which would have meant an edit
+// silently sitting outside the batch the bulk bar claims to be counting.
+//
+// This does NOT widen the listing agent. AGENT_ROUTES in agent.js is an
+// exact-match allowlist that omits `PATCH /api/admin/products` precisely because
+// it reaches every existing row; a field added here is a field the agent still
+// cannot reach. test/admin.mjs asserts that rather than trusting this comment.
 //
 // ALL-OR-NOTHING on purpose: every row is validated before anything is written.
 // A partial write is the worst outcome here — you'd have no idea which of 26
@@ -675,6 +685,14 @@ export async function bulkUpdateProducts(env, body) {
     if ("visible" in (it || {})) {
       sets.push("visible = ?");
       args.push(it.visible ? 1 : 0);
+    }
+    // Clipped, not rejected — same as updateProduct(). A description is prose
+    // typed into a textarea; failing the whole batch because someone ran 40
+    // characters over the limit would lose every other edit in it, and the
+    // textarea already shows a counter.
+    if ("description" in (it || {})) {
+      sets.push("description = ?");
+      args.push(clip(it.description, MAXLEN.desc));
     }
     if (!sets.length) return bad("An item has nothing to update.");
 

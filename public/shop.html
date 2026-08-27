@@ -94,6 +94,23 @@
       <h2>Products</h2>
       <span class="admin-muted" id="productHint">Prices are in rupees. Seeded values are placeholders.</span>
     </div>
+
+    <!-- Filters the list already in the page rather than asking the server again:
+         /api/admin/products returns the whole catalogue in one response, so there is
+         nothing a round trip could add. Same reasoning as the storefront's search.
+
+         Deliberately below the "not yet listed" panel's heading order but above the
+         catalogue it filters — it only ever narrows the list beneath it, and putting
+         it inside .panel-head would have implied it filtered the unlisted photos too. -->
+    <div class="product-search">
+      <input type="search" id="productSearch"
+             placeholder="Search name, slug, description or category…"
+             autocomplete="off" spellcheck="false"
+             aria-label="Search products"
+             aria-describedby="productSearchCount" />
+      <button type="button" class="admin-btn-ghost" id="productSearchClear" hidden>Clear</button>
+      <span class="admin-muted" id="productSearchCount" role="status" aria-live="polite"></span>
+    </div>
     <!-- Photos pushed to the repo that no product points at yet. Hidden when
          there are none, which is the normal state. -->
     <div class="unlisted-panel" id="unlistedPanel" hidden>
@@ -137,6 +154,11 @@
          request rather than one per row. -->
     <div class="bulk-bar" id="bulkBar" hidden>
       <span class="bulk-count" id="bulkCount"></span>
+      <!-- The count above spans the whole catalogue, but a search can hide some of
+           the rows it counts. Without this you would read "3 unsaved changes" over a
+           filtered list showing one highlighted row and reasonably conclude two had
+           been lost. -->
+      <span class="bulk-hidden-note" id="bulkHiddenNote" hidden></span>
       <div class="bulk-actions">
         <button type="button" class="admin-btn-ghost" id="bulkDiscard">Discard</button>
         <button type="button" class="admin-btn" id="bulkSave">Save all changes</button>
