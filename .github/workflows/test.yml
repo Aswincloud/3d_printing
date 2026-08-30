@@ -41,3 +41,44 @@ jobs:
       - run: npm ci --ignore-scripts
 
       - run: npm test
+
+  # ── cross-engine layout ──────────────────────────────────────────
+  # A separate job because it needs browsers, and the unit suite above must stay
+  # a 20-second answer that nothing here can slow down.
+  #
+  # It exists because a hero card sized from the image's intrinsic width rendered
+  # 221px wide in Chromium and 335px in WebKit — a cropped photo on every iPhone,
+  # invisible to a developer testing in Chromium, and reported from a real phone
+  # rather than by anything in this repo.
+  #
+  # Serves the static files: this is CSS geometry, so it needs no Worker, no D1
+  # and no secrets. That is what keeps it cheap enough to run on every push.
+  layout:
+    name: hero geometry (chromium + webkit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      # Only the two engines that matter here. Firefox would be a third download
+      # for a bug class these two already cover.
+      - run: npx playwright install --with-deps chromium webkit
+
+      # python3 is preinstalled on the runner, so this pulls nothing at run time.
+      # GitHub sets CI=true, which makes an engine that fails to start fatal rather
+      # than skipped — a browser that quietly drops out is a check not running.
+      - name: Serve public/ and check the hero
+        run: |
+          python3 -m http.server 4173 --directory public --bind 127.0.0.1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4173/index.html >/dev/null && break
+            sleep 1
+          done
+          npm run test:layout
