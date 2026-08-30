@@ -430,7 +430,9 @@ nav {
   top: 10px;
   right: 10px;
   background: linear-gradient(135deg, var(--orange), var(--orange-light));
-  color: white;
+  /* Missed by the --on-orange sweep because this said `white`, not `var(--white)`,
+     so a search for the token did not find it. Same 2.86:1 failure as the rest. */
+  color: var(--on-orange);
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.4rem 0.8rem;
@@ -2874,4 +2876,111 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 .cart-checkout.is-blocked {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ===== HERO PHOTOS ON SMALL SCREENS =====
+   THE PROBLEM, MEASURED. All three hero photos are 1200x1600 — 3:4 portrait,
+   every one. The mobile grid gave them landscape tiles: the feature tile came out
+   359x169 (2.12:1) and the two thumbs 174x121 (1.44:1). `cover` then scales to
+   fill the width and throws the rest of the height away, so the dinosaur showed
+   35% of itself — a close-up of ribs, head and tail gone — and the two thumbs 52%
+   each, at 174px wide. The printer badge was 109px across a 174px tile, 63% of
+   its width, sitting on the photo directly above the price bar.
+
+   None of that is fixable by nudging object-position. A portrait photo in a
+   landscape box is cropped by definition; the box has to change.
+
+   THE FIX. Below 700px the three become a snap carousel of 3:4 cards — the same
+   ratio as the photographs, so `cover` has essentially nothing to crop. Each card
+   is ~72% of the viewport, which leaves the next one peeking to say it scrolls,
+   and keeps the whole band around 380px instead of stacking three portraits into
+   1200px of hero before anyone reaches the shop.
+
+   The links inside are focusable, so a keyboard reaches all three and the browser
+   scrolls each into view on focus. That is why the scroller itself takes no
+   tabindex — it would add a stop that does nothing. */
+@media (max-width: 700px) {
+  .hero-visual {
+    display: flex;
+    height: auto;
+    width: auto;
+    max-width: none;
+    /* Full-bleed past the section's 4% padding so a card can sit half off-screen
+       and read as "there is more this way". scroll-padding realigns the snap. */
+    margin: 2.5rem -4% 0;
+    padding: 0 4% 0.6rem;
+    gap: 0.7rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-left: 4%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .hero-visual::-webkit-scrollbar { display: none; }
+
+  .hero-shot {
+    flex: 0 0 72%;
+    max-width: 300px;
+    /* The whole point: the tile now IS the photo's ratio. */
+    aspect-ratio: 3 / 4;
+    scroll-snap-align: start;
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  /* The desktop grid placement and the two different tile treatments no longer
+     apply — every card is the same card now. */
+  .hero-img-main,
+  .hero-img-small { grid-column: auto; grid-row: auto; }
+  /* 116%, not 100%. Showing the full frame exposed something the desktop rule at
+     min-width:1025px was already hiding: every one of these photos carries a
+     baked-in "OnePlus 15" watermark and a signature across the bottom ~9%. The
+     old landscape crop cut it off by accident; a correct 3:4 tile does not.
+     Measured on the files, not guessed — the strip sits at 91-94% of height with
+     nothing but table below it, so 116% anchored near the top sheds ~15% off the
+     bottom and 1.3% off the top, clearing the watermark with room to spare and
+     costing no subject at either end. */
+  .hero-img-main img,
+  .hero-img-small img {
+    height: 116%;
+    border-radius: 16px;
+    object-position: 50% 8%;
+  }
+
+  /* One caption size, since there is no longer a big tile and a small one. */
+  .hero-shot-meta { border-radius: 0 0 16px 16px; padding: 1.5rem 0.85rem 0.75rem; }
+  .hero-img-small .hero-shot-meta { padding-top: 1.5rem; }
+  .hero-img-small .hero-shot-name { font-size: 0.82rem; -webkit-line-clamp: 2; }
+  .hero-img-small .hero-shot-price { font-size: 0.86rem; }
+
+  /* Smaller, and clear of the caption at the other end of a now-tall card. */
+  .hero-printer-badge {
+    top: 8px; right: 8px;
+    font-size: 0.66rem;
+    padding: 0.3rem 0.6rem;
+  }
+}
+
+/* 701–1024px. Same cause, same fix, more room: three portrait cards abreast
+   rather than a landscape band, so the photos are shown rather than cropped. */
+@media (min-width: 701px) and (max-width: 1024px) {
+  .hero-visual {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: auto;
+    height: auto;
+    gap: 0.9rem;
+    /* Wider than the 560px the ≤1024 block sets. That figure was chosen for a
+       two-column landscape band; three portrait cards inside it come out 177px
+       across, which is back in thumbnail territory — the problem this is fixing.
+       720px gives ~230px cards and still leaves a comfortable margin at 768. */
+    max-width: 720px;
+  }
+  .hero-img-main,
+  .hero-img-small { grid-column: auto; grid-row: auto; }
+  .hero-shot { aspect-ratio: 3 / 4; }
+  /* Same watermark strip, same treatment — see the note above. */
+  .hero-img-main img,
+  .hero-img-small img { height: 116%; object-position: 50% 8%; }
 }
