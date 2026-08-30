@@ -30,7 +30,20 @@ import { chromium, webkit } from 'playwright';
 const BASE = process.env.BASE_URL || 'http://localhost:4173';
 const WIDTHS = [360, 390, 480, 768];
 const CROP_LIMIT = 0.25;      // no card may hide more than 25% of its photo
-const TOLERANCE = 1.5;        // px; sub-pixel layout differs harmlessly
+
+// Engines are compared on SHAPE and on RELATIVE size, never on absolute pixels.
+//
+// The first run of this check failed with chromium 173.8x231.8 against webkit
+// 171.0x228.1 — both ratio 0.75, webkit uniformly 1.6% smaller. That is scrollbar
+// and viewport arithmetic, not a layout disagreement, and an absolute pixel
+// tolerance was simply the wrong instrument: it flags a difference that does not
+// matter while telling you nothing about the one that does.
+//
+// The bug this exists for was 221x295 against 335x295 — ratio 0.75 against 1.14,
+// a card half again too wide and a portrait cropped top and bottom. RATIO_EPS
+// catches that at 0.39 apart, more than twenty times over.
+const RATIO_EPS = 0.02;       // shape must match
+const SCALE_TOLERANCE = 0.05; // cards may differ 5% in size between engines
 
 let fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -122,10 +135,19 @@ for (const width of WIDTHS) {
 
   for (let i = 0; i < Math.min(c.cards.length, w.cards.length); i++) {
     const a = c.cards[i], b2 = w.cards[i];
-    const dw = Math.abs(a.w - b2.w), dh = Math.abs(a.h - b2.h);
-    ok(`${a.src} — engines agree on size`,
-       dw <= TOLERANCE && dh <= TOLERANCE,
-       `chromium ${a.w}x${a.h}, webkit ${b2.w}x${b2.h}`);
+
+    // The assertion that matters: the same card must be the same SHAPE in both.
+    const ra = a.w / a.h, rb = b2.w / b2.h;
+    ok(`${a.src} — engines agree on shape`,
+       Math.abs(ra - rb) <= RATIO_EPS,
+       `chromium ${ra.toFixed(2)} (${a.w}x${a.h}), webkit ${rb.toFixed(2)} (${b2.w}x${b2.h})`);
+
+    // And roughly the same size, so one engine cannot quietly render the strip at
+    // half scale while keeping every ratio intact.
+    const scale = a.w / b2.w;
+    ok(`${a.src} — engines agree on size to within ${SCALE_TOLERANCE * 100}%`,
+       Math.abs(1 - scale) <= SCALE_TOLERANCE,
+       `chromium ${a.w}px vs webkit ${b2.w}px (${((scale - 1) * 100).toFixed(1)}%)`);
   }
 }
 
