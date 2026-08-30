@@ -27,7 +27,7 @@ import {
   upsertOtp, getOtp, incrementOtpAttempts, deleteOtp,
   otpEmail,
 } from "@aswincloud/auth/d1";
-import { json, bad, uid, now, isEmail, sendEmail } from "./lib.js";
+import { json, bad, uid, now, isEmail, sendEmail, hmacHex } from "./lib.js";
 
 const USER_COOKIE = "ap_user";
 const USER_PURPOSE = "customer_session";
@@ -271,7 +271,7 @@ export async function resendCode(request, env, ctx, body) {
 // `is_admin` is a DISPLAY hint so the account page can offer a dashboard link.
 // It grants nothing: /api/admin/* calls currentAdmin() and re-checks the
 // allowlist itself, so a client that fakes this flag still gets 401.
-export function whoami(user, isAdmin = false) {
+export async function whoami(env, user, isAdmin = false) {
   // Explicitly uncacheable.
   //
   // This returns one customer's name, email, phone and delivery address. It has
@@ -294,6 +294,32 @@ export function whoami(user, isAdmin = false) {
     addr_city: user.addr_city || null,
     addr_state: user.addr_state || null,
     addr_pin: user.addr_pin || null,
+
+    // ── the two things live chat needs ──
+    //
+    // Both derived from the verified session and issued to nobody else. A signed
+    // -out caller gets `{signedIn:false}` from the gate in index.js and never
+    // reaches this object at all.
+
+    // What Chatwoot's identity validation checks. Without it, setUser() is a
+    // claim anyone can make from the browser console — which was harmless while
+    // the bot could look nothing up, and stops being harmless the moment it can.
+    ...(env?.CHATWOOT_HMAC_SECRET
+      ? { chat_identity_hash: await hmacHex(user.email, env.CHATWOOT_HMAC_SECRET) }
+      : {}),
+
+    // Proof of WHICH customer, for the bot's order lookup. Deliberately not the
+    // Chatwoot contact's email: that record is populated from the browser, so
+    // trusting it would put the customer list behind a dashboard toggle being set
+    // correctly. This is the shop's own signed statement about its own session,
+    // purpose-bound exactly like the session cookies in auth.js — a token minted
+    // for anything else cannot be replayed here.
+    //
+    // Fifteen minutes. It only has to survive being handed to the widget, and the
+    // widget re-reads /api/me on every page load.
+    ...(env?.SESSION_SECRET
+      ? { chat_token: await signToken(env.SESSION_SECRET, user.id, "chat_lookup", 900) }
+      : {}),
   }, 200, { "cache-control": "private, no-store" });
 }
 

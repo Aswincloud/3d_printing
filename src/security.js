@@ -202,6 +202,10 @@ const RULES = [
   // single attacker IP can drain the hourly cap. Set high enough that the bot's
   // own bursts never trip it.
   { test: (p, m) => p === "/api/chat/coupon" && m === "POST", limiter: "RL_CHATCOUPON" },
+  // Reads customer order history and hits D1 on every call. Unauthenticated by
+  // cookie — it carries a signature instead — so a stolen bot secret should be
+  // bounded in how fast it can be used, not just in what it can reach.
+  { test: (p, m) => p === "/api/chat/orders" && m === "POST", limiter: "RL_CHATCOUPON" },
 ];
 
 export async function rateLimit(request, env, url) {

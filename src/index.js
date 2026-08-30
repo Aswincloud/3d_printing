@@ -18,6 +18,7 @@ import {
   couponRedemptions as adminCouponRedemptions,
 } from "./coupons.js";
 import { chatCouponHandler } from "./chatcoupons.js";
+import { chatOrdersHandler } from "./chatorders.js";
 import { listQuotes, replyToQuote, updateQuoteStatus } from "./quotes.js";
 import { agentVerdict } from "./agent.js";
 import {
@@ -263,6 +264,9 @@ async function api(request, env, url, ctx) {
   // window) rather than sitting behind the owner or customer gates below — it is
   // called by the bot container, which is neither.
   if (p === "/api/chat/coupon" && m === "POST") return chatCouponHandler(request, env);
+  // Beside the coupon route and above every cookie gate, for the same reason:
+  // the bot has no session, it carries its own signature. See chatorders.js.
+  if (p === "/api/chat/orders" && m === "POST") return chatOrdersHandler(request, env);
 
   const body = (m === "POST" || m === "PUT" || m === "PATCH")
     ? await request.json().catch(() => ({}))
@@ -354,7 +358,7 @@ async function api(request, env, url, ctx) {
 
     if (p === "/api/me" && m === "GET") {
       // Display hint only — see the note on whoami().
-      return customerWhoami(user, Boolean(await currentAdmin(request, env)));
+      return customerWhoami(env, user, Boolean(await currentAdmin(request, env)));
     }
     if (p === "/api/me" && m === "PATCH") return updateMe(env, user, body);
     if (p === "/api/me/logout" && m === "POST") return customerLogout();

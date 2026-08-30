@@ -17,6 +17,7 @@ import {
 } from "../src/customers.js";
 import { currentOwner, currentAdmin, loginCallback } from "../src/auth.js";
 import { signToken } from "@aswincloud/auth";
+import { hmacHex } from "../src/lib.js";
 import worker from "../src/index.js";
 import { generateOtp, hashOtp, OTP_MAX_ATTEMPTS } from "@aswincloud/auth/d1";
 
@@ -503,7 +504,7 @@ section("resend cooldown");
 section("GET /api/me and PATCH /api/me");
 {
   const env = ENV({ users: [USER_A] });
-  const [, me] = await read(whoami(USER_A));
+  const [, me] = await read(await whoami(ENV(), USER_A));
   ok("returns email", me.email === USER_A.email);
   ok("returns name", me.name === "Alice");
   ok("signedIn true", me.signedIn === true);
@@ -559,14 +560,14 @@ section("PATCH /api/me — saved address");
   // whoami must carry the saved details, or checkout has nothing to prefill from.
   const saved = { ...USER_A, phone: "9876543210", addr_line: "12 Main Street",
     addr_city: "Chennai", addr_state: "Tamil Nadu", addr_pin: "600001" };
-  const [, me] = await read(whoami(saved));
+  const [, me] = await read(await whoami(ENV(), saved));
   ok("whoami returns the phone", me.phone === "9876543210");
   ok("whoami returns the address", me.addr_line === "12 Main Street");
   ok("whoami returns the pin", me.addr_pin === "600001");
   // A fresh account has none of it, and must report null rather than undefined —
   // the client does `currentUser[key] || ''` and undefined would work, but null
   // is what the column actually holds.
-  const [, fresh] = await read(whoami(USER_A));
+  const [, fresh] = await read(await whoami(ENV(), USER_A));
   ok("a fresh account reports nulls", fresh.addr_line === null && fresh.phone === null);
 }
 {
@@ -645,9 +646,9 @@ section("currentAdmin() — two transports, one allowlist");
 
 section("the is_admin flag on /api/me is display-only");
 {
-  const [, plain] = await read(whoami(USER_A));
+  const [, plain] = await read(await whoami(ENV(), USER_A));
   ok("defaults to false", plain.is_admin === false);
-  const [, flagged] = await read(whoami(USER_A, true));
+  const [, flagged] = await read(await whoami(ENV(), USER_A, true));
   ok("can be set true for the UI", flagged.is_admin === true);
   // It's a hint: the gate re-checks independently, so a faked value grants
   // nothing. Asserted by the currentAdmin tests above, which never consult it.
@@ -844,6 +845,29 @@ section("GET /api/me signed out — answered, not refused");
     const r = await call(path, method);
     ok(`${method} ${path} still 401`, r.status === 401, String(r.status));
   }
+}
+
+// ── what live chat is handed ──────────────────────────────────────
+//
+// These two fields are the difference between a chat assistant that can read a
+// customer's orders and one that can read anyone's. They must exist for a
+// signed-in customer and for nobody else.
+section("whoami — the live-chat identity fields");
+{
+  const env = { ...ENV({ users: [USER_A] }), CHATWOOT_HMAC_SECRET: "cw_secret" };
+  const [, me] = await read(await whoami(env, USER_A));
+  ok("issues an identity hash", typeof me.chat_identity_hash === "string" && me.chat_identity_hash.length === 64,
+     String(me.chat_identity_hash));
+  ok("issues a lookup token", typeof me.chat_token === "string" && me.chat_token.length > 20);
+  // The hash is over the EMAIL, which is what Chatwoot verifies setUser against.
+  ok("the hash is of the email, not something else",
+     me.chat_identity_hash === await hmacHex(USER_A.email, "cw_secret"));
+
+  // Absent rather than empty when unconfigured, so the browser sends `undefined`
+  // and Chatwoot ignores it — degrading to the old behaviour, not breaking chat.
+  const [, plain] = await read(await whoami(ENV({ users: [USER_A] }), USER_A));
+  ok("no identity hash when CHATWOOT_HMAC_SECRET is unset",
+     !("chat_identity_hash" in plain), JSON.stringify(Object.keys(plain)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
