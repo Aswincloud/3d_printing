@@ -2916,11 +2916,22 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
   }
   .hero-visual::-webkit-scrollbar { display: none; }
 
+  /* EVERY CARD STATES ITS RATIO. It must not be inferred from the image.
+     `width: auto` on the card plus `width: auto; height: 100%` on the image asks
+     the engine "how wide is this picture at this height", and engines disagree:
+     Chromium answers from the aspect ratio and gives a 221px card, WebKit takes
+     the max-content contribution from the image's natural 1200px, hits the
+     max-width below, and produces a 335px card at 295px tall — a 3:4 portrait
+     `cover`-cropped top and bottom. Which is the bug this whole layout exists to
+     prevent, reappearing only on the engine every iPhone uses.
+     Stating the ratio makes the width arithmetic, not a negotiation. */
   .hero-shot {
     flex: 0 0 auto;
     height: 100%;
     width: auto;
-    /* A 1.64 landscape card would otherwise be 650px wide on a 390px phone. */
+    aspect-ratio: 3 / 4;
+    /* Cannot bind now that width is derived from height, but kept as a floor in
+       case a future card is given a very wide ratio. */
     max-width: 86vw;
     scroll-snap-align: start;
     border-radius: 16px;
@@ -2931,10 +2942,13 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
      every card is the same kind of card now, just not the same size. */
   .hero-img-main,
   .hero-img-small { grid-column: auto; grid-row: auto; }
+  /* Fills the card, which now has a stated shape. `cover` in a box that matches
+     the picture's own ratio crops nothing — the card is doing the work, not the
+     image's intrinsic size. */
   .hero-img-main img,
   .hero-img-small img {
+    width: 100%;
     height: 100%;
-    width: auto;
     max-width: none;
     object-fit: cover;
     border-radius: 16px;
@@ -2947,7 +2961,12 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
      Desktop never needed this: its tiles crop that band away already.
      115% height against a clipped card sheds the bottom 13%, which clears the
      watermark and makes this card a little wider than the other portrait. */
-  .hero-shot[data-hero="spiderman_crouch.jpg"] img { height: 115%; }
+  /* 0.86 rather than 0.75: a hair wider than the picture, so `cover` sheds 13%
+     of the height. Anchored to the top, that 13% comes off the bottom, which is
+     where the watermark is. Expressed as the card's shape for the same reason as
+     above — a scaled image would put the sizing back in the engine's hands. */
+  .hero-shot[data-hero="spiderman_crouch.jpg"] { aspect-ratio: 0.86; }
+  .hero-shot[data-hero="spiderman_crouch.jpg"] img { object-position: 50% 0; }
 
   /* The landscape card is width-driven, not height-driven. At full strip height a
      1.64 photo wants 484px on a 390px phone, so the shared max-width clamped it
