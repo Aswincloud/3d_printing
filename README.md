@@ -90,28 +90,40 @@ through to the Worker, so `/api/*` is handled in `src/`.
 3d_printing/
 ├── public/                      # Static site (served via [assets])
 │   ├── index.html               # Main website — shop, cart, sign-in, account menu
-│   ├── shop.html                # Owner dashboard (orders, products, refunds)
+│   ├── shop.html                # Owner dashboard (orders, products, quotes, coupons)
+│   ├── 3d-printing-in-pondicherry.html   # Local landing page
+│   ├── contact/privacy/refunds/shipping/terms.html
 │   └── assets/
-│       ├── css/style.css        # All styling
-│       ├── js/main.js           # Lightbox, animations, quote form, shop + cart
-│       └── images/              # 60 sample print photos
+│       ├── css/                 # style.css (site), admin.css (dashboard), pdp.css
+│       ├── js/                  # main.js, admin.js, product.js, quote-modal.js, chat.js
+│       ├── images/              # ~86 product photos
+│       └── images.json          # Generated manifest — `npm run images`, never by hand
 ├── src/                         # Worker
 │   ├── index.js                 # Router: /api/* → api(), else ASSETS.fetch
 │   ├── lib.js                   # JSON/HMAC/cookies/escaping/Resend helpers
+│   ├── security.js              # CSP + security headers, rate-limit rules
 │   ├── shop.js                  # Catalogue reads + cart pricing (server-side)
-│   ├── razorpay.js              # REST client + signature verification
+│   ├── razorpay.js              # REST client, payment links, signature verification
 │   ├── orders.js                # Order create/verify/receipt + webhook
+│   ├── quotes.js                # Quote requests, and answering one with a price
+│   ├── invoicing.js             # Hands a paid order to invoicer.aswincloud.com
 │   ├── auth.js                  # Owner sign-in via the auth.aswincloud.com broker
-│   ├── customers.js             # Customer sign-in (OTP) + /api/me
+│   ├── customers.js             # Customer sign-in (OTP/OAuth) + /api/me
 │   ├── cart.js                  # Server-side cart + guest merge
+│   ├── coupons.js               # Discount codes
+│   ├── chatcoupons.js           # The chat bot's on-demand discount code
+│   ├── agent.js                 # The listing agent's capability boundary
 │   ├── admin.js                 # Owner-only: product CRUD, orders, refunds
+│   ├── pdp.js                   # Product detail page HTML
+│   ├── productpage.js           # /p/<slug> routing
+│   ├── seo.js                   # sitemap, robots, JSON-LD, homepage rewriting
 │   └── emails.js                # Email HTML templates
-├── migrations/                  # D1 schema (forward-only)
-│   ├── 0001_init.sql            # products, orders, order_items, webhook_events
-│   └── 0002_seed_products.sql   # 31 products from the gallery
+├── migrations/                  # D1 schema (forward-only, 0001 … 0019)
 ├── test/                        # Offline unit tests (`npm test`)
+│   └── browser/                 # Cross-engine layout checks (chromium + webkit)
 ├── wrangler.toml                # Worker + D1 config; vars only, no secrets
 └── .github/workflows/
+    ├── test.yml                 # npm test, and the hero geometry check
     └── auto-approve.yml         # Dependabot auto-approval
 ```
 
@@ -123,12 +135,44 @@ cp .dev.vars.example .dev.vars    # fill in; gitignored, never committed
 npm run db:migrate:local
 npm run dev                       # http://localhost:8787
 npm test                          # offline unit tests, no network
+npm run images                    # regenerate assets/images.json after adding a photo
 ```
+
+### CI
+
+`.github/workflows/test.yml` runs on every push and pull request.
+
+**`npm test`** — around 1,400 offline assertions over pricing, payments, refunds,
+order state, the admin auth gate, coupons and quotes. No network, no D1, no
+secrets, so there is nothing to configure and it finishes in about 20 seconds.
+
+For four months this repo had no CI at all: the only automated things that
+happened to a pull request were *approve it* and *deploy it*.
+
+**Hero geometry, in Chromium and WebKit** (`test/browser/hero-geometry.mjs`) — a
+separate job, so the unit suite stays a 20-second answer. It serves `public/`
+statically, because this is CSS geometry and needs no Worker.
+
+It asserts the two engines agree on each hero card's **shape**, that nothing
+scrolls sideways — the page *or* the strip — and that no card hides more than 25%
+of its photo. Agreement is the assertion rather than any particular ratio, so it
+holds no opinion about the design and only fails when two browsers disagree
+about it.
+
+It exists because they did. A card sized from its image's intrinsic width came
+out 221px in Chromium and 335px in WebKit — a cropped photo on every iPhone,
+invisible to anyone testing in Chromium, and reported from a real phone rather
+than by anything in this repo. A browser that fails to start is a check that is
+not running, so `CI=true` makes that fatal rather than skipped.
+
+**Deploys are not run from CI.** Cloudflare Workers Builds deploys `main` on
+push; branches produce an unpromoted preview version. **Migrations are never run
+by the deploy** — apply them yourself with `npm run db:migrate:remote`.
 
 ### Quote form pipeline
 
 The form posts JSON to `POST /api/quote`. The Worker validates it server-side,
-then sends two emails through Resend:
+records the request, then sends two emails through Resend:
 
 1. **To me** — the full request, with `reply_to` set to the customer.
 2. **To the customer** — an acknowledgement summarising what they submitted.
@@ -136,11 +180,21 @@ then sends two emails through Resend:
 The customer copy is sent via `ctx.waitUntil()`, so a slow send never delays
 the response.
 
+The row comes first, and its failure is non-fatal. A request used to exist only
+as two emails, so losing the email lost the job — including the uploaded model,
+which was a link inside that one message and nowhere else. But a D1 outage must
+not swallow a real customer's request when the mail would have gone out fine, so
+a failed insert is logged and the emails still send.
+
+**→ [Quotes, and answering one with a price](#quotes)** below.
+
 ### Asking about something that isn't listed
 
-All 53 gallery photos are now identified and listed (migration 0005 named the 18
-that previously carried `alt="3D print sample"`). Four are seeded `visible = 0`
-pending a decision — see that migration's comments.
+Every photo in `public/assets/images/` is a listed product or a quote-only card;
+migration 0005 named the 18 that once carried `alt="3D print sample"`. The
+catalogue is around 86 photos and grows whenever the listing agent pushes one, so
+this README does not quote a count that would be wrong a week later —
+`assets/images.json` is the list, and it is generated, never hand-written.
 
 Every gallery photo also has **"Request a quote for this"** in its
 lightbox, every product card has **"Different colour or size?"**, and every
@@ -334,6 +388,62 @@ The trade is worth stating: route 2 makes admin access **email-strength**.
 Whoever can read the owner's inbox can issue refunds and read customer addresses.
 Prefer route 1 once the broker knows this site.
 
+### Quotes, and answering one with a price
+<a id="quotes"></a>
+
+A quote request is a **row**, not just an email. `/shop` has a Quotes tab: the
+request, the customer's contact details, the attached STL or image, and a status
+(`new` → `replied` → `paid`, plus a manual `won` / `lost`).
+
+Answering one prices the job, creates a **Razorpay payment link**, and sends a
+branded quotation carrying it. Every reply used to be hand-typed, so pricing
+emails looked different each time; now there is one format with the price in a
+block of its own.
+
+**A paid link becomes an ordinary order.** `payment_link.paid` carries the link's
+`reference_id` — which is the quote's receipt, `QT-<8hex>`, and the only field of
+ours that survives the round trip — alongside order and payment entities. The
+webhook looks the quote up by it, inserts a paid order with its own `AP-` receipt
+and one line item whose `product_id` is NULL, and hands off to the *same*
+notification path a checkout order takes. `notifyPaid()` is shared rather than
+copied: a second copy is how one of them quietly stops invoicing.
+
+The guards exist because this amount is **typed by hand** rather than computed
+from the catalogue, which is the one place in this codebase where that is true:
+
+| guard | why |
+|---|---|
+| ₹1 floor, ₹5,00,000 ceiling, checked before Razorpay | catches an extra two zeros |
+| One live link per quote — handler *and* a `UNIQUE` column | a double-clicked Send would leave two payable links for one job |
+| Links expire, 7 days by default | a quoted price should not still be payable next season |
+| The link is stored *before* the email is sent | mailing a link we have no record of is the one unrecoverable outcome |
+| `paid` cannot be set from the dashboard | same rule as orders: never claim money moved when it did not |
+
+**A payment that matches no quote emails the owner**, with the reference, link id,
+Razorpay order id, payment id and amount. Money arriving with nothing created for
+it is the one webhook outcome that must not be a log line nobody reads — and it
+doubles as the tripwire if Razorpay's payload shape ever moves.
+
+A quote request never asks for a delivery address, so an order created this way
+starts without one and the dashboard flags it.
+
+### Made-to-order details
+
+Three products ask the buyer for something the shop used to collect nowhere —
+a name on a keychain, the details on a business card, a colour on a stand — while
+checkout had one optional order-level Notes box. An order could be paid in full
+with no idea what to print.
+
+`products.personalise_label` carries both the flag and the wording: empty means
+the product does not ask, so the two cannot disagree. `personalise_required` is
+separate, because the stand has a default colour and a blank is a real answer
+there, while a keychain with no name is not a product.
+
+The field appears on the cart line **and** in the checkout summary, from one
+renderer — because two paths skip the cart entirely (Buy-now on a product page,
+and Buy-now in the lightbox). `priceCart()` refuses the order regardless, which is
+what actually holds: the API takes a cart from anywhere.
+
 ### Listing photos from another agent — `AGENT_TOKEN`
 
 **→ [docs/listing-agent.md](docs/listing-agent.md)** — setup, the exact `curl` calls,
@@ -362,7 +472,7 @@ Products can be edited **in bulk**: change any number of prices, visibility
 toggles or descriptions, then "Save all changes" sends one
 `PATCH /api/admin/products` instead of one request per row. The write is
 all-or-nothing — every row is validated before anything is written, because a
-partial write would leave you unable to tell which of 26 prices took. Per-row
+partial write would leave you unable to tell which of them took. Per-row
 Save is still there for a single tweak.
 
 A **search box** filters the list by name, slug, description or category. It runs
