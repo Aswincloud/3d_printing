@@ -2879,72 +2879,58 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 }
 
 /* ===== HERO PHOTOS ON SMALL SCREENS =====
-   THE PROBLEM, MEASURED. The mobile grid handed portrait photos landscape tiles:
-   the feature tile came out 359x169 (2.12:1) against a 3:4 photo, so it showed
-   35% of the subject — ribs, with the head and tail gone — and the two thumbs 52%
-   each at 174px wide. No object-position value fixes that; a portrait photo in a
-   landscape box is cropped by definition, so the box had to change.
+   NOTHING HERE SCROLLS SIDEWAYS. This was a snap carousel; horizontal scrolling
+   was not wanted, so the three photos are laid out to fit the width instead.
+   `overflow: visible` is stated rather than left to the default, because that is
+   the property whose absence would quietly bring the scroller back.
 
-   CARDS TAKE THE SHAPE OF THEIR PHOTO. Not a shared 3:4: the three hero products
-   are not all the same shape. Batman and Spider-Man are 3:4 portraits; the corner
-   staircase is wall art photographed 1.64 LANDSCAPE, and there is no portrait
-   version of it. Forcing a common ratio would cut 54% off the sides of that one —
-   the same failure as before, rotated. A fixed height with automatic width lets
-   each be whole, and means any future swap works whatever shape it arrives in.
+   The history is worth keeping, because the shape of the fix follows from it.
+   These tiles were originally landscape and the photos portrait, so the feature
+   card showed 35% of a dinosaur — ribs, head and tail gone — and the two thumbs
+   52% each at 174px wide. A portrait photo in a landscape box is cropped by
+   definition, so what changed was the box.
 
-   The links inside are focusable, so a keyboard reaches every card and the browser
-   scrolls each into view. That is why the scroller takes no tabindex of its own —
-   it would add a stop that does nothing. */
+   EVERY CARD STATES ITS RATIO. It must not be inferred from the image. Card
+   width:auto with an image at width:auto/height:100% asks the engine "how wide is
+   this picture at this height", and engines disagree: Chromium answered from the
+   aspect ratio, WebKit from the image's natural 1200px, which produced a card
+   half again too wide and a portrait cropped top and bottom — on every iPhone,
+   invisible to a developer in Chromium. test/browser/hero-geometry.mjs now fails
+   the build when the two engines disagree.
+
+   Two portraits abreast and the landscape piece across the foot. That grouping is
+   not decorative: the two figurines are 3:4 and the corner staircase is 1.64 wall
+   art with no portrait version, so a single shared shape would have to crop one
+   of them badly. */
 @media (max-width: 1024px) {
   .hero-visual {
-    display: flex;
-    /* Fixed height, automatic widths — this is what lets the cards differ. */
-    height: clamp(290px, 78vw, 400px);
-    width: auto;
-    max-width: none;
-    /* Full-bleed past the section's 4% padding so a card can sit half off-screen
-       and read as "there is more this way". scroll-padding realigns the snap. */
-    margin: 2.5rem -4% 0;
-    padding: 0 4% 0.6rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
     gap: 0.7rem;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scroll-snap-type: x mandatory;
-    scroll-padding-left: 4%;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    width: 100%;
+    max-width: 520px;
+    height: auto;
+    margin: 2.5rem auto 0;
+    padding: 0;
+    /* Said out loud: no scroller, in either axis. */
+    overflow: visible;
   }
-  .hero-visual::-webkit-scrollbar { display: none; }
 
-  /* EVERY CARD STATES ITS RATIO. It must not be inferred from the image.
-     `width: auto` on the card plus `width: auto; height: 100%` on the image asks
-     the engine "how wide is this picture at this height", and engines disagree:
-     Chromium answers from the aspect ratio and gives a 221px card, WebKit takes
-     the max-content contribution from the image's natural 1200px, hits the
-     max-width below, and produces a 335px card at 295px tall — a 3:4 portrait
-     `cover`-cropped top and bottom. Which is the bug this whole layout exists to
-     prevent, reappearing only on the engine every iPhone uses.
-     Stating the ratio makes the width arithmetic, not a negotiation. */
   .hero-shot {
-    flex: 0 0 auto;
-    height: 100%;
-    width: auto;
+    width: 100%;
+    height: auto;
+    /* Both figurines are exactly 3:4, so they stand the same height with no
+       ragged edge and no compromise ratio that crops one to suit the other. */
     aspect-ratio: 3 / 4;
-    /* Cannot bind now that width is derived from height, but kept as a floor in
-       case a future card is given a very wide ratio. */
-    max-width: 86vw;
-    scroll-snap-align: start;
     border-radius: 16px;
     overflow: hidden;
   }
 
-  /* The desktop grid placement and its two tile treatments no longer apply —
-     every card is the same kind of card now, just not the same size. */
+  /* The desktop grid placement and its two tile treatments do not apply here. */
   .hero-img-main,
   .hero-img-small { grid-column: auto; grid-row: auto; }
-  /* Fills the card, which now has a stated shape. `cover` in a box that matches
-     the picture's own ratio crops nothing — the card is doing the work, not the
-     image's intrinsic size. */
+
   .hero-img-main img,
   .hero-img-small img {
     width: 100%;
@@ -2954,55 +2940,27 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
     border-radius: 16px;
   }
 
-  /* Spider-Man alone carries a baked-in "OnePlus 15" watermark and signature
-     across the bottom ~9% of the frame. Batman and the staircase do not — checked
-     on the files, not assumed — so this is scoped to the one card that needs it
-     rather than cropping 15% off all three and taking Batman's feet with it.
-     Desktop never needed this: its tiles crop that band away already.
-     115% height against a clipped card sheds the bottom 13%, which clears the
-     watermark and makes this card a little wider than the other portrait. */
-  /* 0.86 rather than 0.75: a hair wider than the picture, so `cover` sheds 13%
-     of the height. Anchored to the top, that 13% comes off the bottom, which is
-     where the watermark is. Expressed as the card's shape for the same reason as
-     above — a scaled image would put the sizing back in the engine's hands. */
-  .hero-shot[data-hero="spiderman_crouch.jpg"] { aspect-ratio: 0.86; }
-  .hero-shot[data-hero="spiderman_crouch.jpg"] img { object-position: 50% 0; }
-
-  /* The landscape card is width-driven, not height-driven. At full strip height a
-     1.64 photo wants 484px on a 390px phone, so the shared max-width clamped it
-     and cropped 30% off the sides — the exact thing this layout exists to avoid.
-     Giving it a width and its own ratio lets it shrink in HEIGHT instead, which
-     costs nothing, and centring it stops the shorter card sitting oddly on the
-     baseline. */
+  /* Wall art, photographed landscape. Given the full width rather than squeezed
+     into a portrait cell, where it would lose 54% of its sides — and the
+     composition is the product. */
   .hero-shot[data-hero="poster_corner_staircase_v1.jpg"] {
-    width: 86vw;
-    max-width: 520px;
-    height: auto;
+    grid-column: 1 / -1;
     aspect-ratio: 1.64;
-    align-self: center;
-  }
-  .hero-shot[data-hero="poster_corner_staircase_v1.jpg"] img {
-    width: 100%;
-    height: 100%;
   }
 
   /* One caption size — there is no longer a big tile and a small one. */
-  .hero-shot-meta { border-radius: 0 0 16px 16px; padding: 1.5rem 0.85rem 0.75rem; }
-  .hero-img-small .hero-shot-meta { padding-top: 1.5rem; }
-  .hero-img-small .hero-shot-name { font-size: 0.82rem; -webkit-line-clamp: 2; }
-  .hero-img-small .hero-shot-price { font-size: 0.86rem; }
+  .hero-shot-meta { border-radius: 0 0 16px 16px; padding: 1.4rem 0.8rem 0.7rem; }
+  .hero-img-small .hero-shot-meta { padding-top: 1.4rem; }
+  .hero-img-small .hero-shot-name { font-size: 0.78rem; -webkit-line-clamp: 2; }
+  .hero-img-small .hero-shot-price { font-size: 0.82rem; }
 
   .hero-printer-badge {
     top: 8px; right: 8px;
-    font-size: 0.66rem;
-    padding: 0.3rem 0.6rem;
+    font-size: 0.64rem;
+    padding: 0.28rem 0.55rem;
   }
 }
 
-/* Desktop keeps its grid — a full-height feature tile beside two stacked — but
-   the lower right slot now holds a 1.64 landscape photo. In a square slot that
-   crops 45% off its sides, so the row is sized to the picture instead of the
-   picture to the row. */
 @media (min-width: 1025px) {
   .hero-visual { grid-template-rows: 1fr auto; }
   .hero-shot[data-hero="poster_corner_staircase_v1.jpg"] { aspect-ratio: 1.64; }

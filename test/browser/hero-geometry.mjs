@@ -84,7 +84,16 @@ async function measure(engine, width, name) {
       };
     });
     const d = document.documentElement;
-    return { cards, hScroll: d.scrollWidth > d.clientWidth + 1 };
+    const strip = document.querySelector('.hero-visual');
+    return {
+      cards,
+      hScroll: d.scrollWidth > d.clientWidth + 1,
+      // "No horizontal scroll" has to mean the strip too, not just the page. It
+      // used to be a carousel that scrolled INSIDE a page that did not — which is
+      // precisely the thing that was unwanted, and a page-level check would have
+      // called it fine.
+      stripScrolls: strip ? strip.scrollWidth > strip.clientWidth + 1 : false,
+    };
   });
   await b.close();
   return out;
@@ -98,6 +107,7 @@ for (const width of WIDTHS) {
   for (const [eng, m] of [['chromium', c], ['webkit', w]]) {
     if (!m) continue;
     ok(`${eng} does not scroll the page sideways`, !m.hScroll);
+    ok(`${eng} — the hero strip itself does not scroll sideways`, !m.stripScrolls);
     for (const card of m.cards) {
       ok(`${card.src} — ${eng} shows at least ${(1 - CROP_LIMIT) * 100}% of the photo`,
          card.shown >= 1 - CROP_LIMIT,
