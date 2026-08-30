@@ -325,6 +325,9 @@ export function rewriteHome(env, response, products, url) {
     products.map((p) => [String(p.image || "").replace(/^.*\//, ""), p]),
   );
 
+  // Counts hero photos as they stream past, so only the first is eager.
+  let heroImg = 0;
+
   return new HTMLRewriter()
     .on("head", {
       element(el) {
@@ -347,6 +350,35 @@ export function rewriteHome(env, response, products, url) {
       element(el) {
         const p = byImage.get(el.getAttribute("data-hero"));
         if (p && p.slug) el.setAttribute("href", `/p/${p.slug}`);
+      },
+    })
+    // The hero photos were the one image surface that never went through the edge
+    // resizer. The grid has since it was built; these shipped as full 1200x1600
+    // originals — 342KB of JPEG, eagerly, ahead of everything else on the page,
+    // and two of the three are off-screen until the strip is swiped.
+    //
+    // Rewritten here rather than in the markup because /cdn-cgi/ is an edge
+    // feature that 404s under `wrangler dev` — the same reason cardHtml takes a
+    // `resize` flag rather than hardcoding the path.
+    .on("[data-hero] img", {
+      element(el) {
+        const src = String(el.getAttribute("src") || "").replace(/^\/+/, "");
+        if (resize && src && !/^https?:/i.test(src)) {
+          el.setAttribute(
+            "src",
+            `/cdn-cgi/image/width=900,format=auto,onerror=redirect/${src}`,
+          );
+        }
+        heroImg += 1;
+        if (heroImg === 1) {
+          // The largest thing on the first screen, so almost certainly the LCP
+          // element. Worth telling the browser before it guesses.
+          el.setAttribute("fetchpriority", "high");
+        } else {
+          // Off-screen in the strip until swiped. Eager here spends a visitor's
+          // data on pictures they may never scroll to.
+          el.setAttribute("loading", "lazy");
+        }
       },
     })
     // …and give it a name and a price. Server-rendered, so it is in the HTML a
