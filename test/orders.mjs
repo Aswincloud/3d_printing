@@ -906,5 +906,96 @@ section("order.paid for a payment link is harmless");
   ok("the quote is untouched", env.DB._db.quotes[0].status === "replied");
 }
 
+// ── the alarm for a payment nobody can attribute ──────────────────
+//
+// The one webhook outcome that must never be quiet: money arrived, and no order,
+// receipt, invoice or customer email was created for it. Before this the handler
+// logged a line and returned 200, so Razorpay was told "handled" and the only
+// trace was a console entry nobody reads.
+//
+// It doubles as the tripwire for a payload change. handleQuotePaid reads
+// reference_id from a shape taken from Razorpay's docs rather than an observed
+// event; if that shape is wrong in production, these are the branches that fire.
+section("payment_link.paid — an unmatched payment raises the alarm");
+{
+  const env = ENV(); const calls = stubFetch();
+  const raw = linkPaidBody("QT-NOSUCH", 49900);
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const ctx = makeCtx();
+  const res = await razorpayWebhook(webhookReq(raw, sig, "evt_alert_1"), env, ctx);
+  await settle(ctx);
+
+  // Still 200: Razorpay must stop retrying something we can never resolve.
+  ok("200 to Razorpay", res.status === 200);
+  ok("no order invented", env.DB._db.orders.length === 0);
+
+  const mail = calls.resend[0];
+  ok("the owner is emailed", Boolean(mail), String(calls.resend.length));
+  ok("sent to the owner", JSON.stringify(mail.to).includes(ENV().OWNER_EMAIL),
+     JSON.stringify(mail.to));
+  // Everything needed to find the money in the Razorpay dashboard at 11pm.
+  const blob = JSON.stringify(mail);
+  ok("names the payment id", blob.includes("pay_PL1"));
+  ok("names the payment link", blob.includes("plink_1"));
+  ok("names the razorpay order", blob.includes("order_PL1"));
+  ok("names the reference that failed", blob.includes("QT-NOSUCH"));
+  ok("states the amount", /499/.test(blob), blob.slice(0, 0) || "amount missing");
+}
+
+section("payment_link.paid — no reference at all also raises it");
+{
+  const env = ENV(); const calls = stubFetch();
+  // A link created outside this dashboard, or a payload whose shape moved.
+  const raw = JSON.stringify({
+    event: "payment_link.paid",
+    payload: {
+      payment_link: { entity: { id: "plink_ORPHAN", status: "paid", amount: 25000 } },
+      order: { entity: { id: "order_O1", amount_paid: 25000 } },
+      payment: { entity: { id: "pay_O1", order_id: "order_O1", amount: 25000 } },
+    },
+  });
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const ctx = makeCtx();
+  const res = await razorpayWebhook(webhookReq(raw, sig, "evt_alert_2"), env, ctx);
+  await settle(ctx);
+
+  ok("200", res.status === 200);
+  ok("the owner is emailed", calls.resend.length === 1, String(calls.resend.length));
+  ok("says there was no reference",
+     /no reference/i.test(JSON.stringify(calls.resend[0])),
+     String(calls.resend[0]?.subject));
+}
+
+section("payment_link.paid — a payment that DOES match raises no alarm");
+{
+  const env = ENV(); const calls = stubFetch();
+  env.DB._db.quotes.push({ ...QUOTE_ROW });
+  const raw = linkPaidBody();
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const ctx = makeCtx();
+  await razorpayWebhook(webhookReq(raw, sig, "evt_alert_3"), env, ctx);
+  await settle(ctx);
+
+  ok("an order exists", env.DB._db.orders.length === 1);
+  // Two mails go out for a good payment - customer receipt and owner
+  // notification - and neither is the alarm.
+  const alarms = calls.resend.filter((c) => /no order/i.test(String(c.subject || "")));
+  ok("no alarm raised", alarms.length === 0, String(alarms.length));
+}
+
+section("the alarm cannot break the webhook");
+{
+  // A failing alert must not fail the response: Razorpay retries on non-200, so a
+  // broken mailer would turn one unattributable payment into a retry storm.
+  const env = ENV();
+  globalThis.fetch = async () => { throw new Error("resend is down"); };
+  const raw = linkPaidBody("QT-NOSUCH");
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+  const ctx = makeCtx();
+  const res = await razorpayWebhook(webhookReq(raw, sig, "evt_alert_4"), env, ctx);
+  await settle(ctx);
+  ok("still 200 when the mailer throws", res.status === 200, String(res.status));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
