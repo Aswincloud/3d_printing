@@ -20,7 +20,7 @@ import {
   createOrder, paymentsConfigured, publicKeyId,
   verifyCallbackSignature, verifyWebhookSignature,
 } from "./razorpay.js";
-import { orderCustomerEmail, orderOwnerEmail } from "./emails.js";
+import { orderCustomerEmail, orderOwnerEmail, unmatchedPaymentEmail } from "./emails.js";
 import { sendOrderInvoice } from "./invoicing.js";
 
 const MAX = { name: 100, email: 160, phone: 30, line: 200, city: 80, state: 80, pin: 10, notes: 500 };
@@ -367,6 +367,10 @@ async function handleQuotePaid(env, ctx, evt) {
   const receipt = link.reference_id || "";
   if (!receipt) {
     console.error("payment_link.paid with no reference_id", link.id);
+    alertUnmatchedPayment(env, ctx, {
+      reason: "The payment link carried no reference, so there is nothing to match it to.",
+      link, rzpOrder, payment,
+    });
     return;
   }
 
@@ -375,6 +379,10 @@ async function handleQuotePaid(env, ctx, evt) {
   ).bind(receipt).first();
   if (!quote) {
     console.error("payment_link.paid for an unknown quote", receipt);
+    alertUnmatchedPayment(env, ctx, {
+      reason: `The reference "${receipt}" does not match any quote in the database.`,
+      receipt, link, rzpOrder, payment,
+    });
     return;
   }
 
@@ -430,6 +438,52 @@ async function handleQuotePaid(env, ctx, evt) {
   // The same notification path a normal paid order takes, so a quotation sale is
   // not a second class of order with its own half-built plumbing.
   notifyPaid(env, ctx, order, items || []);
+}
+
+// Money arrived and nothing was created for it. That is the one webhook outcome
+// that cannot be left to a log line: the customer paid, has no confirmation, and
+// nothing in the shop knows the sale happened.
+//
+// Deliberately fire-and-forget and deliberately unable to throw. This runs inside
+// a webhook Razorpay times out at ~5s and retries on failure — an alert that
+// delayed or failed the response would turn one unattributable payment into a
+// retry storm, which is a worse problem than the one it is reporting.
+//
+// It is also the tripwire for a payload change. handleQuotePaid reads
+// reference_id from a shape taken from Razorpay's documentation rather than from
+// an observed event; if that shape is ever wrong, this is what says so instead of
+// the failure being silent.
+function alertUnmatchedPayment(env, ctx, { reason, receipt, link, rzpOrder, payment }) {
+  const owner = env.OWNER_EMAIL || "aswin@aswincloud.com";
+  const amountPaise = Number(rzpOrder?.amount_paid ?? payment?.amount ?? link?.amount) || 0;
+
+  const detail = {
+    reason,
+    receipt: receipt || link?.reference_id || "",
+    linkId: link?.id || "",
+    rzpOrderId: rzpOrder?.id || payment?.order_id || "",
+    paymentId: payment?.id || "",
+    email: payment?.email || link?.customer?.email || "",
+    amountPaise,
+  };
+
+  try {
+    ctx.waitUntil(sendEmail(env, {
+      to: owner,
+      subject: `Payment received with no order — ${detail.paymentId || detail.linkId || "unknown"}`,
+      html: unmatchedPaymentEmail(env, detail),
+      text: `A payment link was paid but could not be matched to a quote.\n\n`
+        + `${reason}\n\nAmount: ${(amountPaise / 100).toFixed(2)}\n`
+        + `Reference: ${detail.receipt || "(none)"}\nPayment link: ${detail.linkId}\n`
+        + `Razorpay order: ${detail.rzpOrderId}\nPayment id: ${detail.paymentId}\n`
+        + `Customer: ${detail.email}\n`,
+    }).then((r) => {
+      if (!r.ok) console.error("unmatched-payment alert failed to send", r.status, r.error);
+    }).catch((e) => console.error("unmatched-payment alert threw", e?.message || e)));
+  } catch (e) {
+    // ctx.waitUntil itself can throw if the request is already finalised.
+    console.error("could not schedule the unmatched-payment alert", e?.message || e);
+  }
 }
 
 async function handleOrderPaid(env, ctx, evt) {

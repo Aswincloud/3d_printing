@@ -276,6 +276,49 @@ export function quotationEmail(env, quote) {
   );
 }
 
+// ── a payment we could not attribute → owner ──────────────────────
+//
+// The alarm. A payment_link.paid that does not resolve to a quote means money has
+// arrived and NOTHING was created for it: no order, no receipt, no invoice, no
+// email to the customer. Before this the handler logged a line and returned 200,
+// so Razorpay was told "handled" and the only trace was a console entry nobody
+// reads — the failure was invisible exactly where it is most expensive.
+//
+// Written to be actionable at 11pm on a phone: every id needed to find the
+// payment in the Razorpay dashboard and refund or fulfil it by hand.
+export function unmatchedPaymentEmail(env, d) {
+  const row = (k, v) => (v
+    ? `<tr><td style="padding:7px 0;border-bottom:1px solid ${LINE};font-size:13px;color:${MUTED};width:130px">${esc(k)}</td>`
+      + `<td style="padding:7px 0;border-bottom:1px solid ${LINE};font-size:13px;font-family:monospace">${esc(String(v))}</td></tr>`
+    : "");
+
+  return shell(
+    `<div style="padding:32px 32px 0">` +
+    `<div style="border-bottom:2px solid ${ORANGE};padding-bottom:16px;margin-bottom:20px">` +
+    `<h1 style="color:${ORANGE};margin:0;font-size:22px">Payment received with no order</h1>` +
+    `<p style="color:${MUTED};margin:6px 0 0;font-size:14px">` +
+    `A payment link was paid, but it could not be matched to a quote — so no order ` +
+    `was created and the customer has had no confirmation.</p></div>` +
+
+    `<p style="font-size:15px;margin:0 0 4px"><strong>Amount: ${esc(rupees(d.amountPaise))}</strong></p>` +
+    `<p style="font-size:13px;color:${MUTED};margin:0 0 20px">${esc(d.reason)}</p>` +
+
+    `<table style="width:100%;border-collapse:collapse;margin-bottom:22px">` +
+    row("Reference", d.receipt || "(none sent)") +
+    row("Payment link", d.linkId) +
+    row("Razorpay order", d.rzpOrderId) +
+    row("Payment id", d.paymentId) +
+    row("Customer", d.email) +
+    `</table>` +
+
+    `<p style="font-size:13px;color:${MUTED};line-height:1.6">` +
+    `Find the payment id in the Razorpay dashboard to see who paid and refund or ` +
+    `fulfil it by hand. If this keeps happening, the payment_link.paid payload has ` +
+    `changed shape and <code>handleQuotePaid</code> in src/orders.js needs updating.</p>` +
+    `</div>`
+  );
+}
+
 // ── order notification → owner ────────────────────────────────────
 export function orderOwnerEmail(env, order, items) {
   const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
