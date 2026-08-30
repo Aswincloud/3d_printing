@@ -36,18 +36,30 @@
 # ── css and js ────────────────────────────────────────────────────
 #
 # Deliberately SHORTER than the photos, which is the opposite of the usual advice —
-# and only because these filenames are not fingerprinted either. style.css and
-# main.js change far more often than a photo does, and shipping a fix that half the
-# returning visitors cannot see for a day is worse than re-fetching 30 KB. An hour,
-# with a week of background revalidation behind it.
+# and only because these filenames are not fingerprinted. A photo is content-hashed
+# in its URL (?v=<hash>), so it can be cached hard and a change is a different URL.
+# style.css and main.js are not: the same URL has to start meaning something new
+# the moment a deploy lands, and the only lever for that is the TTL.
 #
-# Raise this the moment these are content-hashed; until then the number is bounded
-# by how long a broken deploy may persist, not by how big the files are.
+# THIS USED TO SAY max-age=3600, stale-while-revalidate=604800, described as "an
+# hour with a week of background revalidation behind it". That misreads what SWR
+# does. It does not revalidate quietly and serve fresh — it serves the STALE file
+# to that visitor and revalidates afterwards, so a returning phone could render a
+# week-old stylesheet. It did: a layout fix was verified live, correct in a fresh
+# browser, and still visibly broken on a device that had the old CSS.
+#
+# A minute, and no stale window. The cost is one conditional request per asset per
+# visit, answered with a 304 of a few hundred bytes. The cost of the old value was
+# not knowing whether what you are looking at is what you deployed.
+#
+# The real fix is fingerprinting these filenames, at which point they can be
+# immutable for a year. Until then the number is bounded by how long a bad deploy
+# may persist, not by how big the files are.
 /assets/css/*
-  Cache-Control: public, max-age=3600, stale-while-revalidate=604800
+  Cache-Control: public, max-age=60, must-revalidate
 
 /assets/js/*
-  Cache-Control: public, max-age=3600, stale-while-revalidate=604800
+  Cache-Control: public, max-age=60, must-revalidate
 
 # ── the image manifest ────────────────────────────────────────────
 #

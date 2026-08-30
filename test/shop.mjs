@@ -610,8 +610,32 @@ section("public/_headers");
   // re-cropped photo forever.
   ok("NOTHING is marked immutable, because _headers cannot see ?v=",
      !/immutable/.test(h), "an immutable path rule would pin a replaced photo");
+  // Reads the numbers and compares them, rather than pinning the literal that
+  // happened to be there. The previous version asserted `max-age=3600`, which is
+  // not what its own name claims and made a correct change look like a break.
+  const ttl = (path) => {
+    const m = h.match(new RegExp(path + "[\\s\\S]{0,160}?max-age=(\\d+)"));
+    return m ? Number(m[1]) : null;
+  };
+  const photoTtl = ttl("\\/assets\\/images\\/\\*");
+  const cssTtl = ttl("\\/assets\\/css\\/\\*");
+  const jsTtl = ttl("\\/assets\\/js\\/\\*");
   ok("css and js are cached for less than the photos",
-     /\/assets\/(css|js)\/\*[\s\S]{0,120}?max-age=3600/.test(h));
+     cssTtl !== null && jsTtl !== null && cssTtl < photoTtl && jsTtl < photoTtl,
+     `css ${cssTtl}, js ${jsTtl}, photos ${photoTtl}`);
+
+  // The lesson from a layout fix that was live and correct while a phone still
+  // rendered the old stylesheet. stale-while-revalidate does not revalidate
+  // quietly and serve fresh — it serves the STALE file to that visitor. On an
+  // asset whose filename is not fingerprinted, a long stale window means the
+  // same URL keeps meaning the old thing long after a deploy.
+  const unversioned = h.match(/\/assets\/(?:css|js)\/\*[\s\S]{0,160}?Cache-Control:([^\n]+)/g) || [];
+  ok("neither carries a long stale-while-revalidate window",
+     unversioned.length === 2 && unversioned.every((r) => {
+       const m = r.match(/stale-while-revalidate=(\d+)/);
+       return !m || Number(m[1]) <= 60;
+     }),
+     unversioned.join(" | "));
   ok("the manifest is kept short, or a new photo would not appear",
      /images\.json[\s\S]{0,120}?max-age=60/.test(h));
   ok("the API and HTML are NOT given a cache rule here",
