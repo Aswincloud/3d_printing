@@ -23,12 +23,27 @@ import { suggestName } from "./admin.js";
 // (2) is what makes "push a photo and it appears" work. Doing it at request time
 // rather than in a migration is the point: a migration runs once, and the whole
 // value here is that FUTURE photos appear without anyone doing anything.
+// THE CATALOGUE ORDER. Four keys, each earning its place:
+//
+//   pinned DESC    what Aswin has chosen to lead with, from the shop itself.
+//   created_at DESC  newest work first. This is a made-to-order shop and new
+//                  pieces are added constantly; burying today's print under a
+//                  batch from three weeks ago is the wrong default.
+//   (sort = 0)     rows with a hand-set `sort` after rows without one, WITHIN a
+//                  batch. The 49 curated products all carry one timestamp, so
+//                  this keeps their chosen sequence intact rather than
+//                  scrambling it alphabetically.
+//   sort, name     the curated sequence itself, then a stable alphabetical
+//                  tie-break so the order never depends on row insertion order.
+//
+// The same clause is in adminListProducts(), so the dashboard and the shop agree
+// about what "first" means.
 export async function listProducts(env) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category, sort,
             personalise_label, personalise_required, pinned
        FROM products WHERE visible = 1
-      ORDER BY pinned DESC, (sort = 0), sort ASC, name ASC`
+      ORDER BY pinned DESC, created_at DESC, (sort = 0), sort ASC, name ASC`
   ).all();
 
   const rows = results || [];
