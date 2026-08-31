@@ -2369,6 +2369,74 @@ footer {
   .product-share { opacity: 0.9; }
 }
 
+/* "Featured" — top-left of the photo, the one corner .product-share (top-right)
+   and the ::after "View" hint (bottom-right) leave free.
+
+   Two elements share this class and must look identical: a <span> for customers,
+   and a <button> for an admin, because the badge IS the toggle. What Aswin clicks
+   is exactly what a buyer sees. */
+.product-featured {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  background: var(--orange);
+  border: 1px solid var(--orange);
+  /* Orange is a mid-tone: white text on it fails WCAG AA. Same token the
+     accessibility pass introduced for every other on-orange label. */
+  color: var(--on-orange);
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.26rem 0.55rem;
+  backdrop-filter: blur(6px);
+  transition: background var(--transition), border-color var(--transition),
+              color var(--transition), opacity var(--transition);
+}
+
+/* Always visible, never hover-revealed. .product-share is a per-card affordance
+   and can afford to hide; the pin is a MODE — an admin scanning the grid needs to
+   see at a glance what is pinned and what is not. It also means it works on a
+   phone, where there is no hover to reveal anything. */
+button.product-featured {
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+button.product-featured:hover { background: var(--orange-light, var(--orange)); }
+
+button.product-featured:focus-visible {
+  outline: 2px solid var(--white);
+  outline-offset: 2px;
+}
+
+/* Unpinned, admin only: the same shape, drawn as an outline so the grid reads as
+   "none of these are featured" rather than "all of these are buttons". */
+.product-featured.ghost {
+  background: rgba(10, 10, 15, 0.72);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--white);
+  opacity: 0.55;
+}
+
+.product-featured.ghost:hover {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--on-orange);
+  opacity: 1;
+}
+
+.product-card:hover .product-featured.ghost { opacity: 0.95; }
+
+/* No hover to raise it on touch, so it starts legible. */
+@media (hover: none) {
+  .product-featured.ghost { opacity: 0.9; }
+}
+
 /* The card a shared /p/<slug> link landed on. Ringed rather than moved or scaled:
    the visitor is mid-scroll toward it, and shifting its position would fight the
    smooth scroll that is still running. */

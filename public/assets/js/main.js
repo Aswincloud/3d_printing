@@ -489,6 +489,10 @@ const shopShipNote = document.getElementById('shopShipNote');
 
 let catalogue = [];              // products from the API
 let shipCfg = { flat_paise: 0, free_threshold_paise: 0 };
+// DISPLAY ONLY, and set from /api/me. It decides whether the pin toggle is drawn,
+// nothing more: /api/admin/* re-checks the allowlist server-side, so faking this
+// in devtools buys a button that earns a 401. Same caveat as the Dashboard link.
+let isAdmin = false;
 
 /* ── money ─────────────────────────────────────────────────────── */
 // Mirrors rupees() in src/lib.js so the drawer and the emails agree.
@@ -1062,13 +1066,30 @@ function clearShopSearch() {
 }
 
 function renderProducts() {
+  // Same guard loadProducts() carries. It now matters more: the session path
+  // calls this too, and a page that loads main.js without a grid would break
+  // sign-in rather than just skipping the catalogue.
+  if (!productGrid) return;
   productGrid.innerHTML = '';
   if (!catalogue.length) {
     productGrid.innerHTML = '<p class="shop-empty">Nothing listed just yet — check back soon.</p>';
     return;
   }
 
-  const shown = visibleProducts();
+  // Pinned first, derived FROM THE SERVER ORDER every time rather than by
+  // re-ordering `catalogue` in place.
+  //
+  // sort() is stable, so this needs no tie-break: everything keeps the order the
+  // server sent, which already encodes pinned > curated sort > name. It is also
+  // idempotent, so the first render — where the server has already grouped the
+  // pinned rows — is a no-op.
+  //
+  // Sorting the array in place instead looked equivalent and was not: unpinning
+  // left the card stranded near the top, because a cumulative sort has no memory
+  // of where the row belonged. Reload fixed it, which is exactly the kind of bug
+  // that reads as "the unpin didn't work".
+  const shown = visibleProducts()
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
   updateResultCount(shown.length);
 
   // A search that matches nothing is a dead end unless we offer a way out.
@@ -1272,6 +1293,35 @@ function renderProducts() {
       media.appendChild(share);
     }
 
+    // Top-left is the only free corner of the photo: .product-share holds
+    // top-right and the ::after "View" hint holds bottom-right.
+    //
+    // For a customer this is a static badge. For an admin the badge IS the
+    // toggle — same place, same look, so what he clicks is what buyers see.
+    // A synthesised card has no row (id: null) and so cannot be pinned, exactly
+    // as it has no slug and so cannot be shared.
+    if (isAdmin && p.id) {
+      const pin = document.createElement('button');
+      pin.type = 'button';
+      pin.className = 'product-featured' + (p.pinned ? '' : ' ghost');
+      pin.textContent = p.pinned ? 'Featured' : 'Pin';
+      pin.title = p.pinned ? 'Remove from the top of the shop' : 'Pin to the top of the shop';
+      pin.setAttribute('aria-pressed', p.pinned ? 'true' : 'false');
+      pin.setAttribute('aria-label', (p.pinned ? 'Unpin ' : 'Pin ') + p.name);
+      // media is itself a click target (role="button", opens the lightbox), so
+      // this has to stop here or pinning would also open the photo.
+      pin.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePin(p, pin);
+      });
+      media.appendChild(pin);
+    } else if (p.pinned) {
+      const badge = document.createElement('span');
+      badge.className = 'product-featured';
+      badge.textContent = 'Featured';
+      media.appendChild(badge);
+    }
+
     body.append(name, foot);
     if (!p.quote_only) body.appendChild(ask);
     card.append(media, body);
@@ -1285,6 +1335,38 @@ function renderShipNote() {
     '🚚 Shipping India-wide — flat ' + rupees(shipCfg.flat_paise) + ', free over ' +
     rupees(shipCfg.free_threshold_paise) + '.';
   shopShipNote.classList.add('show');
+}
+
+// Pin or unpin from the catalogue itself, so promoting a piece does not mean a
+// trip to the dashboard. Reuses the owner-gated PATCH the dashboard already uses;
+// there is no new endpoint and no new capability behind this button.
+async function togglePin(p, btn) {
+  if (!p.id || btn.disabled) return;
+  const want = !p.pinned;
+  const original = btn.textContent;
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/admin/products/' + encodeURIComponent(p.id), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned: want }),
+    });
+    if (!res.ok) throw new Error('Status ' + res.status);
+
+    p.pinned = want;
+    // Only the flag changes. `catalogue` stays in the order the server sent it,
+    // and renderProducts() derives the pinned-first view from that — see the note
+    // there for why re-ordering the array itself was wrong.
+    renderProducts();
+  } catch (err) {
+    // Nothing moves on failure — the button says why and returns to itself. A
+    // 401 here means the session lapsed, which a reload fixes.
+    btn.disabled = false;
+    btn.textContent = 'Failed';
+    setTimeout(() => { btn.textContent = original; }, 1600);
+    console.warn('pin failed', err);
+  }
 }
 
 /* ── sharing one product ───────────────────────────────────────── */
@@ -2235,6 +2317,9 @@ function applyGuestState() {
   if (navDash) navDash.hidden = true;
   const tabs = document.getElementById('drawerTabs');
   if (tabs) tabs.hidden = true;
+  // Strip the pin toggles on sign-out without a reload, for the same reason
+  // navDashboard is re-hidden above.
+  if (isAdmin) { isAdmin = false; renderProducts(); }
 }
 
 function applySignedInState(me) {
@@ -2252,6 +2337,15 @@ function applySignedInState(me) {
   // reveals a link that leads to a 401 and nothing more.
   const navDash = document.getElementById('navDashboard');
   if (navDash) navDash.hidden = !me.is_admin;
+
+  // loadProducts() and loadSession() race at boot, and /api/products is edge-cached
+  // while /api/me is not — so the grid has almost always drawn before we learn who
+  // this is. Re-render to bring the pin toggles in, but only on a CHANGE, so the
+  // common signed-in-customer case does not redraw the whole grid for nothing.
+  if (isAdmin !== Boolean(me.is_admin)) {
+    isAdmin = Boolean(me.is_admin);
+    renderProducts();
+  }
 
   // NOT duplicated into the menu. Dashboard has its own header button, and the
   // same destination in two places made the menu read as though it held two

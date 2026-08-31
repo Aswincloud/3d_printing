@@ -187,8 +187,17 @@ function makeDB(seed = {}) {
   const run = (sql, a) => {
     const s = sql.replace(/\s+/g, " ").trim();
 
-    if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort, personalise_label, personalise_required, created_at, updated_at FROM products")) {
-      return { results: [...db.products].sort((x, y) => x.sort - y.sort) };
+    // Matched on a stable PREFIX rather than the full column list: pinning added a
+    // column and the exact-list match broke every test in the file at once.
+    if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort,")) {
+      // Same ordering the query asks for. Emulated here only so the dashboard
+      // fixture is not misleading — the real clause is exercised against real
+      // SQLite in test/shop.mjs, which is where the ordering is actually proved.
+      return { results: [...db.products].sort((x, y) =>
+        Number(Boolean(y.pinned)) - Number(Boolean(x.pinned)) ||
+        Number((x.sort || 0) === 0) - Number((y.sort || 0) === 0) ||
+        (x.sort || 0) - (y.sort || 0) ||
+        String(x.name).localeCompare(String(y.name))) };
     }
     // Every image path the catalogue uses — for the unlisted-photos diff.
     // Projected to exactly these two columns, so a test asserting that nothing
@@ -458,6 +467,66 @@ section("admin products — PATCH only touches supplied fields");
   ok("name untouched", p.name === "Kingfisher");
   ok("price untouched", p.price_paise === 34900);
   ok("updated_at bumped", p.updated_at !== 1);
+}
+
+section("admin products — pinning");
+{
+  // A toggle, so it is coerced rather than validated: there is no value a caller
+  // could send that means anything other than on or off. What matters is that it
+  // reaches the column as 1 or 0 and never as the caller's own value.
+  const env = envDB({ products: [PRODUCT] });
+  ok("pin accepted", (await read(await updateProduct(env, PRODUCT.id, { pinned: true })))[0] === 200);
+  ok("stored as 1, not true", env.DB._db.products[0].pinned === 1);
+
+  ok("unpin accepted", (await read(await updateProduct(env, PRODUCT.id, { pinned: false })))[0] === 200);
+  ok("stored as 0, not false", env.DB._db.products[0].pinned === 0);
+
+  // Truthy junk must not land in the column verbatim — that is what a bound
+  // integer column is for, and what `? 1 : 0` guarantees before it gets there.
+  for (const [label, val] of [
+    ["a string", "yes"], ["a number", 7], ["an object", { on: 1 }], ["an array", [1]],
+  ]) {
+    const e = envDB({ products: [PRODUCT] });
+    await updateProduct(e, PRODUCT.id, { pinned: val });
+    ok(`${label} is coerced to 1`, e.DB._db.products[0].pinned === 1);
+  }
+  for (const [label, val] of [["null", null], ["empty string", ""], ["zero", 0]]) {
+    const e = envDB({ products: [{ ...PRODUCT, pinned: 1 }] });
+    await updateProduct(e, PRODUCT.id, { pinned: val });
+    ok(`${label} is coerced to 0`, e.DB._db.products[0].pinned === 0);
+  }
+
+  // Pinning is one field among many; it must not drag anything else with it.
+  const only = envDB({ products: [PRODUCT] });
+  await updateProduct(only, PRODUCT.id, { pinned: true });
+  ok("price untouched by a pin", only.DB._db.products[0].price_paise === 34900);
+  ok("visibility untouched by a pin", only.DB._db.products[0].visible === 1);
+
+  // Omitting the field must leave an existing pin alone, or an unrelated price
+  // edit from the dashboard would silently unpin the product.
+  const kept = envDB({ products: [{ ...PRODUCT, pinned: 1 }] });
+  await updateProduct(kept, PRODUCT.id, { price_paise: 49900 });
+  ok("a patch without `pinned` leaves the pin alone", kept.DB._db.products[0].pinned === 1);
+
+  ok("a pin on an unknown id is still 404",
+     (await read(await updateProduct(envDB({ products: [PRODUCT] }), "nope", { pinned: true })))[0] === 404);
+}
+
+section("admin products — pinning in bulk");
+{
+  const env = envDB({ products: [PRODUCT, { ...PRODUCT, id: "p2", slug: "second" }] });
+  const [status] = await read(await bulkUpdateProducts(env, { items: [
+    { id: PRODUCT.id, pinned: true },
+    { id: "p2", pinned: false },
+  ] }));
+  ok("bulk accepts pinned", status === 200);
+  ok("bulk pin stored as 1", env.DB._db.products.find((p) => p.id === PRODUCT.id).pinned === 1);
+  ok("bulk unpin stored as 0", env.DB._db.products.find((p) => p.id === "p2").pinned === 0);
+
+  // pinned alone is a real update — it must not trip the "nothing to update" guard.
+  ok("pinned alone is not an empty patch",
+     (await read(await bulkUpdateProducts(envDB({ products: [PRODUCT] }),
+       { items: [{ id: PRODUCT.id, pinned: true }] })))[0] === 200);
 }
 
 section("admin products — misc validation");

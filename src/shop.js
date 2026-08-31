@@ -26,8 +26,9 @@ import { suggestName } from "./admin.js";
 export async function listProducts(env) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category, sort,
-            personalise_label, personalise_required
-       FROM products WHERE visible = 1 ORDER BY sort ASC, name ASC`
+            personalise_label, personalise_required, pinned
+       FROM products WHERE visible = 1
+      ORDER BY pinned DESC, (sort = 0), sort ASC, name ASC`
   ).all();
 
   const rows = results || [];
@@ -42,12 +43,18 @@ export async function listProducts(env) {
 
   const products = rows.map((r) => stampVersion(shape(r), version));
 
-  // Ordering: buyable first, then priced-at-zero, then synthesised.
+  // Ordering: pinned first, then buyable, then priced-at-zero, then synthesised.
   //
   // Someone browsing a shop should meet the things they can actually buy before
   // the things they have to ask about. Within each group the existing
   // sort/name order from the query is preserved.
-  products.sort((a, b) => Number(a.quote_only) - Number(b.quote_only));
+  //
+  // Pin is the OUTER key, above the buyable split. A pin has to mean the top of
+  // the page or it isn't a pin — including for an unpriced piece Aswin wants
+  // people to ask about, which is a legitimate thing to lead with.
+  products.sort((a, b) =>
+    Number(b.pinned) - Number(a.pinned) ||
+    Number(a.quote_only) - Number(b.quote_only));
 
   return json({
     products: [...products, ...(await synthesised(env, rows, manifest, version))],
@@ -146,6 +153,9 @@ async function synthesised(env, rows, manifest, version) {
       description: "",
       price_paise: 0,
       quote_only: true,
+      // No row means nothing to pin. Stated rather than left undefined so every
+      // card the API returns has the same shape.
+      pinned: false,
       // Versioned like the real products, off the same manifest entry — a
       // synthesised card shows a real photo and should earn the same immutable
       // cache. No hash means no ?v=, which falls back to the short cache.
@@ -212,6 +222,9 @@ function shape(r) {
     // itself, so a client that ignores these gets a 400 rather than a free pass.
     personalise_label: r.personalise_label || "",
     personalise_required: Boolean(r.personalise_required),
+    // Drives the "Featured" badge, and the pin toggle an admin sees in its place.
+    // Not sensitive: it is already readable from the order of the grid.
+    pinned: Boolean(r.pinned),
   };
 }
 

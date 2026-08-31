@@ -165,6 +165,15 @@ invisible to anyone testing in Chromium, and reported from a real phone rather
 than by anything in this repo. A browser that fails to start is a check that is
 not running, so `CI=true` makes that fatal rather than skipped.
 
+**The pin control, in Chromium and WebKit** (`test/browser/pin-control.mjs`) —
+same job, same static server, with `/api/*` stubbed. It is the only admin control
+on a public page, so *which element each visitor gets* is a browser question the
+server tests cannot answer: a customer must get a plain badge and no controls, an
+admin the toggle in its place. It also holds a bug it caught before release —
+re-ordering the product array in place made pinning look right and left an
+**unpinned** card stranded at the top until reload. See
+[Pinning](#pinning-and-the-order-of-the-catalogue).
+
 **Deploys are not run from CI.** Cloudflare Workers Builds deploys `main` on
 push; branches produce an unpromoted preview version. **Migrations are never run
 by the deploy** — apply them yourself with `npm run db:migrate:remote`.
@@ -387,6 +396,43 @@ the allowlist only changes via a Worker var.
 The trade is worth stating: route 2 makes admin access **email-strength**.
 Whoever can read the owner's inbox can issue refunds and read customer addresses.
 Prefer route 1 once the broker knows this site.
+
+### Pinning, and the order of the catalogue
+
+Products come out in this order, set by one clause in `listProducts()`
+(`src/shop.js`) that both the shop and the dashboard share:
+
+```sql
+ORDER BY pinned DESC, (sort = 0), sort ASC, name ASC
+```
+
+1. **Pinned** products, newest curation first.
+2. **Curated** products — anything with a hand-set `sort` — in that order.
+3. **Everything else**, alphabetically.
+
+`(sort = 0)` is what puts the uncurated rows last, and it is a fix rather than a
+flourish. The clause used to be plain `ORDER BY sort ASC`, and since `sort`
+defaults to `0` the 36 products nobody had ordered sorted *above* the 49 that had
+been ordered by hand. The curated sequence existed in the database and never
+reached the page. `test/shop.mjs` runs the shipped clause against real SQLite
+rather than a fake, because the fake does not implement `ORDER BY` and would have
+proved nothing.
+
+**Pinning is done from the shop itself, not the dashboard.** Signed in as an
+admin, every product card grows a **Pin** button in the top-left of its photo;
+pinned cards read **Featured**, which is the same badge customers see. It is the
+one piece of admin UI on a public page, so it is worth knowing where it lives.
+
+It writes through the existing `PATCH /api/admin/products/:id` — no new route and
+no new capability. `is_admin` from `/api/me` only decides whether the button is
+*drawn*; the allowlist is re-checked server-side, so faking it in devtools buys a
+button that earns a 401. Because `/api/products` is edge-cached for 60 seconds, a
+pin reaches other visitors within a minute, while the admin's own tab reorders
+immediately.
+
+`test/browser/pin-control.mjs` covers this in chromium and webkit: a customer gets
+a badge and no controls, an admin gets the toggle, and unpinning returns the card
+to where it came from.
 
 ### Quotes, and answering one with a price
 <a id="quotes"></a>
