@@ -759,13 +759,33 @@ function renderPromo(promo) {
   }
 
   bar.hidden = false;
-  // Measured, not assumed: the banner wraps to two lines on a phone. Everything
-  // positioned against the nav reads --promo-h, so this one line is what stops
-  // the fixed nav sitting on top of the banner.
-  const setH = () => document.documentElement.style
-    .setProperty('--promo-h', bar.offsetHeight + 'px');
-  setH();
-  window.addEventListener('resize', setH);
+
+  // How much of the banner is still on screen. The nav's `top` reads this, so it
+  // rides up as the banner scrolls away and pins at 0 once it is gone.
+  //
+  // Without it the nav stayed 85px down forever: the banner scrolled off and left
+  // a transparent gap at the top of the viewport with the page showing through,
+  // and the header sitting below it looking detached.
+  //
+  // Measured rather than assumed — the banner wraps to two lines on a phone, 85px
+  // there against 43px on a desktop.
+  let barH = bar.offsetHeight;
+  let queued = false;
+  const syncPromoOffset = () => {
+    queued = false;
+    const left = Math.max(0, barH - (window.scrollY || 0));
+    document.documentElement.style.setProperty('--promo-h', left + 'px');
+  };
+  // Coalesced to one write per frame: this runs on every scroll event, and
+  // setting a custom property that the fixed nav depends on is a layout write.
+  const onScroll = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(syncPromoOffset);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', () => { barH = bar.offsetHeight; syncPromoOffset(); });
+  syncPromoOffset();
 }
 
 /* ── shipping (display only) ───────────────────────────────────── */

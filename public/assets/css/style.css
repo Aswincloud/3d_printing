@@ -52,11 +52,12 @@ img { display: block; max-width: 100%; }
 /* ===== NAV ===== */
 nav {
   position: fixed;
-  /* Pushed down by the promo banner when one is showing. --promo-h is set by
-     main.js from the banner's measured height and defaults to 0, so with no
-     banner this is exactly `top: 0` and nothing else in the page moves.
-     Measured rather than assumed because the banner wraps to two lines on a
-     phone, and a hardcoded height would either clip it or leave a gap. */
+  /* Rides up as the promo banner scrolls away, then pins at the top.
+     --promo-h is how much of the banner is STILL ON SCREEN, set by main.js on
+     scroll, and it defaults to 0 — so with no banner this is exactly `top: 0`
+     and nothing else in the page moves. Without it the nav stayed pinned 85px
+     down after the banner had scrolled off, leaving a transparent gap with the
+     page showing through it. */
   top: var(--promo-h, 0px); left: 0; right: 0;
   z-index: 1000;
   padding: 0 5%;
@@ -350,7 +351,7 @@ nav {
 .hero-visual {
   position: absolute;
   right: 5%;
-  top: calc(var(--promo-h, 0px) + var(--nav-h) + (100vh - var(--promo-h, 0px) - var(--nav-h)) / 2);
+  top: calc(var(--nav-h) + (100vh - var(--nav-h)) / 2);
   transform: translateY(-50%);
   width: 44%;
   max-width: 600px;
@@ -359,7 +360,7 @@ nav {
      taller than a 900px viewport — so it overflowed at both ends however it was
      positioned. The tiles below size themselves off this budget rather than off
      the images' aspect ratio. */
-  --stack-h: min(calc(100vh - var(--promo-h, 0px) - var(--nav-h) - 110px), 600px);
+  --stack-h: min(calc(100vh - var(--nav-h) - 110px), 600px);
   display: grid;
   /* Feature tile on the left running the FULL height, two squares stacked right.
      The previous arrangement (wide tile on top, two below) forced the feature
@@ -1061,7 +1062,7 @@ footer {
      exactly the visitors most likely to be deciding whether to order. */
   .hero {
     min-height: 0;
-    padding-top: calc(var(--promo-h, 0px) + var(--nav-h) + 40px);
+    padding-top: calc(var(--nav-h) + 40px);
     display: block;
   }
   .hero-content { max-width: 100%; }
@@ -1090,7 +1091,7 @@ footer {
   .nav-links { display: none; }
   .nav-hamburger { display: flex; }
   section { padding: 70px 4%; }
-  .hero { padding: calc(var(--promo-h, 0px) + var(--nav-h) + 30px) 4% 60px; }
+  .hero { padding: calc(var(--nav-h) + 30px) 4% 60px; }
   .form-row { grid-template-columns: 1fr; }
   .hero-stats { gap: 1.5rem; }
   .footer-links { gap: 2rem; }
@@ -1186,7 +1187,7 @@ footer {
 .shop-sidebar {
   position: sticky;
   /* Clears the fixed nav; without this the first heading sits under it. */
-  top: calc(var(--promo-h, 0px) + var(--nav-h) + 1rem);
+  top: calc(var(--nav-h) + 1rem);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -2977,9 +2978,13 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
    recalculating. Letting it push the page down costs one line of layout and
    nothing else. */
 .promo-banner {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  z-index: 1001;   /* above the nav, which now starts below it */
+  /* NORMAL FLOW, not fixed. A fixed banner would hold 85px of a phone viewport
+     for the whole visit; this is a one-time message and should scroll away like
+     one. In flow it also pushes the page down on its own, so only the fixed nav
+     needs to know about it.
+     `position: relative` is for the absolutely-positioned close button — and it
+     is why an earlier `position: fixed` added at the top of this block did
+     nothing: same rule, later declaration wins. */
   display: flex;
   align-items: center;
   justify-content: center;
