@@ -51,11 +51,25 @@ function makeDB(seed = {}) {
     oauth_identities: copy(seed.oauth_identities),
     products: copy(seed.products),
     cart_items: copy(seed.cart_items),
+    coupons: copy(seed.coupons),
+    coupon_redemptions: copy(seed.coupon_redemptions),
   };
 
   const run = (sql, a) => {
     const s = sql.replace(/\s+/g, " ").trim();
     const lc = (v) => String(v ?? "").toLowerCase();
+
+    // Has this customer redeemed the banner's code? Joined and filtered exactly
+    // as the real query is, so a test cannot pass because the fake was laxer:
+    // the code must match, the coupon must be once_per_customer, and the email
+    // must be this customer's.
+    if (s.startsWith("SELECT 1 AS hit FROM coupon_redemptions")) {
+      const [code, email] = a;
+      const coupon = db.coupons.find((c) => c.code === code && c.once_per_customer === 1);
+      const hit = coupon && db.coupon_redemptions.some(
+        (r) => r.coupon_id === coupon.id && r.email === email);
+      return { first: hit ? { hit: 1 } : null };
+    }
 
     // users
     // The session lookup now carries the saved delivery details too, so whoami
@@ -311,6 +325,103 @@ section("invariant 8 — order history is scoped to the session user");
   ok("internal order id not exposed", mine.orders[0].id === undefined);
   // Fields the ADMIN view needs but a customer's own view doesn't.
   ok("payment id not exposed", mine.orders[0].rzp_payment_id === undefined);
+}
+
+// ── the banner, for someone who already used the code ─────────────
+//
+// The homepage advertises PROMO_CODE to everyone, because /api/products is shared
+// and edge-cached and CANNOT carry per-customer state. So the "have you already
+// used this?" answer rides on /api/me instead, and the banner hides itself.
+//
+// Cosmetic only: applyCoupon() refuses a second redemption regardless. What this
+// prevents is advertising a discount that would then be declined at checkout.
+section("whoami() — promo_used");
+
+const COUPON = { id: "c-welcome", code: "WELCOME10", once_per_customer: 1 };
+const promoEnv = (redemptions, code = "WELCOME10") => ({
+  ...ENV({ users: [USER_A, USER_B], coupons: [COUPON], coupon_redemptions: redemptions }),
+  PROMO_CODE: code,
+});
+const usedBy = async (env, user) => (await read(await whoami(env, user)))[1].promo_used;
+
+{
+  const redeemed = [{ coupon_id: "c-welcome", email: USER_A.email, order_id: "o-1" }];
+
+  ok("true for the customer who redeemed it",
+     (await usedBy(promoEnv(redeemed), USER_A)) === true);
+  ok("false for a customer who has not",
+     (await usedBy(promoEnv(redeemed), USER_B)) === false);
+  ok("false when nobody has redeemed it",
+     (await usedBy(promoEnv([]), USER_A)) === false);
+
+  // A redemption of a DIFFERENT code must not hide the banner for this one.
+  ok("a different code's redemption does not count",
+     (await usedBy(promoEnv([{ coupon_id: "c-other", email: USER_A.email }]), USER_A)) === false);
+
+  // No featured code, nothing to hide.
+  ok("false when PROMO_CODE is unset",
+     (await usedBy(promoEnv(redeemed, ""), USER_A)) === false);
+  ok("false when PROMO_CODE names a code that does not exist",
+     (await usedBy(promoEnv(redeemed, "NOSUCH"), USER_A)) === false);
+}
+{
+  // A code anyone may use repeatedly disqualifies nobody, so the banner stays up
+  // even for someone who has used it.
+  const env = {
+    ...ENV({ users: [USER_A],
+             coupons: [{ id: "c-open", code: "OPEN10", once_per_customer: 0 }],
+             coupon_redemptions: [{ coupon_id: "c-open", email: USER_A.email }] }),
+    PROMO_CODE: "OPEN10",
+  };
+  ok("a reusable code never hides the banner", (await usedBy(env, USER_A)) === false);
+}
+{
+  // The flag must not have widened what /api/me exposes.
+  const env = promoEnv([{ coupon_id: "c-welcome", email: USER_A.email }]);
+  const [, me] = await read(await whoami(env, USER_A));
+  ok("promo_used is a boolean, not a row", me.promo_used === true);
+  ok("no coupon internals leak", !JSON.stringify(me).includes("c-welcome"));
+  ok("no other customer's email leaks", !JSON.stringify(me).includes(USER_B.email));
+}
+
+// The tests above run through makeDB(), which IMPLEMENTS the filtering rather
+// than executing the SQL — so mutating the query in src/customers.js does not
+// change what they see, and two mutations proved it: dropping `once_per_customer`
+// and dropping the email scoping both passed against the fake. The second is the
+// dangerous one, since it would hide the banner for EVERY customer the moment any
+// one of them used the code.
+//
+// So the shipped query is extracted and run against real SQLite, with the same
+// two tables it uses in production.
+section("whoami() — the promo query itself (real SQLite, shipped SQL)");
+{
+  const { DatabaseSync } = await import("node:sqlite");
+  const { readFileSync } = await import("node:fs");
+
+  const src = readFileSync(new URL("../src/customers.js", import.meta.url), "utf8");
+  const m = src.match(/SELECT 1 AS hit FROM coupon_redemptions[\s\S]*?LIMIT 1/);
+  ok("the shipped promo query is still there", m !== null,
+     "no `SELECT 1 AS hit FROM coupon_redemptions ...` in customers.js");
+  const SQL = m ? m[0] : "SELECT 1 AS hit WHERE 0";
+
+  const db = new DatabaseSync(":memory:");
+  db.exec(`CREATE TABLE coupons (id TEXT, code TEXT, once_per_customer INTEGER);
+           CREATE TABLE coupon_redemptions (id TEXT, coupon_id TEXT, email TEXT);`);
+  db.prepare("INSERT INTO coupons VALUES (?,?,?)").run("c1", "WELCOME10", 1);
+  db.prepare("INSERT INTO coupons VALUES (?,?,?)").run("c2", "OPEN10", 0);
+  db.prepare("INSERT INTO coupon_redemptions VALUES (?,?,?)").run("r1", "c1", "alice@example.com");
+  db.prepare("INSERT INTO coupon_redemptions VALUES (?,?,?)").run("r2", "c2", "alice@example.com");
+
+  const used = (code, email) => Boolean(db.prepare(SQL).get(code, email));
+
+  ok("the redeemer is matched", used("WELCOME10", "alice@example.com") === true);
+  // The mutation that the fake could not catch: without `r.email = ?` this is
+  // true for everyone once one person redeems.
+  ok("another customer is NOT matched", used("WELCOME10", "bob@example.com") === false);
+  // And without `once_per_customer = 1` this is true for a reusable code.
+  ok("a reusable code never matches", used("OPEN10", "alice@example.com") === false);
+  ok("an unknown code never matches", used("NOSUCH", "alice@example.com") === false);
+  ok("an empty email never matches", used("WELCOME10", "") === false);
 }
 
 // ── the progress tracker ──────────────────────────────────────────

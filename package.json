@@ -13,7 +13,8 @@
     "test": "node test/run.mjs && node test/shop.mjs && node test/payments.mjs && node test/orders.mjs && node test/admin.mjs && node test/customers.mjs && node test/cart.mjs && node test/coupons.mjs && node test/chatcoupons.mjs && node test/manifest.mjs && node test/seo.mjs && node test/pdp.mjs && node test/quotes.mjs && node test/chatorders.mjs && node test/agent.mjs && node test/apicache.mjs && node test/pricing-display.mjs",
     "test:layout": "node test/browser/hero-geometry.mjs",
     "test:pin": "node test/browser/pin-control.mjs",
-    "test:tracker": "node test/browser/order-tracker.mjs"
+    "test:tracker": "node test/browser/order-tracker.mjs",
+    "test:promo": "node test/browser/promo-banner.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.118.0",
