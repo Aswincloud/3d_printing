@@ -68,11 +68,18 @@ document.addEventListener('click', function (e) {
  * Guests are NOT identified: there is nothing to identify them with, and calling
  * setUser with empty values creates a junk contact record for every visitor.
  *
- * The identifier is the email. Chatwoot supports an HMAC (identifier_hash) to
- * stop someone claiming another person's identity; that needs the instance's
- * HMAC secret and a server round trip, and is worth adding if chat ever carries
- * anything sensitive. Today it carries "where is my order" — flagging the gap
- * rather than implying it is closed. */
+ * The identifier is the email, and it is now SIGNED. `identifier_hash` is an HMAC
+ * of the email computed in the Worker with a secret the browser never sees, so a
+ * visitor cannot open the console and claim someone else's identity — which they
+ * could before, and which mattered the moment the assistant gained the ability to
+ * read a customer's orders.
+ *
+ * `shop_token` is separate and does the heavier lifting. It is a short-lived,
+ * purpose-bound token minted by /api/me for a verified session, and it is what
+ * the bot presents to /api/chat/orders to say WHICH customer is asking.
+ * Deliberately not the Chatwoot contact's email: that record is written from
+ * here, so trusting it would put the customer list behind Chatwoot being
+ * configured correctly. See src/chatorders.js. */
 window.addEventListener('chatwoot:ready', function () {
   fetch('/api/me')
     .then(function (r) { return r.ok ? r.json() : null; })
@@ -82,7 +89,18 @@ window.addEventListener('chatwoot:ready', function () {
         email: me.email,
         name: me.name || me.email,
         phone_number: me.phone || undefined,
+        // Absent until CHATWOOT_HMAC_SECRET is set on the Worker. Chatwoot
+        // ignores an identity it cannot verify rather than failing, so this
+        // degrades to exactly the old behaviour instead of breaking chat.
+        identifier_hash: me.chat_identity_hash || undefined,
       });
+
+      // Carried as a conversation attribute so the bot can read it off the
+      // webhook payload. Safe to put here: it is signed, it expires in fifteen
+      // minutes, and it is useless without the bot's own secret at the other end.
+      if (me.chat_token && window.$chatwoot.setCustomAttributes) {
+        window.$chatwoot.setCustomAttributes({ shop_token: me.chat_token });
+      }
     })
     .catch(function () { /* not signed in, or the probe failed — chat still works */ });
 });
