@@ -34,6 +34,18 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 
+<!-- Promo banner. Empty and hidden in the markup: every word of it is filled in
+     from /api/products, which only sends a promo when the coupon is actually
+     usable. Hardcoding the code and the terms here would let the page keep
+     advertising something checkout has stopped honouring.
+
+     role="status" rather than an alert: it is useful, not urgent. -->
+<div class="promo-banner" id="promoBanner" role="status" hidden>
+  <span class="promo-text" id="promoText"></span>
+  <button type="button" class="promo-copy" id="promoCopy">Copy code</button>
+  <button type="button" class="promo-close" id="promoClose" aria-label="Dismiss offer">&#10005;</button>
+</div>
+
 <!-- ===== NAV ===== -->
 <nav>
   <a href="#" class="nav-logo">

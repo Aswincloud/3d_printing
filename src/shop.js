@@ -4,7 +4,7 @@
 // they're the part that must be unit-testable in isolation: they are the only
 // thing standing between a tampered cart and a wrong charge.
 
-import { json } from "./lib.js";
+import { json, now } from "./lib.js";
 import { applyCoupon } from "./coupons.js";
 // Shared with the dashboard's unlisted-photos panel, so a synthesised card and
 // the admin form suggest the same name for the same file.
@@ -52,7 +52,55 @@ export async function listProducts(env) {
   return json({
     products: [...products, ...(await synthesised(env, rows, manifest, version))],
     shipping: shippingConfig(env),
+    // Absent when there is nothing live to advertise, so the banner has nothing
+    // to render rather than rendering something stale.
+    promo: await featuredPromo(env),
   });
+}
+
+// ── the featured promo, for the homepage banner ───────────────────
+//
+// READ FROM THE COUPON ROW, never hardcoded. A banner is a promise: if it says
+// 10% off and checkout disagrees, the customer is the one who finds out. So the
+// terms shown are computed from the same row priceCart() will apply, and the
+// banner simply does not render if the code is not usable right now.
+//
+// PROMO_CODE names which coupon to feature — config, so featuring a different one
+// is a wrangler.toml edit rather than a deploy of new logic. Unset means no
+// banner, which is also how you turn it off without touching the coupon itself.
+//
+// Every reason a code could fail is checked here rather than trusted: paused,
+// expired, or out of uses. Aswin pausing WELCOME10 in the dashboard takes the
+// banner down on its own, with nothing else to remember.
+async function featuredPromo(env) {
+  const code = String(env.PROMO_CODE || "").trim();
+  if (!code) return null;
+
+  const row = await env.DB.prepare(
+    `SELECT code, kind, value, min_order_paise, max_discount_paise, expires_at,
+            max_uses, uses, active, once_per_customer
+       FROM coupons WHERE code = ?`
+  ).bind(code).first();
+
+  if (!row) return null;
+  if (!row.active) return null;
+  if (row.expires_at && row.expires_at <= now()) return null;
+  if (row.max_uses !== null && row.uses >= row.max_uses) return null;
+
+  // Only percentage and fixed codes have terms worth putting on a banner; a
+  // shipping code's value is already covered by the free-shipping note.
+  if (row.kind !== "percent" && row.kind !== "fixed") return null;
+
+  return {
+    code: row.code,
+    kind: row.kind,
+    value: row.value,
+    max_discount_paise: row.max_discount_paise ?? null,
+    min_order_paise: row.min_order_paise || 0,
+    // A display hint, so the banner can say "one use per customer" rather than
+    // the customer discovering it at checkout.
+    once_per_customer: Boolean(row.once_per_customer),
+  };
 }
 
 // Photos with no product row, as quote-only cards.

@@ -696,6 +696,78 @@ function syncCheckoutGate() {
   setState(document.getElementById('coSubmit'), 'coPzNote', checkoutItems());
 }
 
+/* ── promo banner ───────────────────────────────────────────────────
+   Every word comes from /api/products, which sends a promo only while the coupon
+   is genuinely usable — active, unexpired, uses left. Nothing about the offer is
+   written in the markup, so pausing WELCOME10 in the dashboard takes the banner
+   down on the next load with nothing else to remember.
+
+   The terms are rendered from the same fields priceCart() applies, so the banner
+   cannot promise a discount checkout will not give. */
+
+const PROMO_DISMISS_KEY = 'ap_promo_hidden';
+
+function renderPromo(promo) {
+  const bar = document.getElementById('promoBanner');
+  if (!bar) return;
+  if (!promo || !promo.code) { bar.hidden = true; return; }
+
+  // Dismissed for THIS code. Keyed on the code so a new offer shows again to
+  // someone who closed the last one — a dismissal means "not that one", not
+  // "never show me anything".
+  try {
+    if (localStorage.getItem(PROMO_DISMISS_KEY) === promo.code) { bar.hidden = true; return; }
+  } catch { /* private mode — show it */ }
+
+  const off = promo.kind === 'percent' ? promo.value + '% off' : rupees(promo.value) + ' off';
+  const caps = [];
+  // Stated up front rather than discovered at checkout. A capped percentage that
+  // only reveals itself on the total is the kind of surprise that costs a sale.
+  if (promo.kind === 'percent' && promo.max_discount_paise) {
+    caps.push('up to ' + rupees(promo.max_discount_paise));
+  }
+  if (promo.min_order_paise) caps.push('on orders over ' + rupees(promo.min_order_paise));
+  if (promo.once_per_customer) caps.push('one use per customer');
+
+  const text = document.getElementById('promoText');
+  if (text) {
+    text.textContent = off + (caps.length ? ' — ' + caps.join(', ') : '') + ' with code ' + promo.code;
+  }
+
+  const copy = document.getElementById('promoCopy');
+  if (copy) {
+    copy.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(promo.code);
+        copy.textContent = 'Copied';
+      } catch {
+        // Clipboard needs permission and a secure context; neither is guaranteed.
+        // The code is already on screen, so show it rather than failing silently.
+        copy.textContent = promo.code;
+      }
+      setTimeout(() => { copy.textContent = 'Copy code'; }, 2000);
+    };
+  }
+
+  const close = document.getElementById('promoClose');
+  if (close) {
+    close.onclick = () => {
+      bar.hidden = true;
+      document.documentElement.style.setProperty('--promo-h', '0px');
+      try { localStorage.setItem(PROMO_DISMISS_KEY, promo.code); } catch { /* fine */ }
+    };
+  }
+
+  bar.hidden = false;
+  // Measured, not assumed: the banner wraps to two lines on a phone. Everything
+  // positioned against the nav reads --promo-h, so this one line is what stops
+  // the fixed nav sitting on top of the banner.
+  const setH = () => document.documentElement.style
+    .setProperty('--promo-h', bar.offsetHeight + 'px');
+  setH();
+  window.addEventListener('resize', setH);
+}
+
 /* ── shipping (display only) ───────────────────────────────────── */
 // Same rule as shippingFor() in src/shop.js, duplicated here purely so the
 // drawer can show a total before the server is asked. The server's figure is
@@ -714,6 +786,7 @@ async function loadProducts() {
     const data = await res.json();
     catalogue = Array.isArray(data.products) ? data.products : [];
     if (data.shipping) shipCfg = data.shipping;
+    renderPromo(data.promo);
     // Chips before the grid: renderFilters reveals the controls, and doing it
     // first means they never flash in above an empty grid.
     renderFilters();

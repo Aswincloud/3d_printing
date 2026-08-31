@@ -52,7 +52,12 @@ img { display: block; max-width: 100%; }
 /* ===== NAV ===== */
 nav {
   position: fixed;
-  top: 0; left: 0; right: 0;
+  /* Pushed down by the promo banner when one is showing. --promo-h is set by
+     main.js from the banner's measured height and defaults to 0, so with no
+     banner this is exactly `top: 0` and nothing else in the page moves.
+     Measured rather than assumed because the banner wraps to two lines on a
+     phone, and a hardcoded height would either clip it or leave a gap. */
+  top: var(--promo-h, 0px); left: 0; right: 0;
   z-index: 1000;
   padding: 0 5%;
   height: 68px;
@@ -345,7 +350,7 @@ nav {
 .hero-visual {
   position: absolute;
   right: 5%;
-  top: calc(var(--nav-h) + (100vh - var(--nav-h)) / 2);
+  top: calc(var(--promo-h, 0px) + var(--nav-h) + (100vh - var(--promo-h, 0px) - var(--nav-h)) / 2);
   transform: translateY(-50%);
   width: 44%;
   max-width: 600px;
@@ -354,7 +359,7 @@ nav {
      taller than a 900px viewport — so it overflowed at both ends however it was
      positioned. The tiles below size themselves off this budget rather than off
      the images' aspect ratio. */
-  --stack-h: min(calc(100vh - var(--nav-h) - 110px), 600px);
+  --stack-h: min(calc(100vh - var(--promo-h, 0px) - var(--nav-h) - 110px), 600px);
   display: grid;
   /* Feature tile on the left running the FULL height, two squares stacked right.
      The previous arrangement (wide tile on top, two below) forced the feature
@@ -1056,7 +1061,7 @@ footer {
      exactly the visitors most likely to be deciding whether to order. */
   .hero {
     min-height: 0;
-    padding-top: calc(var(--nav-h) + 40px);
+    padding-top: calc(var(--promo-h, 0px) + var(--nav-h) + 40px);
     display: block;
   }
   .hero-content { max-width: 100%; }
@@ -1085,7 +1090,7 @@ footer {
   .nav-links { display: none; }
   .nav-hamburger { display: flex; }
   section { padding: 70px 4%; }
-  .hero { padding: calc(var(--nav-h) + 30px) 4% 60px; }
+  .hero { padding: calc(var(--promo-h, 0px) + var(--nav-h) + 30px) 4% 60px; }
   .form-row { grid-template-columns: 1fr; }
   .hero-stats { gap: 1.5rem; }
   .footer-links { gap: 2rem; }
@@ -1181,7 +1186,7 @@ footer {
 .shop-sidebar {
   position: sticky;
   /* Clears the fixed nav; without this the first heading sits under it. */
-  top: calc(var(--nav-h) + 1rem);
+  top: calc(var(--promo-h, 0px) + var(--nav-h) + 1rem);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -2964,4 +2969,76 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 @media (min-width: 1025px) {
   .hero-visual { grid-template-rows: 1fr auto; }
   .hero-shot[data-hero="poster_corner_staircase_v1.jpg"] { aspect-ratio: 1.64; }
+}
+
+/* ===== PROMO BANNER =====
+   Above the fixed nav in the DOM, and in normal flow rather than fixed: a second
+   fixed strip would either cover the nav or need every top offset on the page
+   recalculating. Letting it push the page down costs one line of layout and
+   nothing else. */
+.promo-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 1001;   /* above the nav, which now starts below it */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 3rem 0.55rem 1rem;
+  position: relative;
+  background: linear-gradient(135deg, var(--orange), var(--orange-light));
+  /* Dark on orange, like every other orange surface — white here is 2.86:1. */
+  color: var(--on-orange);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.promo-banner[hidden] { display: none; }
+
+.promo-text { line-height: 1.4; }
+
+.promo-copy {
+  border: 1px solid rgba(10, 10, 15, 0.35);
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--on-orange);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.promo-copy:hover { background: rgba(255, 255, 255, 0.34); }
+.promo-copy:focus-visible { outline: 2px solid var(--on-orange); outline-offset: 2px; }
+
+/* Absolute so it keeps the far right on one line and does not become a third
+   flex item that wraps under the text on a phone. 44px, like every other tap
+   target on the site. */
+.promo-close {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: none;
+  color: var(--on-orange);
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.promo-close:hover { opacity: 1; }
+.promo-close:focus-visible { outline: 2px solid var(--on-orange); outline-offset: -4px; }
+
+@media (max-width: 560px) {
+  .promo-banner { font-size: 0.78rem; padding-right: 2.6rem; gap: 0.5rem; }
+  .promo-copy { font-size: 0.72rem; }
 }
