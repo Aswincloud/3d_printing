@@ -707,5 +707,72 @@ section("personalisation — survives the duplicate collapse");
   ok("the qty cap still applies across differing values", Boolean(over.error), JSON.stringify(over));
 }
 
+// ══ THE PROMO BANNER ═════════════════════════════════════════════
+//
+// A banner is a promise. If it says 10% off and checkout disagrees, the customer
+// is the one who finds out — so every reason a code could be unusable is checked
+// HERE, and the banner simply does not render rather than advertising something
+// that will be refused at the till.
+section("featured promo — only ever a code that actually works");
+{
+  const COUPON = {
+    code: "WELCOME10", kind: "percent", value: 10, min_order_paise: 0,
+    max_discount_paise: 10000, expires_at: null, max_uses: null, uses: 0,
+    active: 1, once_per_customer: 1,
+  };
+  const env = (over = {}, promoCode = "WELCOME10") => ({
+    ...ENV,
+    PROMO_CODE: promoCode,
+    DB: {
+      prepare(sql) {
+        return {
+          bind() { return this; },
+          async first() {
+            if (!/FROM coupons/.test(sql)) return null;
+            return { ...COUPON, ...over };
+          },
+          async all() { return { results: [] } ; },
+        };
+      },
+    },
+    ASSETS: { fetch: async () => new Response("{}", { status: 200 }) },
+  });
+
+  const promoOf = async (...a) => (await (await listProducts(env(...a))).json()).promo;
+
+  const live = await promoOf();
+  ok("a usable code is offered", live && live.code === "WELCOME10", JSON.stringify(live));
+  ok("carries the terms the banner must state",
+     live.kind === "percent" && live.value === 10 && live.max_discount_paise === 10000
+       && live.once_per_customer === true, JSON.stringify(live));
+
+  // Every way a code stops working. Each must take the banner down on its own,
+  // with nothing for Aswin to remember to do.
+  for (const [label, over] of [
+    ["paused in the dashboard", { active: 0 }],
+    ["expired", { expires_at: Date.now() - 1000 }],
+    ["out of uses", { max_uses: 5, uses: 5 }],
+    ["a shipping code, which has no banner terms", { kind: "shipping" }],
+  ]) {
+    ok(`${label} → no banner`, (await promoOf(over)) === null, label);
+  }
+
+  ok("expiring in the future is still offered",
+     (await promoOf({ expires_at: Date.now() + 86400000 })) !== null);
+  ok("uses below the cap is still offered",
+     (await promoOf({ max_uses: 5, uses: 4 })) !== null);
+
+  // The off switch that does not touch the coupon: clearing the var stops
+  // advertising it while anyone already holding the code can still redeem it.
+  ok("PROMO_CODE unset → no banner", (await promoOf({}, "")) === null);
+  ok("PROMO_CODE naming a code that does not exist → no banner",
+     (await (await listProducts({
+       ...ENV, PROMO_CODE: "NOSUCH",
+       DB: { prepare: () => ({ bind() { return this; }, async first() { return null; },
+                               async all() { return { results: [] }; } }) },
+       ASSETS: { fetch: async () => new Response("{}", { status: 200 }) },
+     })).json()).promo === null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -52,7 +52,13 @@ img { display: block; max-width: 100%; }
 /* ===== NAV ===== */
 nav {
   position: fixed;
-  top: 0; left: 0; right: 0;
+  /* Rides up as the promo banner scrolls away, then pins at the top.
+     --promo-h is how much of the banner is STILL ON SCREEN, set by main.js on
+     scroll, and it defaults to 0 — so with no banner this is exactly `top: 0`
+     and nothing else in the page moves. Without it the nav stayed pinned 85px
+     down after the banner had scrolled off, leaving a transparent gap with the
+     page showing through it. */
+  top: var(--promo-h, 0px); left: 0; right: 0;
   z-index: 1000;
   padding: 0 5%;
   height: 68px;
@@ -2964,4 +2970,80 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 @media (min-width: 1025px) {
   .hero-visual { grid-template-rows: 1fr auto; }
   .hero-shot[data-hero="poster_corner_staircase_v1.jpg"] { aspect-ratio: 1.64; }
+}
+
+/* ===== PROMO BANNER =====
+   Above the fixed nav in the DOM, and in normal flow rather than fixed: a second
+   fixed strip would either cover the nav or need every top offset on the page
+   recalculating. Letting it push the page down costs one line of layout and
+   nothing else. */
+.promo-banner {
+  /* NORMAL FLOW, not fixed. A fixed banner would hold 85px of a phone viewport
+     for the whole visit; this is a one-time message and should scroll away like
+     one. In flow it also pushes the page down on its own, so only the fixed nav
+     needs to know about it.
+     `position: relative` is for the absolutely-positioned close button — and it
+     is why an earlier `position: fixed` added at the top of this block did
+     nothing: same rule, later declaration wins. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 3rem 0.55rem 1rem;
+  position: relative;
+  background: linear-gradient(135deg, var(--orange), var(--orange-light));
+  /* Dark on orange, like every other orange surface — white here is 2.86:1. */
+  color: var(--on-orange);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.promo-banner[hidden] { display: none; }
+
+.promo-text { line-height: 1.4; }
+
+.promo-copy {
+  border: 1px solid rgba(10, 10, 15, 0.35);
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--on-orange);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.promo-copy:hover { background: rgba(255, 255, 255, 0.34); }
+.promo-copy:focus-visible { outline: 2px solid var(--on-orange); outline-offset: 2px; }
+
+/* Absolute so it keeps the far right on one line and does not become a third
+   flex item that wraps under the text on a phone. 44px, like every other tap
+   target on the site. */
+.promo-close {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: none;
+  color: var(--on-orange);
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.promo-close:hover { opacity: 1; }
+.promo-close:focus-visible { outline: 2px solid var(--on-orange); outline-offset: -4px; }
+
+@media (max-width: 560px) {
+  .promo-banner { font-size: 0.78rem; padding-right: 2.6rem; gap: 0.5rem; }
+  .promo-copy { font-size: 0.72rem; }
 }

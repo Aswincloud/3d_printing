@@ -132,6 +132,10 @@ FREE_SHIP_THRESHOLD_PAISE = "200000"
 # in src/chatcoupons.js, deliberately NOT vars: the fewer inputs that decide what
 # a discount is worth, the fewer things can move it.
 CHAT_COUPONS_ENABLED = "true"
+# The coupon featured in the homepage banner. A var, not code, so featuring a
+# different one is an edit here — and clearing it takes the banner down without
+# touching the coupon, which stays usable for anyone who already has it.
+PROMO_CODE = "WELCOME10"
 
 # Google Search Console HTML-file verification. Paste the token from the
 # verification file's NAME (google<TOKEN>.html) — not the whole filename — and
