@@ -234,9 +234,10 @@ export const statusLabel = (status) =>
 //      legal so something already on the shelf does not need four clicks.
 //   2. Rows that predate these columns: shipped before this feature existed, so
 //      they carry a shipped_at and nulls everywhere behind it.
-//   3. Rows with a status and NO timestamp at all. AP-cp000002 is exactly this
-//      live — status 'shipped', shipped_at null — and keying only off timestamps
-//      drew it as "x---*-": one step done, under a badge saying Shipped.
+//   3. Rows with a status and NO timestamp at all. Not hypothetical: a seeded row
+//      in the dev database (status 'shipped', shipped_at null) drew as "x---*-"
+//      — one step done, under a badge reading Shipped. Production has no such row
+//      today, but nothing in the schema prevents one, and clause 3 costs nothing.
 //
 // Returns null for a terminal status, which is the caller's signal to render the
 // badge instead.

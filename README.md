@@ -473,10 +473,11 @@ stages with `done` / `current` / `at`, so main.js, the dashboard and the chat bo
 cannot drift into different ideas of what a stage is called. A stage counts as
 reached when it is at or before the current status, or carries a timestamp, or a
 later stage does — three clauses because order data arrives incomplete in three
-real ways: a skipped stage, rows predating the timestamp columns, and rows with a
-status and no timestamp at all (`AP-cp000002` is exactly that, live). Keying only
-off timestamps drew that last one as one step done beneath a badge reading
-*Shipped*.
+ways: a skipped stage, rows predating the timestamp columns, and rows carrying a
+status with no timestamp at all. The third was found by running the tracker over
+the dev database, where such a row drew as one step done beneath a badge reading
+*Shipped*; production has none today, but the schema permits one. The orders that
+shipped before this feature are the second case, and they are live.
 
 `test/browser/order-tracker.mjs` covers the rendering in chromium and webkit,
 including all three of those shapes.

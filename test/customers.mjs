@@ -360,10 +360,11 @@ const shape = (stages) => stages.map((x) => (x.current ? "*" : x.done ? "x" : "-
   ok("a legacy row renders without holes", shape(o.stages) === "xxxx*-", shape(o.stages));
 }
 {
-  // FOUND IN THE LIVE DATA, not imagined. AP-cp000002 is status 'shipped' with
-  // shipped_at NULL — no timestamp was ever written for it. Keying progress only
-  // off timestamps drew that as one step done beneath a badge saying "Shipped".
-  // The status is the authority on how far an order has got.
+  // Found by running the tracker over the dev database rather than by imagining
+  // cases: a seeded row with status 'shipped' and shipped_at NULL drew as one step
+  // done beneath a badge reading "Shipped". Production has no row like it today,
+  // but the schema allows one. The status is the authority on how far an order
+  // has got; the timestamps only say when.
   const o = await trackerFor({ status: "shipped" });
   ok("a status with no timestamps still fills the bar", shape(o.stages) === "xxxx*-", shape(o.stages));
   ok("and invents no times for it", o.stages.every((x) => x.key === "pending" || x.at === null),
