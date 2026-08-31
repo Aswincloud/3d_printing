@@ -1,7 +1,12 @@
 {
-  "generated_at": 1788104149914,
-  "count": 86,
+  "generated_at": 1788150194172,
+  "count": 87,
   "images": [
+    {
+      "file": "ganesha_gold_idol.jpg",
+      "bytes": 194866,
+      "hash": "24fa0659"
+    },
     {
       "file": "spiderman_crouch.jpg",
       "bytes": 119566,
