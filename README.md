@@ -178,6 +178,12 @@ re-ordering the product array in place made pinning look right and left an
 the six-stage progress bar in My Orders, rendered from a stubbed payload in the
 shapes real order data actually takes. See [Order stages](#order-stages).
 
+**The promo banner, in Chromium and WebKit** (`test/browser/promo-banner.mjs`) —
+who the homepage banner is shown to. The offer comes from a **shared, edge-cached**
+response and is withdrawn by a **per-session** one, so the decision is split across
+two requests that arrive in either order; this pins down that race, and that a
+hidden banner leaves the nav flush rather than floating above a transparent gap.
+
 **Deploys are not run from CI.** Cloudflare Workers Builds deploys `main` on
 push; branches produce an unpromoted preview version. **Migrations are never run
 by the deploy** — apply them yourself with `npm run db:migrate:remote`.
@@ -446,6 +452,29 @@ immediately.
 `test/browser/pin-control.mjs` covers this in chromium and webkit: a customer gets
 a badge and no controls, an admin gets the toggle, and unpinning returns the card
 to where it came from.
+
+### The promo banner, and who sees it
+
+`PROMO_CODE` names a coupon the homepage advertises. `featuredPromo()`
+(`src/shop.js`) only offers a code that would actually work — active, unexpired,
+within `max_uses` — so the banner cannot advertise something checkout would then
+refuse.
+
+With one exception it could not see: **a customer who has already used a
+once-per-customer code.** That answer is per-customer, and `/api/products` is
+shared and edge-cached (`cdn-cache-control: s-maxage=60`), so putting it there
+would compute it for whoever missed the cache and serve it to everyone else for
+the next minute. It rides on `/api/me` instead — per-session and `no-store` — as
+`promo_used`, and the banner withdraws itself.
+
+This is **cosmetic**: `applyCoupon()` (`src/coupons.js`) refuses the second
+redemption regardless, so nobody can double-redeem either way. What it prevents is
+advertising a discount and then declining it at checkout.
+
+The consequence is that the banner's fate depends on two responses that can arrive
+in either order, which is most of what `test/browser/promo-banner.mjs` exists to
+pin down. A guest who used the code while signed out still sees the banner — there
+is no identity to check it against, and inventing one is not worth it.
 
 ### Order stages
 

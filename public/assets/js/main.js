@@ -489,6 +489,12 @@ const shopShipNote = document.getElementById('shopShipNote');
 
 let catalogue = [];              // products from the API
 let shipCfg = { flat_paise: 0, free_threshold_paise: 0 };
+// The promo the catalogue last advertised, and whether this customer has already
+// used it. Both are needed because the banner's fate depends on two responses
+// that arrive in either order.
+let lastPromo = null;
+let promoUsed = false;
+
 // DISPLAY ONLY, and set from /api/me. It decides whether the pin toggle is drawn,
 // nothing more: /api/admin/* re-checks the allowlist server-side, so faking this
 // in devtools buys a button that earns a 401. Same caveat as the Dashboard link.
@@ -714,13 +720,27 @@ const PROMO_DISMISS_KEY = 'ap_promo_hidden';
 function renderPromo(promo) {
   const bar = document.getElementById('promoBanner');
   if (!bar) return;
-  if (!promo || !promo.code) { bar.hidden = true; return; }
+  // Kept so the session can re-run this: /api/products and /api/me race, and
+  // whichever lands second has to be able to redraw the decision.
+  if (promo !== undefined) lastPromo = promo;
+  promo = lastPromo;
+  if (!promo || !promo.code) { bar.hidden = true; syncPromoOffset(); return; }
+
+  // Already redeemed by THIS customer. Cosmetic — applyCoupon() refuses the
+  // second use regardless — but advertising a discount and then declining it at
+  // checkout is the kind of thing that reads as a bait and switch.
+  //
+  // Only knowable per-session: /api/products is shared and edge-cached, so the
+  // flag rides on /api/me instead. See usedFeaturedPromo() in src/customers.js.
+  if (promoUsed) { bar.hidden = true; syncPromoOffset(); return; }
 
   // Dismissed for THIS code. Keyed on the code so a new offer shows again to
   // someone who closed the last one — a dismissal means "not that one", not
   // "never show me anything".
   try {
-    if (localStorage.getItem(PROMO_DISMISS_KEY) === promo.code) { bar.hidden = true; return; }
+    if (localStorage.getItem(PROMO_DISMISS_KEY) === promo.code) {
+      bar.hidden = true; syncPromoOffset(); return;
+    }
   } catch { /* private mode — show it */ }
 
   const off = promo.kind === 'percent' ? promo.value + '% off' : rupees(promo.value) + ' off';
@@ -763,33 +783,44 @@ function renderPromo(promo) {
   }
 
   bar.hidden = false;
+  bindPromoScroll();
+  syncPromoOffset();
+}
 
-  // How much of the banner is still on screen. The nav's `top` reads this, so it
-  // rides up as the banner scrolls away and pins at 0 once it is gone.
-  //
-  // Without it the nav stayed 85px down forever: the banner scrolled off and left
-  // a transparent gap at the top of the viewport with the page showing through,
-  // and the header sitting below it looking detached.
-  //
-  // Measured rather than assumed — the banner wraps to two lines on a phone, 85px
-  // there against 43px on a desktop.
-  let barH = bar.offsetHeight;
+// How much of the banner is still on screen. The nav's `top` reads this, so it
+// rides up as the banner scrolls away and pins at 0 once it is gone.
+//
+// Without it the nav stayed 85px down forever: the banner scrolled off and left a
+// transparent gap at the top of the viewport with the page showing through, and
+// the header sitting below it looking detached.
+//
+// The height is MEASURED on every call rather than captured once — the banner
+// wraps to two lines on a phone (85px against 43px on a desktop), and a hidden
+// banner must contribute 0 so the nav sits flush the moment it goes away.
+function syncPromoOffset() {
+  const bar = document.getElementById('promoBanner');
+  const h = bar && !bar.hidden ? bar.offsetHeight : 0;
+  const left = Math.max(0, h - (window.scrollY || 0));
+  document.documentElement.style.setProperty('--promo-h', left + 'px');
+}
+
+// Bound ONCE. renderPromo() is now called again whenever the session resolves —
+// signing in can hide the banner, signing out can bring it back — and attaching
+// the scroll handler per call would stack a new listener on every one of those.
+let promoScrollBound = false;
+function bindPromoScroll() {
+  if (promoScrollBound) return;
+  promoScrollBound = true;
   let queued = false;
-  const syncPromoOffset = () => {
-    queued = false;
-    const left = Math.max(0, barH - (window.scrollY || 0));
-    document.documentElement.style.setProperty('--promo-h', left + 'px');
-  };
   // Coalesced to one write per frame: this runs on every scroll event, and
-  // setting a custom property that the fixed nav depends on is a layout write.
+  // setting a custom property the fixed nav depends on is a layout write.
   const onScroll = () => {
     if (queued) return;
     queued = true;
-    requestAnimationFrame(syncPromoOffset);
+    requestAnimationFrame(() => { queued = false; syncPromoOffset(); });
   };
   window.addEventListener('scroll', onScroll, { passive: true });
-  window.addEventListener('resize', () => { barH = bar.offsetHeight; syncPromoOffset(); });
-  syncPromoOffset();
+  window.addEventListener('resize', syncPromoOffset);
 }
 
 /* ── shipping (display only) ───────────────────────────────────── */
@@ -2320,6 +2351,15 @@ function applyGuestState() {
   // Strip the pin toggles on sign-out without a reload, for the same reason
   // navDashboard is re-hidden above.
   if (isAdmin) { isAdmin = false; renderProducts(); }
+  // Belt and braces, and currently unreachable: the sign-out handler ends in
+  // location.reload(), so a signed-out visitor always arrives with promoUsed
+  // already false. Kept because the reset is correct for any future path that
+  // clears the session WITHOUT reloading — an offer that is honest for an
+  // anonymous visitor should not stay hidden because of who was here before.
+  //
+  // Not covered by test/browser/promo-banner.mjs for exactly that reason: there
+  // is no way to reach it while sign-out reloads the page.
+  if (promoUsed) { promoUsed = false; renderPromo(); }
 }
 
 function applySignedInState(me) {
@@ -2345,6 +2385,13 @@ function applySignedInState(me) {
   if (isAdmin !== Boolean(me.is_admin)) {
     isAdmin = Boolean(me.is_admin);
     renderProducts();
+  }
+
+  // May arrive before OR after the catalogue. renderPromo() reads the remembered
+  // promo, so this works either way round.
+  if (promoUsed !== Boolean(me.promo_used)) {
+    promoUsed = Boolean(me.promo_used);
+    renderPromo();
   }
 
   // NOT duplicated into the menu. Dashboard has its own header button, and the

@@ -271,6 +271,28 @@ export async function resendCode(request, env, ctx, body) {
 // `is_admin` is a DISPLAY hint so the account page can offer a dashboard link.
 // It grants nothing: /api/admin/* calls currentAdmin() and re-checks the
 // allowlist itself, so a client that fakes this flag still gets 401.
+// Has this customer already redeemed the code the homepage banner advertises?
+//
+// This CANNOT live on /api/products with the rest of the promo. That response is
+// shared and edge-cached (`cdn-cache-control: s-maxage=60`), so a per-customer
+// field there would be computed for whoever missed the cache and then served to
+// everyone else for the next minute. It belongs on /api/me, which is per-session
+// and `no-store`.
+//
+// Only meaningful for a once-per-customer code: using a code with no per-customer
+// limit does not disqualify anyone, so there is nothing to hide the banner for.
+async function usedFeaturedPromo(env, email) {
+  const code = String(env?.PROMO_CODE || "").trim();
+  if (!code || !email) return false;
+  const row = await env.DB.prepare(
+    `SELECT 1 AS hit FROM coupon_redemptions r
+       JOIN coupons c ON c.id = r.coupon_id
+      WHERE c.code = ? AND c.once_per_customer = 1 AND r.email = ?
+      LIMIT 1`
+  ).bind(code, email).first();
+  return Boolean(row);
+}
+
 export async function whoami(env, user, isAdmin = false) {
   // Explicitly uncacheable.
   //
@@ -286,6 +308,11 @@ export async function whoami(env, user, isAdmin = false) {
     email: user.email,
     name: user.name || null,
     is_admin: Boolean(isAdmin),
+
+    // Hides the homepage promo banner for someone who has already used the code.
+    // Cosmetic only — applyCoupon() refuses the second redemption regardless, so
+    // this is about not advertising a discount we would then decline at checkout.
+    promo_used: await usedFeaturedPromo(env, user.email),
     // The saved delivery details, so checkout can prefill without a second
     // round trip. Only ever the signed-in user's own row — `user` comes from the
     // verified session cookie, never from anything in the request.

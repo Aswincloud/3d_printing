@@ -90,3 +90,6 @@ jobs:
           # including the shapes real data actually arrives in (a skipped stage, a
           # row with a status and no timestamps). Same stubbed /api/*, no Worker.
           npm run test:tracker
+          # The promo banner is drawn from a SHARED cached response and withdrawn
+          # by a per-session one, so it exists mostly to pin down that race.
+          npm run test:promo
