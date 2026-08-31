@@ -54,7 +54,7 @@ jobs:
   # Serves the static files: this is CSS geometry, so it needs no Worker, no D1
   # and no secrets. That is what keeps it cheap enough to run on every push.
   layout:
-    name: hero geometry (chromium + webkit)
+    name: browser checks (chromium + webkit)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -74,7 +74,7 @@ jobs:
       # python3 is preinstalled on the runner, so this pulls nothing at run time.
       # GitHub sets CI=true, which makes an engine that fails to start fatal rather
       # than skipped — a browser that quietly drops out is a check not running.
-      - name: Serve public/ and check the hero
+      - name: Serve public/ and run the browser checks
         run: |
           python3 -m http.server 4173 --directory public --bind 127.0.0.1 &
           for i in $(seq 1 30); do
@@ -82,3 +82,7 @@ jobs:
             sleep 1
           done
           npm run test:layout
+          # The pin control is admin UI on the PUBLIC page, so which element each
+          # visitor gets is a browser question. /api/* is stubbed, so this needs no
+          # Worker — same static server as the hero check above.
+          npm run test:pin

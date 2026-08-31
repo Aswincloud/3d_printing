@@ -415,7 +415,7 @@ const row = (o) => ({
   id: o.id, slug: o.slug || o.id, name: o.name || o.id, description: "",
   price_paise: o.price_paise ?? 34900, image: `assets/images/${o.image}`,
   images: o.images || "", category: "figurine", sort: o.sort ?? 10,
-  visible: o.visible ?? 1,
+  visible: o.visible ?? 1, pinned: o.pinned ?? 0,
 });
 
 {
@@ -772,6 +772,106 @@ section("featured promo — only ever a code that actually works");
                                async all() { return { results: [] }; } }) },
        ASSETS: { fetch: async () => new Response("{}", { status: 200 }) },
      })).json()).promo === null);
+}
+
+// ── pinning, and the ordering bug it uncovered ──────────────────────────────
+//
+// The catalogue has always said ORDER BY sort ASC. 49 of 85 products carry
+// hand-set sort values (10, 20, 30 …) and the other 36 sit at the default 0 —
+// which sorts FIRST. So the curated order was buried under everything that was
+// never curated, and the live shop opened on "Banana Bowl, Batman Figurine,
+// Buddha Incense Holder" instead of the order actually chosen.
+//
+// The fake DB in catalogueEnv() does not implement ORDER BY, so a test through
+// it would prove nothing about the clause. These run the SQL SHIPPED IN
+// src/shop.js against real SQLite. The expected order is written out by hand
+// here; only the clause under test is imported.
+section("listProducts() — catalogue ordering (real SQLite, shipped SQL)");
+{
+  const { DatabaseSync } = await import("node:sqlite");
+
+  // Pull the ORDER BY out of the source rather than restating it, so this test
+  // cannot silently drift away from the query that actually runs.
+  const src = readFileSync(new URL("../src/shop.js", import.meta.url), "utf8");
+  const clause = src.match(/ORDER BY pinned DESC[^`]*?(?=`)/);
+  // If the ordering is ever reverted this must report a failure, not throw on
+  // clause[0] two lines down and take the rest of the file with it.
+  ok("the shipped query still orders by pinned then curated sort", clause !== null,
+     "no `ORDER BY pinned DESC ...` found in listProducts()");
+  const ORDER = clause ? clause[0].trim() : "ORDER BY name ASC";
+
+  const orderOf = (rows) => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE products (name TEXT, sort INTEGER, pinned INTEGER, visible INTEGER)");
+    const ins = db.prepare("INSERT INTO products VALUES (?, ?, ?, 1)");
+    for (const r of rows) ins.run(r.name, r.sort, r.pinned ? 1 : 0);
+    return db.prepare(
+      `SELECT name FROM products WHERE visible = 1 ${ORDER}`
+    ).all().map((r) => r.name);
+  };
+
+  // The live shape: curated rows interleaved with uncurated ones, inserted in an
+  // order that is neither the input order nor alphabetical.
+  const live = [
+    { name: "Banana Bowl", sort: 0 },
+    { name: "Elephant Sculpture", sort: 20 },
+    { name: "Batman Figurine", sort: 0 },
+    { name: "Articulated Dinosaur", sort: 10 },
+    { name: "Christmas House", sort: 0 },
+  ];
+
+  ok("curated products lead, in their sort order",
+     orderOf(live).slice(0, 2).join(" | ") === "Articulated Dinosaur | Elephant Sculpture",
+     orderOf(live).join(" | "));
+
+  ok("uncurated products follow, alphabetically",
+     orderOf(live).slice(2).join(" | ") === "Banana Bowl | Batman Figurine | Christmas House",
+     orderOf(live).join(" | "));
+
+  // The regression this replaced: sort=0 used to win outright.
+  ok("a sort=0 product no longer outranks a curated one",
+     orderOf(live).indexOf("Articulated Dinosaur") < orderOf(live).indexOf("Banana Bowl"));
+
+  // A pin beats both groups, whatever its own sort value is.
+  const pinned = [...live, { name: "Zebra Vase", sort: 0, pinned: true }];
+  ok("a pinned product leads everything", orderOf(pinned)[0] === "Zebra Vase",
+     orderOf(pinned).join(" | "));
+
+  const pinnedLate = [...live.map((r) => ({ ...r })), { name: "Zulu Mask", sort: 570, pinned: true }];
+  ok("a pin beats a high sort value too", orderOf(pinnedLate)[0] === "Zulu Mask",
+     orderOf(pinnedLate).join(" | "));
+
+  ok("unpinning restores the normal order",
+     orderOf([...live, { name: "Zebra Vase", sort: 0, pinned: false }])[0] === "Articulated Dinosaur");
+}
+
+// The JS pass that runs AFTER the query, which is where pin has to outrank the
+// buyable/quote-only split. SQL cannot express this one: quote_only is derived
+// from price_paise in shape(), not stored.
+section("listProducts() — pin outranks the buyable split");
+{
+  const env = catalogueEnv({
+    products: [
+      row({ id: "buyable", image: "buyable.jpg", price_paise: 34900 }),
+      row({ id: "pinned-unpriced", image: "pinned-unpriced.jpg", price_paise: 0, pinned: 1 }),
+    ],
+    manifest: ["buyable.jpg", "pinned-unpriced.jpg"],
+  });
+  const out = await (await listProducts(env)).json();
+  const ids = out.products.map((p) => p.id);
+
+  // Without the pin key this is exactly backwards: quote_only sorts last.
+  ok("a pinned unpriced product still leads a buyable one",
+     ids[0] === "pinned-unpriced", ids.join(" | "));
+
+  ok("pinned is exposed on the card", out.products[0].pinned === true);
+  ok("unpinned reads false, not undefined",
+     out.products.find((p) => p.id === "buyable").pinned === false);
+
+  // A synthesised card has no row, so there is nothing to pin — but it must still
+  // carry the field, or the frontend has to special-case it.
+  const synth = out.products.find((p) => p.id === null);
+  ok("a synthesised card carries pinned: false", synth === undefined || synth.pinned === false);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -30,9 +30,9 @@ const slugify = (s) =>
 export async function listProducts(env) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category,
-            visible, sort, personalise_label, personalise_required,
+            visible, sort, personalise_label, personalise_required, pinned,
             created_at, updated_at
-       FROM products ORDER BY sort ASC, name ASC`
+       FROM products ORDER BY pinned DESC, (sort = 0), sort ASC, name ASC`
   ).all();
   return json({ products: results || [] });
 }
@@ -614,6 +614,9 @@ export async function updateProduct(env, id, body) {
   if ("images" in body) put("images", clip(body.images, MAXLEN.images));
   if ("category" in body) put("category", clip(body.category, MAXLEN.category));
   if ("visible" in body) put("visible", body.visible ? 1 : 0);
+  // Leads the catalogue. A toggle, so coerced rather than validated — there is
+  // no value a caller could send that means anything other than on or off.
+  if ("pinned" in body) put("pinned", body.pinned ? 1 : 0);
   if ("sort" in body) {
     const sort = parsePaise(body.sort);
     if (sort === null) return bad("Sort must be a non-negative integer.");
@@ -643,7 +646,9 @@ export async function updateProduct(env, id, body) {
 }
 
 // ── bulk update ───────────────────────────────────────────────────
-// PATCH /api/admin/products with { items: [{id, price_paise?, visible?, description?}] }.
+// PATCH /api/admin/products with
+// { items: [{id, price_paise?, visible?, description?, personalise_label?,
+//            personalise_required?, pinned?}] }.
 //
 // Exists because correcting the seeded placeholder prices meant 26 separate
 // round trips through the single-row endpoint. Same validation as
@@ -710,6 +715,10 @@ export async function bulkUpdateProducts(env, body) {
     if ("personalise_required" in (it || {})) {
       sets.push("personalise_required = ?");
       args.push(it.personalise_required ? 1 : 0);
+    }
+    if ("pinned" in (it || {})) {
+      sets.push("pinned = ?");
+      args.push(it.pinned ? 1 : 0);
     }
     if (!sets.length) return bad("An item has nothing to update.");
 
