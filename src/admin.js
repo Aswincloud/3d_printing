@@ -27,12 +27,16 @@ const slugify = (s) =>
 // ── products ──────────────────────────────────────────────────────
 // Unlike the public /api/products, this returns hidden rows too — that's the
 // point of the dashboard.
+// Same ordering as the shop — see the note on listProducts() in src/shop.js for
+// why each key is there. Kept identical so the dashboard shows what a customer
+// sees rather than a second opinion about it.
 export async function listProducts(env) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category,
             visible, sort, personalise_label, personalise_required, pinned,
             created_at, updated_at
-       FROM products ORDER BY pinned DESC, (sort = 0), sort ASC, name ASC`
+       FROM products
+        ORDER BY pinned DESC, created_at DESC, (sort = 0), sort ASC, name ASC`
   ).all();
   return json({ products: results || [] });
 }

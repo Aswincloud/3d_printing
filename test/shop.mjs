@@ -774,75 +774,106 @@ section("featured promo — only ever a code that actually works");
      })).json()).promo === null);
 }
 
-// ── pinning, and the ordering bug it uncovered ──────────────────────────────
+// ── the catalogue order ─────────────────────────────────────────────────────
 //
-// The catalogue has always said ORDER BY sort ASC. 49 of 85 products carry
-// hand-set sort values (10, 20, 30 …) and the other 36 sit at the default 0 —
-// which sorts FIRST. So the curated order was buried under everything that was
-// never curated, and the live shop opened on "Banana Bowl, Batman Figurine,
-// Buddha Incense Holder" instead of the order actually chosen.
+// This clause has changed twice and both changes are encoded here.
 //
-// The fake DB in catalogueEnv() does not implement ORDER BY, so a test through
-// it would prove nothing about the clause. These run the SQL SHIPPED IN
-// src/shop.js against real SQLite. The expected order is written out by hand
-// here; only the clause under test is imported.
+// It began as plain `ORDER BY sort ASC`. 49 of 85 products carry a hand-set sort
+// (10, 20, 30 …) and the rest sit at the default 0 — which sorts FIRST — so the
+// curated sequence was buried under everything never curated. Fixing that with
+// `(sort = 0)` then surfaced the opposite problem: the curated batch is the
+// OLDEST, so pushing it to the front pushed every new piece to the back, and this
+// is a shop where new work is added weekly.
+//
+// So: pinned, then newest, then the curated sequence WITHIN a batch. The 49
+// curated rows share one timestamp, which is what lets the last two coexist.
+//
+// The fake DB in catalogueEnv() does not implement ORDER BY, so a test through it
+// would prove nothing about the clause. These run the SQL SHIPPED IN src/shop.js
+// against real SQLite. The expected order is written by hand here; only the
+// clause under test is imported.
 section("listProducts() — catalogue ordering (real SQLite, shipped SQL)");
 {
   const { DatabaseSync } = await import("node:sqlite");
 
-  // Pull the ORDER BY out of the source rather than restating it, so this test
-  // cannot silently drift away from the query that actually runs.
+  // Pulled from the source rather than restated, so this cannot drift away from
+  // the query that actually runs.
   const src = readFileSync(new URL("../src/shop.js", import.meta.url), "utf8");
   const clause = src.match(/ORDER BY pinned DESC[^`]*?(?=`)/);
-  // If the ordering is ever reverted this must report a failure, not throw on
-  // clause[0] two lines down and take the rest of the file with it.
-  ok("the shipped query still orders by pinned then curated sort", clause !== null,
-     "no `ORDER BY pinned DESC ...` found in listProducts()");
+  // A revert must report a failure here, not throw on clause[0] below and take
+  // the rest of the file with it.
+  ok("the shipped query still orders by pinned, then age, then curated sort",
+     clause !== null, "no `ORDER BY pinned DESC ...` found in listProducts()");
   const ORDER = clause ? clause[0].trim() : "ORDER BY name ASC";
+  ok("and newest-first is part of it", /created_at DESC/.test(ORDER), ORDER);
 
   const orderOf = (rows) => {
     const db = new DatabaseSync(":memory:");
-    db.exec("CREATE TABLE products (name TEXT, sort INTEGER, pinned INTEGER, visible INTEGER)");
-    const ins = db.prepare("INSERT INTO products VALUES (?, ?, ?, 1)");
-    for (const r of rows) ins.run(r.name, r.sort, r.pinned ? 1 : 0);
-    return db.prepare(
-      `SELECT name FROM products WHERE visible = 1 ${ORDER}`
-    ).all().map((r) => r.name);
+    db.exec("CREATE TABLE products (name TEXT, sort INTEGER, pinned INTEGER, created_at INTEGER, visible INTEGER)");
+    const ins = db.prepare("INSERT INTO products VALUES (?, ?, ?, ?, 1)");
+    for (const r of rows) ins.run(r.name, r.sort ?? 0, r.pinned ? 1 : 0, r.at ?? 0);
+    return db.prepare(`SELECT name FROM products WHERE visible = 1 ${ORDER}`)
+      .all().map((r) => r.name);
   };
 
-  // The live shape: curated rows interleaved with uncurated ones, inserted in an
-  // order that is neither the input order nor alphabetical.
+  // The live shape: one old curated batch sharing a timestamp, plus newer
+  // uncurated pieces added since, inserted in neither order.
+  const OLD = 1000;          // the curated batch, all one timestamp
   const live = [
-    { name: "Banana Bowl", sort: 0 },
-    { name: "Elephant Sculpture", sort: 20 },
-    { name: "Batman Figurine", sort: 0 },
-    { name: "Articulated Dinosaur", sort: 10 },
-    { name: "Christmas House", sort: 0 },
+    { name: "Naruto", at: 3000 },
+    { name: "Elephant Sculpture", sort: 20, at: OLD },
+    { name: "Ganesha Gold Idol", at: 5000 },
+    { name: "Articulated Dinosaur", sort: 10, at: OLD },
+    { name: "Murugan Peacock", at: 4000 },
   ];
+  const order = orderOf(live);
 
-  ok("curated products lead, in their sort order",
-     orderOf(live).slice(0, 2).join(" | ") === "Articulated Dinosaur | Elephant Sculpture",
-     orderOf(live).join(" | "));
+  ok("the newest piece leads", order[0] === "Ganesha Gold Idol", order.join(" | "));
+  ok("newer pieces come newest-first",
+     order.slice(0, 3).join(" | ") === "Ganesha Gold Idol | Murugan Peacock | Naruto",
+     order.join(" | "));
 
-  ok("uncurated products follow, alphabetically",
-     orderOf(live).slice(2).join(" | ") === "Banana Bowl | Batman Figurine | Christmas House",
-     orderOf(live).join(" | "));
+  // The point of keeping (sort = 0), sort ASC at the end: within one batch the
+  // curated sequence survives instead of collapsing to alphabetical.
+  ok("the curated batch keeps its own order, below the new work",
+     order.slice(3).join(" | ") === "Articulated Dinosaur | Elephant Sculpture",
+     order.join(" | "));
+  ok("a new piece outranks an old curated one",
+     order.indexOf("Ganesha Gold Idol") < order.indexOf("Articulated Dinosaur"));
 
-  // The regression this replaced: sort=0 used to win outright.
-  ok("a sort=0 product no longer outranks a curated one",
-     orderOf(live).indexOf("Articulated Dinosaur") < orderOf(live).indexOf("Banana Bowl"));
+  // Within one timestamp, an uncurated row still sits below a curated one, and
+  // ties break alphabetically so the order never depends on insertion order.
+  const batch = [
+    { name: "Zebra Vase", at: OLD }, { name: "Elephant Sculpture", sort: 20, at: OLD },
+    { name: "Articulated Dinosaur", sort: 10, at: OLD }, { name: "Banana Bowl", at: OLD },
+  ];
+  ok("inside one batch: curated first in sort order, then the rest A-Z",
+     orderOf(batch).join(" | ") === "Articulated Dinosaur | Elephant Sculpture | Banana Bowl | Zebra Vase",
+     orderOf(batch).join(" | "));
 
-  // A pin beats both groups, whatever its own sort value is.
-  const pinned = [...live, { name: "Zebra Vase", sort: 0, pinned: true }];
-  ok("a pinned product leads everything", orderOf(pinned)[0] === "Zebra Vase",
-     orderOf(pinned).join(" | "));
+  // A pin beats everything: newer, older, curated, uncurated.
+  ok("a pinned OLD product still leads the newest one",
+     orderOf([...live, { name: "Zulu Mask", sort: 570, at: OLD, pinned: true }])[0] === "Zulu Mask");
+  ok("unpinning drops it back by age",
+     orderOf([...live, { name: "Zulu Mask", sort: 570, at: OLD, pinned: false }])[0] === "Ganesha Gold Idol");
+  // Two pins are ordered among themselves by the same rules.
+  ok("pins are ordered newest-first among themselves",
+     orderOf([{ name: "Old Pin", at: OLD, pinned: true }, { name: "New Pin", at: 9000, pinned: true },
+              { name: "Plain", at: 5000 }]).join(" | ") === "New Pin | Old Pin | Plain");
 
-  const pinnedLate = [...live.map((r) => ({ ...r })), { name: "Zulu Mask", sort: 570, pinned: true }];
-  ok("a pin beats a high sort value too", orderOf(pinnedLate)[0] === "Zulu Mask",
-     orderOf(pinnedLate).join(" | "));
+  // The ORIGINAL regression, restated for the current clause: a row's sort value
+  // must never on its own decide that it beats a newer product.
+  ok("sort=0 does not by itself sink a product",
+     orderOf([{ name: "Fresh", sort: 0, at: 9000 }, { name: "Stale", sort: 10, at: 1 }])[0] === "Fresh");
 
-  ok("unpinning restores the normal order",
-     orderOf([...live, { name: "Zebra Vase", sort: 0, pinned: false }])[0] === "Articulated Dinosaur");
+  // The dashboard must show what a customer sees, not a second opinion about it.
+  // Comparing the two clauses directly is the cheapest guard against the one
+  // failure mode nobody notices: changing one of them and not the other.
+  const adminSrc = readFileSync(new URL("../src/admin.js", import.meta.url), "utf8");
+  const adminClause = adminSrc.match(/ORDER BY pinned DESC[^`]*?(?=`)/);
+  ok("the dashboard orders products by the same clause as the shop",
+     adminClause !== null && adminClause[0].replace(/\s+/g, " ").trim() === ORDER.replace(/\s+/g, " ").trim(),
+     `shop: ${ORDER} | admin: ${adminClause ? adminClause[0].trim() : "none"}`);
 }
 
 // The JS pass that runs AFTER the query, which is where pin has to outrank the

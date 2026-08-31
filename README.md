@@ -407,20 +407,29 @@ Products come out in this order, set by one clause in `listProducts()`
 (`src/shop.js`) that both the shop and the dashboard share:
 
 ```sql
-ORDER BY pinned DESC, (sort = 0), sort ASC, name ASC
+ORDER BY pinned DESC, created_at DESC, (sort = 0), sort ASC, name ASC
 ```
 
-1. **Pinned** products, newest curation first.
-2. **Curated** products — anything with a hand-set `sort` — in that order.
-3. **Everything else**, alphabetically.
+1. **Pinned** products.
+2. **Newest first** — this is a made-to-order shop and new pieces are added
+   weekly, so burying today's print under a batch from three weeks ago is the
+   wrong default.
+3. **Within one batch**, the curated `sort` sequence, then alphabetically.
 
-`(sort = 0)` is what puts the uncurated rows last, and it is a fix rather than a
-flourish. The clause used to be plain `ORDER BY sort ASC`, and since `sort`
-defaults to `0` the 36 products nobody had ordered sorted *above* the 49 that had
-been ordered by hand. The curated sequence existed in the database and never
-reached the page. `test/shop.mjs` runs the shipped clause against real SQLite
-rather than a fake, because the fake does not implement `ORDER BY` and would have
-proved nothing.
+The last two keys coexist only because of a fact about the data: all 49 curated
+products share a single `created_at`, so ordering by age moves them as one block
+and leaves their chosen sequence intact.
+
+This clause has been wrong twice, which is why it is tested the way it is. It
+began as plain `ORDER BY sort ASC` — and since `sort` defaults to `0`, the 36
+products nobody had ordered sorted *above* the 49 that had been. Fixing that with
+`(sort = 0)` then surfaced the opposite problem: the curated batch is the oldest,
+so putting it first pushed every new piece to the bottom.
+
+`test/shop.mjs` runs the **shipped** clause against real SQLite rather than a
+fake, because the fake does not implement `ORDER BY` and would have proved
+nothing. It also asserts the dashboard's clause is character-for-character the
+same, since the failure nobody notices is changing one and not the other.
 
 **Pinning is done from the shop itself, not the dashboard.** Signed in as an
 admin, every product card grows a **Pin** button in the top-left of its photo;

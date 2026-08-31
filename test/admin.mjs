@@ -190,11 +190,13 @@ function makeDB(seed = {}) {
     // Matched on a stable PREFIX rather than the full column list: pinning added a
     // column and the exact-list match broke every test in the file at once.
     if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort,")) {
-      // Same ordering the query asks for. Emulated here only so the dashboard
-      // fixture is not misleading — the real clause is exercised against real
-      // SQLite in test/shop.mjs, which is where the ordering is actually proved.
+      // Same ordering the query asks for: pinned, then newest, then the curated
+      // sequence within a batch. Emulated here only so the dashboard fixture is
+      // not misleading — the real clause runs against real SQLite in
+      // test/shop.mjs, which also asserts this file's clause matches the shop's.
       return { results: [...db.products].sort((x, y) =>
         Number(Boolean(y.pinned)) - Number(Boolean(x.pinned)) ||
+        (y.created_at || 0) - (x.created_at || 0) ||
         Number((x.sort || 0) === 0) - Number((y.sort || 0) === 0) ||
         (x.sort || 0) - (y.sort || 0) ||
         String(x.name).localeCompare(String(y.name))) };
