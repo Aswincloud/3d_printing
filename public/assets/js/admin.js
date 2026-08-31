@@ -67,6 +67,18 @@ function flash(message, isError = false) {
 }
 
 /* ── auth ──────────────────────────────────────────────────────── */
+// Button text, and the ONLY thing about the pipeline this file owns. Which
+// stages an order may move to, what they are called to a customer, and whether a
+// refund is still possible all arrive on the order from /api/admin/orders — see
+// listOrders() in src/admin.js. A missing entry falls back to "Mark <status>", so
+// adding a stage server-side degrades to a working button rather than a blank one.
+const STAGE_ACTION = {
+  in_production: 'Start production',
+  ready: 'Mark ready to ship',
+  shipped: 'Mark shipped',
+  delivered: 'Mark delivered',
+};
+
 const AUTH_MESSAGES = {
   denied: "That account isn't an owner of this shop.",
   state: 'Sign-in expired or was tampered with. Please try again.',
@@ -207,7 +219,7 @@ function orderCard(o) {
   const top = el('div', 'order-top');
   const ref = el('div', 'order-ref');
   ref.append(document.createTextNode(o.receipt));
-  const badge = el('span', 'badge badge-' + o.status, o.status);
+  const badge = el('span', 'badge badge-' + o.status, o.status_label || o.status);
   ref.appendChild(badge);
   ref.appendChild(el('span', 'order-date', when(o.created_at)));
   top.append(ref, el('div', 'order-amount', rupees(o.total_paise)));
@@ -253,7 +265,10 @@ function orderCard(o) {
   pair('Shipping', rupees(o.shipping_paise));
   pair('Payment id', o.rzp_payment_id);
   pair('Paid at', o.paid_at ? when(o.paid_at) : null);
+  pair('Production at', o.production_at ? when(o.production_at) : null);
+  pair('Ready at', o.ready_at ? when(o.ready_at) : null);
   pair('Shipped at', o.shipped_at ? when(o.shipped_at) : null);
+  pair('Delivered at', o.delivered_at ? when(o.delivered_at) : null);
   // Shown here because this is where you look when a customer asks "where is my
   // parcel?" a week later — the email that carried it was sent once.
   pair('Courier', o.courier);
@@ -263,35 +278,48 @@ function orderCard(o) {
 
   const actions = el('div', 'order-actions');
 
-  if (o.status === 'paid') {
-    actions.appendChild(actionBtn('Mark shipped', 'admin-btn', async () => {
-      // Both optional. A print handed to a local courier with no tracking number
-      // is still shipped, so cancelling out of either prompt continues rather
-      // than aborting — only Cancel on the FIRST prompt abandons the whole thing.
-      const courier = prompt(
-        `Mark ${o.receipt} shipped and email ${o.cust_email}.\n\n` +
-        `Courier (optional — leave blank to skip):`
-      );
-      if (courier === null) return;   // cancelled the whole action
+  // One button per stage this order may legally move to. Mirrors
+  // ALLOWED_TRANSITIONS in src/admin.js, which re-checks and is the authority —
+  // a button that should not be here earns a 409, not a bad write.
+  //
+  // Forward skips are offered on purpose: something already on the shelf goes
+  // paid -> shipped in one click, exactly as before these stages existed.
+  // 'cancelled' is reachable from most stages but has its own button below, with
+  // a confirmation — it is not a step forward and should not sit among them.
+  for (const next of (o.next_stages || []).filter((x) => x !== 'cancelled')) {
+    const label = STAGE_ACTION[next] || `Mark ${next}`;
+    actions.appendChild(actionBtn(label, 'admin-btn', async () => {
+      const body = { status: next };
 
-      const tracking = prompt('Tracking number (optional — leave blank to skip):');
-      if (tracking === null) return;
+      if (next === 'shipped') {
+        // Both optional. A print handed to a local courier with no tracking number
+        // is still shipped, so cancelling out of either prompt continues rather
+        // than aborting — only Cancel on the FIRST prompt abandons the whole thing.
+        const courier = prompt(
+          `Mark ${o.receipt} shipped and email ${o.cust_email}.\n\n` +
+          `Courier (optional — leave blank to skip):`
+        );
+        if (courier === null) return;   // cancelled the whole action
+
+        const tracking = prompt('Tracking number (optional — leave blank to skip):');
+        if (tracking === null) return;
+
+        body.courier = courier.trim();
+        body.tracking_id = tracking.trim();
+      }
 
       const out = await api(`/api/admin/orders/${o.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          status: 'shipped',
-          courier: courier.trim(),
-          tracking_id: tracking.trim(),
-        }),
+        method: 'PATCH', body: JSON.stringify(body),
       });
-      flash(`${o.receipt} marked shipped` +
+      // `emailed` comes back false for 'ready', which sends nothing on purpose —
+      // so the toast says what happened rather than claiming a mail went out.
+      flash(`${o.receipt} → ${STAGE_ACTION[next] || next}` +
         (out.emailed ? ` — ${o.cust_email} notified.` : '.'));
       await Promise.all([loadOrders(), loadStats()]);
     }));
   }
 
-  if (['paid', 'shipped'].includes(o.status)) {
+  if (o.can_refund) {
     actions.appendChild(actionBtn('Refund', 'admin-btn admin-btn-danger', async () => {
       // Real money leaves the account, so require a typed confirmation rather
       // than a single click.
@@ -312,7 +340,7 @@ function orderCard(o) {
     }));
   }
 
-  if (['pending', 'paid', 'failed'].includes(o.status)) {
+  if (['pending', 'paid', 'in_production', 'ready', 'failed'].includes(o.status)) {
     actions.appendChild(actionBtn('Cancel', 'admin-btn-ghost', async () => {
       if (!confirm(`Cancel ${o.receipt}? This does not refund any money.`)) return;
       await api(`/api/admin/orders/${o.id}`, {

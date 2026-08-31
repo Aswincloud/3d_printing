@@ -321,9 +321,10 @@ function makeDB(seed = {}) {
     }
     // Projected, not the whole row: a test asserting a column is NOT returned
     // must not pass because the fake handed back everything.
-    if (s.startsWith("SELECT id, receipt, status, notes, shipped_at, courier, tracking_id FROM orders WHERE id = ?")) {
+    if (s.startsWith("SELECT id, receipt, status, notes, paid_at, production_at, ready_at, shipped_at, delivered_at, courier, tracking_id FROM orders WHERE id = ?")) {
       const o = db.orders.find((x) => x.id === a[0]);
-      return { first: o ? project(o, ["id", "receipt", "status", "notes", "shipped_at", "courier", "tracking_id"]) : null };
+      return { first: o ? project(o, ["id", "receipt", "status", "notes", "paid_at",
+        "production_at", "ready_at", "shipped_at", "delivered_at", "courier", "tracking_id"]) : null };
     }
     if (s.startsWith("SELECT id, receipt, status, notes, shipped_at FROM orders WHERE id = ?")) {
       const o = db.orders.find((x) => x.id === a[0]);
@@ -969,6 +970,140 @@ section("admin orders — status transitions");
   const [status] = await read(await updateOrder(env, ORDER.id, { status: "shipped" }));
   ok("paid → shipped allowed", status === 200);
   ok("shipped_at stamped", typeof env.DB._db.orders[0].shipped_at === "number");
+}
+
+// ── the production stages ─────────────────────────────────────────
+//
+// An order used to go paid -> shipped, so every day the print was being made was
+// invisible to the customer. These assert the widened pipeline, and — more
+// importantly — the things it could quietly have broken on the way past.
+section("admin orders — the production stages");
+{
+  // Every legal step, walked end to end, checking the timestamp each stamps.
+  const stamps = { in_production: "production_at", ready: "ready_at",
+                   shipped: "shipped_at", delivered: "delivered_at" };
+  const env = envDB({ orders: [ORDER] });
+  stubResend();
+  for (const next of ["in_production", "ready", "shipped", "delivered"]) {
+    const [st] = await read(await updateOrder(env, ORDER.id, { status: next }));
+    ok(`advances to ${next}`, st === 200, String(st));
+    ok(`${next} stamps ${stamps[next]}`,
+       typeof env.DB._db.orders[0][stamps[next]] === "number",
+       JSON.stringify(env.DB._db.orders[0][stamps[next]]));
+  }
+  ok("ends delivered", env.DB._db.orders[0].status === "delivered");
+}
+{
+  // Skipping forward must stay legal, or something already on the shelf would
+  // need four clicks to ship instead of one.
+  ok("paid → shipped still allowed in one step",
+     (await read(await updateOrder(envDB({ orders: [ORDER] }), ORDER.id, { status: "shipped" })))[0] === 200);
+  ok("paid → ready allowed (skips production)",
+     (await read(await updateOrder(envDB({ orders: [ORDER] }), ORDER.id, { status: "ready" })))[0] === 200);
+}
+{
+  // Backwards and sideways are refused.
+  const cases = [
+    ["shipped", "in_production", "cannot go back to production once shipped"],
+    ["delivered", "shipped", "delivered is terminal"],
+    ["ready", "in_production", "cannot go back from ready"],
+    ["pending", "in_production", "production needs payment first"],
+    ["cancelled", "shipped", "a cancelled order cannot ship"],
+  ];
+  for (const [from, to, label] of cases) {
+    const env = envDB({ orders: [{ ...ORDER, status: from }] });
+    const [st] = await read(await updateOrder(env, ORDER.id, { status: to }));
+    ok(label, st === 409, `${from} → ${to} gave ${st}`);
+    ok(`${label} — order untouched`, env.DB._db.orders[0].status === from);
+  }
+}
+{
+  // The invariants the stages must not have loosened.
+  ok("'paid' is still webhook-only from in_production",
+     (await read(await updateOrder(envDB({ orders: [{ ...ORDER, status: "in_production" }] }),
+       ORDER.id, { status: "paid" })))[0] === 409);
+  ok("'refunded' is still refund-action-only",
+     (await read(await updateOrder(envDB({ orders: [{ ...ORDER, status: "delivered" }] }),
+       ORDER.id, { status: "refunded" })))[0] === 409);
+  ok("an unknown stage is refused",
+     (await read(await updateOrder(envDB({ orders: [ORDER] }), ORDER.id, { status: "printing" })))[0] === 400);
+}
+
+// THE REGRESSION THIS FEATURE COULD HAVE CAUSED. refundOrder() guarded on
+// ["paid","shipped"]; adding stages without widening it makes an order
+// unrefundable the moment production starts, which is precisely when a customer
+// is most likely to change their mind.
+section("admin orders — a refund survives every stage");
+{
+  for (const st of ["paid", "in_production", "ready", "shipped", "delivered"]) {
+    const env = envDB({ orders: [{ ...ORDER, status: st }] });
+    globalThis.fetch = async (u) => String(u).includes("razorpay")
+      ? new Response(JSON.stringify({ id: "rfnd_1", amount: ORDER.total_paise, status: "processed" }), { status: 200 })
+      : new Response("{}", { status: 200 });
+    const [code, out] = await read(await refundOrder(env, ORDER.id, {}));
+    ok(`refundable at ${st}`, code === 200, `got ${code} ${JSON.stringify(out).slice(0, 80)}`);
+  }
+  for (const st of ["pending", "cancelled", "failed"]) {
+    const env = envDB({ orders: [{ ...ORDER, status: st }] });
+    ok(`not refundable at ${st}`, (await read(await refundOrder(env, ORDER.id, {})))[0] === 409);
+  }
+}
+
+section("admin orders — which stages email, and which do not");
+{
+  // 'ready' being absent from STAGE_EMAIL is the whole implementation of "it
+  // advances the tracker but sends nothing". Assert the absence directly.
+  const cases = [
+    ["in_production", 1, /started printing/i],
+    ["ready", 0, null],
+    ["shipped", 1, /shipped/i],
+    ["delivered", 1, /delivered/i],
+  ];
+  for (const [next, expected, subjectRe] of cases) {
+    const from = { in_production: "paid", ready: "in_production",
+                   shipped: "ready", delivered: "shipped" }[next];
+    const env = envDB({ orders: [{ ...ORDER, status: from }] });
+    const calls = stubResend();
+    const [, out] = await read(await updateOrder(env, ORDER.id, { status: next }));
+    ok(`${next} sends ${expected} email(s)`, calls.length === expected,
+       `${calls.length}: ${JSON.stringify(calls.map((c) => c.subject))}`);
+    ok(`${next} reports emailed=${Boolean(expected)}`, out.emailed === Boolean(expected));
+    if (subjectRe) ok(`${next} subject reads right`, subjectRe.test(calls[0]?.subject || ""), calls[0]?.subject);
+  }
+}
+{
+  // Re-saving must not re-notify. This is why the flag keys off the TRANSITION
+  // rather than the resulting status — correcting a typo'd tracking number a day
+  // later must not tell the customer their order shipped a second time.
+  // A distinctive old value, so a re-stamp is visible rather than hidden by two
+  // Date.now() calls landing in the same millisecond.
+  const env = envDB({ orders: [{ ...ORDER, status: "in_production", production_at: 1234 }] });
+  const calls = stubResend();
+
+  await updateOrder(env, ORDER.id, { status: "in_production" });
+  ok("re-saving the same stage sends nothing", calls.length === 0, String(calls.length));
+  // The one that matters: re-sending the same status must not move the time the
+  // stage was actually reached, or the customer's tracker would quietly rewrite
+  // its own history every time the order is touched.
+  ok("re-saving the same stage does not re-stamp its time",
+     env.DB._db.orders[0].production_at === 1234,
+     String(env.DB._db.orders[0].production_at));
+
+  await updateOrder(env, ORDER.id, { status: "shipped", tracking_id: "TRK1" });
+  const shippedAt = env.DB._db.orders[0].shipped_at;
+  ok("shipping stamps a time", typeof shippedAt === "number");
+  ok("and the earlier stage's time is untouched", env.DB._db.orders[0].production_at === 1234);
+  calls.length = 0;
+
+  // Correcting a typo'd tracking number a day later must not tell the customer
+  // their order shipped a second time, nor move when it shipped.
+  await updateOrder(env, ORDER.id, { tracking_id: "TRK2" });
+  ok("editing tracking sends nothing", calls.length === 0, String(calls.length));
+  ok("and does not re-stamp shipped_at", env.DB._db.orders[0].shipped_at === shippedAt);
+  ok("the correction did land", env.DB._db.orders[0].tracking_id === "TRK2");
+
+  await updateOrder(env, ORDER.id, { notes: "packed carefully" });
+  ok("editing notes sends nothing", calls.length === 0, String(calls.length));
 }
 
 // ── the shipped notification ──────────────────────────────────────

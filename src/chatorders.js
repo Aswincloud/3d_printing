@@ -31,7 +31,7 @@
 // behind a dashboard toggle being set correctly. This works whatever Chatwoot is
 // configured to do.
 
-import { json, bad, now, hmacHex, timingSafeEqualHex } from "./lib.js";
+import { json, bad, now, hmacHex, timingSafeEqualHex, statusLabel } from "./lib.js";
 import { verifyToken } from "@aswincloud/auth";
 
 // A chat answer, not an order history page. Five is more than anyone asks about.
@@ -111,6 +111,10 @@ export async function chatOrdersHandler(request, env) {
     orders: list.map((o) => ({
       receipt: o.receipt,
       status: o.status,
+      // The bot puts this straight into a sentence, and the raw value would have
+      // it telling a customer their order is "in_production". Same map the
+      // account page uses, so the two never disagree about what a stage is called.
+      status_label: statusLabel(o.status),
       total_paise: o.total_paise,
       items: byOrder.get(o.id) || [],
       ordered_at: o.created_at,

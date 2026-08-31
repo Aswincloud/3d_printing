@@ -2,9 +2,9 @@
 // authenticated by the positional gate in index.js — these functions never
 // check auth themselves, so the gate must stay above them in the router.
 
-import { json, bad, uid, now, sendEmail } from "./lib.js";
+import { json, bad, uid, now, sendEmail, statusLabel } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
-import { orderShippedEmail } from "./emails.js";
+import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail } from "./emails.js";
 import { checkAgentEntries, checkDescribeEntries } from "./agent.js";
 
 const MAXLEN = { name: 120, slug: 80, desc: 2000, image: 300, images: 2000, category: 40, note: 500,
@@ -781,7 +781,18 @@ export async function deleteProduct(env, id) {
 }
 
 // ── orders ────────────────────────────────────────────────────────
-const ORDER_STATUSES = ["pending", "paid", "failed", "shipped", "cancelled", "refunded"];
+// The pipeline, plus the three outcomes that end it. Kept in this order so the
+// dashboard's status filter reads like the journey.
+const ORDER_STATUSES = [
+  "pending", "paid", "in_production", "ready", "shipped", "delivered",
+  "failed", "cancelled", "refunded",
+];
+
+// Where a refund is still possible. Widened with the production stages
+// DELIBERATELY: money has changed hands from `paid` onwards, and a customer who
+// asks for their money back while the print is on the bed must not be told
+// `Cannot refund an order with status "in_production"`.
+const REFUNDABLE = ["paid", "in_production", "ready", "shipped", "delivered"];
 
 export async function listOrders(env, url) {
   const status = clip(url.searchParams.get("status"), 20);
@@ -794,7 +805,8 @@ export async function listOrders(env, url) {
     `SELECT id, receipt, rzp_order_id, rzp_payment_id, status, subtotal_paise,
             discount_paise, coupon_code, shipping_paise, total_paise, delivery,
             cust_name, cust_email, cust_phone, addr_line, addr_city, addr_state,
-            addr_pin, notes, created_at, paid_at, shipped_at, courier, tracking_id
+            addr_pin, notes, created_at, paid_at, production_at, ready_at,
+            shipped_at, delivered_at, courier, tracking_id
        FROM orders ${where} ORDER BY created_at DESC LIMIT ?`
   ).bind(...bindArgs).all();
 
@@ -822,7 +834,17 @@ export async function listOrders(env, url) {
   ).all();
 
   return json({
-    orders: list.map((o) => ({ ...o, items: byOrder.get(o.id) || [] })),
+    orders: list.map((o) => ({
+      ...o,
+      items: byOrder.get(o.id) || [],
+      // Told to the dashboard rather than mirrored there. The transition table
+      // and the refund rule live here and are re-checked here; a second copy in
+      // the browser would be one more thing to keep in step, and drift would show
+      // up as a button that 409s.
+      status_label: statusLabel(o.status),
+      next_stages: ALLOWED_TRANSITIONS[o.status] || [],
+      can_refund: REFUNDABLE.includes(o.status) && Boolean(o.rzp_payment_id),
+    })),
     counts: counts || [],
   });
 }
@@ -831,10 +853,61 @@ export async function listOrders(env, url) {
 // it's written by the webhook from Razorpay's confirmation, and letting the
 // dashboard set it by hand would mean an unpaid order could be marked paid.
 const ALLOWED_TRANSITIONS = {
-  paid: ["shipped", "cancelled"],
-  shipped: ["cancelled"],
   pending: ["cancelled"],
+  // Skipping forward stays legal. Something already on the shelf still ships in
+  // ONE click, exactly as before these stages existed — adding stages must not
+  // turn a one-click job into four.
+  paid: ["in_production", "ready", "shipped", "cancelled"],
+  in_production: ["ready", "shipped", "cancelled"],
+  ready: ["shipped", "cancelled"],
+  shipped: ["delivered", "cancelled"],
+  // Terminal. A refund is still possible, but only through the refund action,
+  // which is what actually moves the money.
+  delivered: [],
   failed: ["cancelled"],
+};
+
+// The timestamp each stage stamps on arrival. Mirrors paid_at / shipped_at,
+// which already worked this way.
+const STAGE_STAMP = {
+  in_production: "production_at",
+  ready: "ready_at",
+  shipped: "shipped_at",
+  delivered: "delivered_at",
+};
+
+// Which stages email the customer, and what they say.
+//
+// `ready` is deliberately ABSENT: it advances the tracker and the dashboard and
+// sends nothing. It is usually only hours before shipping, and two mails that
+// close together read as padding rather than progress. Its absence from this
+// table is the entire implementation of that decision.
+const STAGE_EMAIL = {
+  in_production: {
+    subject: (o) => `We've started printing your order — ${o.receipt}`,
+    html: (env, o) => orderInProductionEmail(env, o),
+    text: (o) => `Good news — your order ${o.receipt} is on the printer now.\n`
+      + `\nI'll email you again when it ships.\n\n— Aswin\nhttps://3d-prints.aswincloud.com\n`,
+  },
+  shipped: {
+    subject: (o) => `Your order has shipped — ${o.receipt}`,
+    html: (env, o) => orderShippedEmail(env, o, {
+      courier: o.courier,
+      tracking: o.tracking_id,
+      trackingUrl: trackingUrlFor(o.courier, o.tracking_id),
+    }),
+    text: (o) => `Your order ${o.receipt} has shipped.\n`
+      + (o.courier ? `Courier: ${o.courier}\n` : "")
+      + (o.tracking_id ? `Tracking: ${o.tracking_id}\n` : "")
+      + `\n— Aswin\nhttps://3d-prints.aswincloud.com\n`,
+  },
+  delivered: {
+    subject: (o) => `Delivered — ${o.receipt}`,
+    html: (env, o) => orderDeliveredEmail(env, o),
+    text: (o) => `Your order ${o.receipt} has been delivered.\n`
+      + `\nIf anything is not right, just reply to this email.\n\n— Aswin\n`
+      + `https://3d-prints.aswincloud.com\n`,
+  },
 };
 
 export async function updateOrder(env, id, body, ctx = null) {
@@ -848,7 +921,9 @@ export async function updateOrder(env, id, body, ctx = null) {
 
   const sets = [];
   const args = [];
-  let justShipped = false;
+  // The stage just ENTERED, or null. Null when the status did not change, which
+  // is what stops a re-save from re-notifying.
+  let entered = null;
 
   if ("status" in body) {
     const next = clip(body.status, 20);
@@ -864,12 +939,14 @@ export async function updateOrder(env, id, body, ctx = null) {
       return bad(`Cannot go from "${order.status}" to "${next}".`, 409);
     }
     sets.push("status = ?"); args.push(next);
-    if (next === "shipped") {
-      sets.push("shipped_at = ?"); args.push(now());
-      // Only on the TRANSITION into shipped. Re-saving an order that is already
-      // shipped — to correct a typo'd tracking number, say — must not send the
-      // customer a second "your order has shipped" email.
-      justShipped = order.status !== "shipped";
+
+    // Only on the TRANSITION. Re-saving an order that is already shipped — to
+    // correct a typo'd tracking number, say — must not stamp a new time over the
+    // real one, and must not send a second "your order has shipped" email.
+    if (next !== order.status) {
+      entered = next;
+      const stamp = STAGE_STAMP[next];
+      if (stamp) { sets.push(`${stamp} = ?`); args.push(now()); }
     }
   }
 
@@ -886,7 +963,8 @@ export async function updateOrder(env, id, body, ctx = null) {
   await env.DB.prepare(`UPDATE orders SET ${sets.join(", ")} WHERE id = ?`).bind(...args).run();
 
   const row = await env.DB.prepare(
-    `SELECT id, receipt, status, notes, shipped_at, courier, tracking_id FROM orders WHERE id = ?`
+    `SELECT id, receipt, status, notes, paid_at, production_at, ready_at,
+            shipped_at, delivered_at, courier, tracking_id FROM orders WHERE id = ?`
   ).bind(id).first();
 
   // Tell the customer. The confirmation email promises "I'll email you again when
@@ -895,28 +973,24 @@ export async function updateOrder(env, id, body, ctx = null) {
   // Sent through waitUntil so a slow or failing Resend call does not hold up the
   // dashboard, and a failure is logged rather than surfaced: the order IS shipped
   // either way, and an error toast would suggest the status change did not stick.
-  if (justShipped && env.RESEND_API_KEY) {
+  const mail = entered ? STAGE_EMAIL[entered] : null;
+  if (mail && env.RESEND_API_KEY) {
     const merged = { ...order, ...row };
     const send = sendEmail(env, {
       to: merged.cust_email,
       replyTo: env.OWNER_EMAIL || "aswin@aswincloud.com",
-      subject: `Your order has shipped — ${merged.receipt}`,
-      html: orderShippedEmail(env, merged, {
-        courier: merged.courier,
-        tracking: merged.tracking_id,
-        trackingUrl: trackingUrlFor(merged.courier, merged.tracking_id),
-      }),
-      text: `Your order ${merged.receipt} has shipped.\n`
-        + (merged.courier ? `Courier: ${merged.courier}\n` : "")
-        + (merged.tracking_id ? `Tracking: ${merged.tracking_id}\n` : "")
-        + `\n— Aswin\nhttps://3d-prints.aswincloud.com\n`,
+      subject: mail.subject(merged),
+      html: mail.html(env, merged),
+      text: mail.text(merged),
     }).then((r) => {
-      if (!r.ok) console.error("shipped email failed", merged.receipt, r.status, r.error);
+      if (!r.ok) console.error(`${entered} email failed`, merged.receipt, r.status, r.error);
     });
     if (ctx?.waitUntil) ctx.waitUntil(send); else await send;
   }
 
-  return json({ ok: true, order: row, emailed: justShipped });
+  // `emailed` drives the dashboard's toast, so it must reflect whether a mail
+  // actually went — entering `ready` changes the order and sends nothing.
+  return json({ ok: true, order: row, emailed: Boolean(mail && env.RESEND_API_KEY) });
 }
 
 // A direct tracking link where the courier is one we can recognise, otherwise
@@ -956,7 +1030,7 @@ export async function refundOrder(env, id, body) {
   if (!order.rzp_payment_id) {
     return bad("This order has no payment to refund.", 409);
   }
-  if (!["paid", "shipped"].includes(order.status)) {
+  if (!REFUNDABLE.includes(order.status)) {
     return bad(`Cannot refund an order with status "${order.status}".`, 409);
   }
 

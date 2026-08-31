@@ -189,3 +189,83 @@ export async function sendEmail(env, { to, subject, html, text, fromName, replyT
 }
 
 export const isEmail = (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s || "");
+
+// ── order stages ──────────────────────────────────────────────────
+//
+// ONE definition of the pipeline, imported by the state machine in admin.js, the
+// customer's order list, the dashboard and the chat bot. It used to be that the
+// only status a customer saw was the raw database value — the badge in My Orders
+// literally rendered the word `shipped` — and every place that wanted to spell a
+// status nicely would have needed its own copy of this map.
+//
+// ORDER MATTERS: this array IS the pipeline, and `stageTimeline()` below relies
+// on the sequence to work out what a customer has already passed.
+export const ORDER_STAGES = [
+  { key: "pending",       label: "Placed",        at: "created_at" },
+  { key: "paid",          label: "Confirmed",     at: "paid_at" },
+  { key: "in_production", label: "In production", at: "production_at" },
+  { key: "ready",         label: "Ready to ship", at: "ready_at" },
+  { key: "shipped",       label: "Shipped",       at: "shipped_at" },
+  { key: "delivered",     label: "Delivered",     at: "delivered_at" },
+];
+
+// Not stages — they end the pipeline rather than advancing it, so an order in one
+// of these renders a single badge and no tracker. A half-drawn progress bar with
+// a dead end in the middle tells a customer less than the plain word does.
+export const TERMINAL_STATUSES = {
+  cancelled: "Cancelled",
+  refunded: "Refunded",
+  failed: "Payment failed",
+};
+
+const STAGE_LABEL = Object.fromEntries(ORDER_STAGES.map((s) => [s.key, s.label]));
+
+export const statusLabel = (status) =>
+  STAGE_LABEL[status] || TERMINAL_STATUSES[status] || String(status || "");
+
+// What the customer's progress tracker draws.
+//
+// THE STATUS IS THE AUTHORITY on how far an order has got; the timestamps only
+// say WHEN. A stage counts as done when it is at or before the current status,
+// or its own timestamp is set, or a later stage has one. Three clauses because
+// there are three ways the data arrives incomplete, and all of them are real:
+//
+//   1. An order that skipped ahead — paid -> shipped in one click, which stays
+//      legal so something already on the shelf does not need four clicks.
+//   2. Rows that predate these columns: shipped before this feature existed, so
+//      they carry a shipped_at and nulls everywhere behind it.
+//   3. Rows with a status and NO timestamp at all. AP-cp000002 is exactly this
+//      live — status 'shipped', shipped_at null — and keying only off timestamps
+//      drew it as "x---*-": one step done, under a badge saying Shipped.
+//
+// Returns null for a terminal status, which is the caller's signal to render the
+// badge instead.
+export function stageTimeline(order) {
+  if (order.status in TERMINAL_STATUSES) return null;
+
+  const at = ORDER_STAGES.map((s) => {
+    const v = order[s.at];
+    return v === null || v === undefined ? null : Number(v);
+  });
+
+  const currentIndex = ORDER_STAGES.findIndex((s) => s.key === order.status);
+
+  // Scanned from the end so "some later stage happened" is carried backwards in
+  // one pass rather than re-searched per stage.
+  let laterHappened = false;
+  const done = new Array(ORDER_STAGES.length);
+  for (let i = ORDER_STAGES.length - 1; i >= 0; i--) {
+    done[i] = (currentIndex >= 0 && i <= currentIndex) || at[i] !== null || laterHappened;
+    if (done[i]) laterHappened = true;
+  }
+
+  return ORDER_STAGES.map((s, i) => ({
+    key: s.key,
+    label: s.label,
+    // Null where the stage was skipped or predates the column. The client shows
+    // the step as reached, without inventing a time it cannot know.
+    at: at[i],
+    done: done[i],
+    current: i === currentIndex,
+  }));
+}
