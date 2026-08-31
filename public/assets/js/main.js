@@ -2718,6 +2718,62 @@ function myOrderRow(o) {
   const wrap = document.createElement('div');
   wrap.className = 'my-order';
 
+// The six-stage progress bar in My Orders.
+//
+// Renders ONLY. Which stages exist, which are done and which one is current all
+// come from stageTimeline() in src/lib.js — including the rule that a stage
+// counts as reached when a LATER one has a timestamp, which is what makes an
+// order that skipped paid -> shipped, and the orders that predate these columns,
+// draw without holes in the middle.
+//
+// A stage that was reached without a recorded time shows no time rather than a
+// guessed one.
+function orderTracker(stages) {
+  const box = document.createElement('div');
+  box.className = 'order-track';
+  // One label for the whole control; the steps themselves are decorative to a
+  // screen reader, which gets the sentence below instead.
+  box.setAttribute('role', 'group');
+
+  const done = stages.filter((s) => s.done).length;
+  const current = stages.find((s) => s.current);
+  box.setAttribute('aria-label',
+    `Order progress: ${current ? current.label : stages[done - 1]?.label || 'Placed'}` +
+    `, step ${Math.max(1, done)} of ${stages.length}.`);
+
+  const row = document.createElement('ol');
+  row.className = 'order-track-row';
+  row.setAttribute('aria-hidden', 'true');
+
+  for (const s of stages) {
+    const li = document.createElement('li');
+    li.className = 'order-track-step'
+      + (s.done ? ' is-done' : '')
+      + (s.current ? ' is-current' : '');
+
+    const dot = document.createElement('span');
+    dot.className = 'order-track-dot';
+
+    const lab = document.createElement('span');
+    lab.className = 'order-track-label';
+    lab.textContent = s.label;
+
+    li.append(dot, lab);
+
+    if (s.at) {
+      const t = document.createElement('span');
+      t.className = 'order-track-at';
+      t.textContent = new Date(Number(s.at)).toLocaleDateString('en-IN',
+        { day: 'numeric', month: 'short' });
+      li.appendChild(t);
+    }
+    row.appendChild(li);
+  }
+
+  box.appendChild(row);
+  return box;
+}
+
   const top = document.createElement('div');
   top.className = 'my-order-top';
 
@@ -2725,9 +2781,13 @@ function myOrderRow(o) {
   const ref = document.createElement('div');
   ref.className = 'my-order-ref';
   ref.textContent = o.receipt;
+  // The badge used to render the RAW database value — a customer read the word
+  // "shipped", and would have read "in_production" once stages existed. Both the
+  // label and the stage list are computed server-side (stageTimeline in lib.js)
+  // so this file decides nothing about the pipeline.
   const badge = document.createElement('span');
   badge.className = 'my-order-status st-' + o.status;
-  badge.textContent = o.status;
+  badge.textContent = o.status_label || o.status;
   ref.appendChild(badge);
   const date = document.createElement('div');
   date.className = 'my-order-date';
@@ -2741,6 +2801,13 @@ function myOrderRow(o) {
 
   top.append(left, total);
   wrap.appendChild(top);
+
+  // `stages` is null for a cancelled, refunded or failed order: those end the
+  // pipeline rather than advancing along it, and a progress bar with a dead end
+  // in the middle tells a customer less than the plain badge above already does.
+  if (Array.isArray(o.stages) && o.stages.length) {
+    wrap.appendChild(orderTracker(o.stages));
+  }
 
   const ul = document.createElement('ul');
   ul.className = 'my-order-items';

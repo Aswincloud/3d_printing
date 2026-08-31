@@ -313,6 +313,88 @@ section("invariant 8 — order history is scoped to the session user");
   ok("payment id not exposed", mine.orders[0].rzp_payment_id === undefined);
 }
 
+// ── the progress tracker ──────────────────────────────────────────
+//
+// The stage list is computed on the SERVER (stageTimeline in src/lib.js) so the
+// account page, the dashboard and the chat bot cannot drift into different ideas
+// of what a stage is called or which ones an order has passed.
+//
+// The two cases worth the trouble are the skip and the legacy row: both leave
+// holes in the middle of the timeline, and both must still render as a bar that
+// has got as far as it has got.
+section("myOrders() — the stage tracker");
+
+const trackerFor = async (o) => {
+  const env = ENV({ users: [USER_A], orders: [{
+    id: "o-t", user_id: USER_A.id, receipt: "AP-track01", subtotal_paise: 1000,
+    shipping_paise: 0, total_paise: 1000, delivery: "ship", notes: "",
+    cust_email: USER_A.email, cust_name: "Alice", addr_line: "1 A St",
+    created_at: 1000, paid_at: null, production_at: null, ready_at: null,
+    shipped_at: null, delivered_at: null, ...o,
+  }], order_items: [] });
+  const [, out] = await read(await myOrders(env, USER_A));
+  return out.orders[0];
+};
+const shape = (stages) => stages.map((x) => (x.current ? "*" : x.done ? "x" : "-")).join("");
+
+{
+  const o = await trackerFor({ status: "in_production", paid_at: 2000, production_at: 3000 });
+  ok("a normal order marks what it has passed", shape(o.stages) === "xx*---", shape(o.stages));
+  ok("labels are spelled for a human", o.stages[2].label === "In production");
+  ok("status_label matches", o.status_label === "In production");
+  ok("passed stages carry their time", o.stages[1].at === 2000);
+  ok("future stages carry no time", o.stages[4].at === null);
+}
+{
+  // Skipped straight from paid to shipped, which stays legal.
+  const o = await trackerFor({ status: "shipped", paid_at: 2000, shipped_at: 5000 });
+  ok("a skipped stage still counts as passed", shape(o.stages) === "xxxx*-", shape(o.stages));
+  ok("the skipped stage has no invented time", o.stages[2].at === null);
+  ok("the stage actually reached keeps its time", o.stages[4].at === 5000);
+}
+{
+  // Rows that predate the new columns: shipped_at only, nulls behind it. Written
+  // as undefined rather than null because that is what the old rows really are.
+  const o = await trackerFor({ status: "shipped", paid_at: 2000, shipped_at: 5000,
+                               production_at: undefined, ready_at: undefined });
+  ok("a legacy row renders without holes", shape(o.stages) === "xxxx*-", shape(o.stages));
+}
+{
+  // Found by running the tracker over the dev database rather than by imagining
+  // cases: a seeded row with status 'shipped' and shipped_at NULL drew as one step
+  // done beneath a badge reading "Shipped". Production has no row like it today,
+  // but the schema allows one. The status is the authority on how far an order
+  // has got; the timestamps only say when.
+  const o = await trackerFor({ status: "shipped" });
+  ok("a status with no timestamps still fills the bar", shape(o.stages) === "xxxx*-", shape(o.stages));
+  ok("and invents no times for it", o.stages.every((x) => x.key === "pending" || x.at === null),
+     JSON.stringify(o.stages.map((x) => x.at)));
+}
+{
+  const o = await trackerFor({ status: "delivered", paid_at: 2, production_at: 3,
+                               ready_at: 4, shipped_at: 5, delivered_at: 6 });
+  ok("a delivered order is complete", shape(o.stages) === "xxxxx*", shape(o.stages));
+}
+{
+  const o = await trackerFor({ status: "pending" });
+  ok("a brand new order sits on the first stage", shape(o.stages) === "*-----", shape(o.stages));
+}
+{
+  // Terminal states end the pipeline; a progress bar with a dead end in the
+  // middle says less than the plain badge does.
+  for (const st of ["cancelled", "refunded", "failed"]) {
+    const o = await trackerFor({ status: st, paid_at: 2000 });
+    ok(`${st} gets no tracker`, o.stages === null, JSON.stringify(o.stages));
+    ok(`${st} still gets a readable label`, typeof o.status_label === "string" && o.status_label.length > 0);
+  }
+}
+{
+  // The tracker must not have widened what a customer's own view exposes.
+  const o = await trackerFor({ status: "shipped", paid_at: 2000, shipped_at: 5000 });
+  ok("still no internal id", o.id === undefined);
+  ok("still no payment id", o.rzp_payment_id === undefined);
+}
+
 // ── OTP request ───────────────────────────────────────────────────
 section("POST /api/auth/code");
 {

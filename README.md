@@ -174,6 +174,10 @@ re-ordering the product array in place made pinning look right and left an
 **unpinned** card stranded at the top until reload. See
 [Pinning](#pinning-and-the-order-of-the-catalogue).
 
+**The order tracker, in Chromium and WebKit** (`test/browser/order-tracker.mjs`) —
+the six-stage progress bar in My Orders, rendered from a stubbed payload in the
+shapes real order data actually takes. See [Order stages](#order-stages).
+
 **Deploys are not run from CI.** Cloudflare Workers Builds deploys `main` on
 push; branches produce an unpromoted preview version. **Migrations are never run
 by the deploy** — apply them yourself with `npm run db:migrate:remote`.
@@ -433,6 +437,50 @@ immediately.
 `test/browser/pin-control.mjs` covers this in chromium and webkit: a customer gets
 a badge and no controls, an admin gets the toggle, and unpinning returns the card
 to where it came from.
+
+### Order stages
+
+An order used to have two states a customer ever saw: paid, then shipped. Between
+them sat every day the print was actually being made, and nothing was said. The
+pipeline is now six stages, defined once in `ORDER_STAGES` (`src/lib.js`) and
+enforced by `ALLOWED_TRANSITIONS` (`src/admin.js`):
+
+```
+Placed → Confirmed → In production → Ready to ship → Shipped → Delivered
+```
+
+**Skipping forward is legal.** `paid → shipped` is still one click, so something
+already on the shelf does not need four. `cancelled`, `refunded` and `failed` end
+the pipeline rather than advancing it, and render a badge instead of a tracker.
+
+Two invariants survive unchanged: `paid` is set **only** by the Razorpay webhook,
+never from the dashboard, and `refunded` is reachable only through the refund
+action that actually moves the money.
+
+**Four of the six email.** Confirmed, in production, shipped, delivered. *Ready to
+ship* advances the tracker and sends nothing — it is usually hours before shipping,
+and two mails that close together read as padding. That decision is implemented as
+its absence from `STAGE_EMAIL`, nothing more. Every send fires on the **transition
+only**, so correcting a typo'd tracking number a day later does not tell the
+customer their order shipped again.
+
+Nothing auto-advances. There is no courier webhook, so `delivered` is a dashboard
+click; guessing it from elapsed days would put a claim in a customer's inbox that
+nothing verified.
+
+**The tracker is computed on the server.** `stageTimeline()` returns the six
+stages with `done` / `current` / `at`, so main.js, the dashboard and the chat bot
+cannot drift into different ideas of what a stage is called. A stage counts as
+reached when it is at or before the current status, or carries a timestamp, or a
+later stage does — three clauses because order data arrives incomplete in three
+ways: a skipped stage, rows predating the timestamp columns, and rows carrying a
+status with no timestamp at all. The third was found by running the tracker over
+the dev database, where such a row drew as one step done beneath a badge reading
+*Shipped*; production has none today, but the schema permits one. The orders that
+shipped before this feature are the second case, and they are live.
+
+`test/browser/order-tracker.mjs` covers the rendering in chromium and webkit,
+including all three of those shapes.
 
 ### Quotes, and answering one with a price
 <a id="quotes"></a>

@@ -2142,6 +2142,115 @@ footer {
 .st-paid      { background: rgba(74,222,128,0.15); color: #4ade80; }
 .st-pending   { background: rgba(250,204,21,0.15);  color: #facc15; }
 .st-shipped   { background: rgba(96,165,250,0.15);  color: #60a5fa; }
+.st-in_production { background: rgba(251,146,60,0.15); color: #fb923c; }
+.st-ready         { background: rgba(167,139,250,0.15); color: #a78bfa; }
+.st-delivered     { background: rgba(52,211,153,0.18); color: #34d399; }
+
+/* ── order progress tracker ─────────────────────────────────────
+   Six stages across the card. Built as a flex row rather than a grid so the
+   connecting line can be drawn on each step's ::before and simply stop at the
+   ends, instead of needing a separate absolutely-positioned rail to line up
+   against six columns. */
+.order-track {
+  margin: 0.9rem 0 0.2rem;
+  padding: 0.2rem 0 0.1rem;
+  /* Six labels do not fit across a narrow phone. Scrolling the TRACK is fine —
+     scrolling the page sideways is not, which is why this is on the strip and
+     the strip alone. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.order-track::-webkit-scrollbar { display: none; }
+
+.order-track-row {
+  display: flex;
+  align-items: flex-start;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+}
+
+.order-track-step {
+  position: relative;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+/* The connector, drawn leftwards from each dot. Not on the first step, so the
+   line starts at the first dot rather than off the edge of the card. */
+.order-track-step + .order-track-step::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 50%;
+  left: -50%;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.order-track-step.is-done + .order-track-step.is-done::before,
+.order-track-step.is-done + .order-track-step.is-current::before {
+  background: var(--orange);
+}
+
+.order-track-dot {
+  position: relative;
+  z-index: 1;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--dark-3);
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.order-track-step.is-done .order-track-dot {
+  background: var(--orange);
+  border-color: var(--orange);
+}
+
+/* The stage the order is actually in: ringed rather than merely filled, so it
+   reads as "here" and not just "another completed one". */
+.order-track-step.is-current .order-track-dot {
+  background: var(--orange);
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px var(--orange-glow);
+}
+
+.order-track-label {
+  font-size: 0.64rem;
+  line-height: 1.25;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+  /* Two lines' worth, always. "In production" and "Ready to ship" wrap while
+     "Placed" and "Shipped" do not, and without a floor the dates underneath sat
+     at three different heights across one bar. */
+  min-height: 2.5em;
+}
+
+.order-track-step.is-done .order-track-label { color: var(--text); }
+
+.order-track-step.is-current .order-track-label {
+  color: var(--orange);
+  font-weight: 700;
+}
+
+.order-track-at {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 420px) {
+  .order-track-label { font-size: 0.58rem; }
+  .order-track-at { font-size: 0.55rem; }
+}
 .st-refunded  { background: rgba(167,139,250,0.15); color: #a78bfa; }
 .st-cancelled { background: rgba(148,163,184,0.15); color: #94a3b8; }
 .st-failed    { background: var(--red-glow);        color: var(--red); }

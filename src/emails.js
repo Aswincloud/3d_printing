@@ -140,7 +140,7 @@ export function orderCustomerEmail(env, order, items) {
     header(env.APP_NAME || "AswinPrints", "Order confirmed · Thank you!") +
     `<div style="padding:32px">` +
     `<h2 style="margin:0 0 8px;font-size:20px">Payment received, ${esc(order.cust_name)} ✅</h2>` +
-    `<p style="color:${MUTED};margin:0 0 8px;line-height:1.6">Your order is confirmed and heading into the print queue. I'll email you again when it ships.</p>` +
+    `<p style="color:${MUTED};margin:0 0 8px;line-height:1.6">Your order is confirmed and heading into the print queue. I'll email you when it goes on the printer, when it ships, and when it arrives.</p>` +
     `<p style="margin:0 0 24px;font-size:14px;color:${MUTED}">Order reference <strong style="color:${ORANGE}">${esc(order.receipt)}</strong></p>` +
     `<div style="background:${CARD};border-radius:10px;padding:20px;margin-bottom:24px">` +
     `<p style="margin:0 0 14px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Order Summary</p>` +
@@ -213,6 +213,54 @@ export function orderShippedEmail(env, order, { courier, tracking, trackingUrl }
     (trackingUrl
       ? button(trackingUrl, "Track your parcel")
       : button(base + "/?receipt=" + encodeURIComponent(order.receipt), "View Order")) +
+    `</div>` + footer()
+  );
+}
+
+// ── in production → customer ──────────────────────────────────────
+//
+// The gap this fills. An order used to go from "paid" straight to "shipped",
+// which meant the days the print was actually on the bed — the part a made-to-
+// order shop is actually selling — looked to the customer like silence.
+//
+// No tracking, no address, no money: this one says only that work has started.
+export function orderInProductionEmail(env, order) {
+  const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
+
+  return shell(
+    header(env.APP_NAME || "AswinPrints", "On the printer 🖨️") +
+    `<div style="padding:32px">` +
+    `<h2 style="margin:0 0 8px;font-size:20px">We've started on your order, ${esc(order.cust_name)}</h2>` +
+    `<p style="color:${MUTED};margin:0 0 8px;line-height:1.6">` +
+    `Your pieces are being printed now. I'll email you again when they're packed ` +
+    `and on the way.</p>` +
+    `<p style="margin:0 0 24px;font-size:14px;color:${MUTED}">Order reference <strong style="color:${ORANGE}">${esc(order.receipt)}</strong></p>` +
+    button(base + "/?receipt=" + encodeURIComponent(order.receipt), "View Order") +
+    `</div>` + footer()
+  );
+}
+
+// ── delivered → customer ──────────────────────────────────────────
+//
+// The end of the pipeline, and the one email that asks for something back. Kept
+// short: a delivery note that turns into a review request reads as a sales mail,
+// so this says the parcel arrived and leaves the door open.
+//
+// Set BY HAND from the dashboard. There is no courier webhook, so nothing here
+// guesses at delivery from an elapsed number of days — that would put a claim in
+// a customer's inbox that nothing actually verified.
+export function orderDeliveredEmail(env, order) {
+  const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
+
+  return shell(
+    header(env.APP_NAME || "AswinPrints", "Delivered 🎉") +
+    `<div style="padding:32px">` +
+    `<h2 style="margin:0 0 8px;font-size:20px">Your order has arrived, ${esc(order.cust_name)}</h2>` +
+    `<p style="color:${MUTED};margin:0 0 8px;line-height:1.6">` +
+    `That's ${esc(order.receipt)} delivered. I hope it's everything you wanted — ` +
+    `if anything isn't right, just reply to this email and I'll sort it out.</p>` +
+    `<p style="color:${MUTED};margin:0 0 24px;line-height:1.6">Thanks for supporting a small print shop.</p>` +
+    button(base + "/#shop", "Browse the shop") +
     `</div>` + footer()
   );
 }

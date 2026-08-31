@@ -86,3 +86,7 @@ jobs:
           # visitor gets is a browser question. /api/* is stubbed, so this needs no
           # Worker — same static server as the hero check above.
           npm run test:pin
+          # The order tracker: six stages drawn from a server-computed payload,
+          # including the shapes real data actually arrives in (a skipped stage, a
+          # row with a status and no timestamps). Same stubbed /api/*, no Worker.
+          npm run test:tracker

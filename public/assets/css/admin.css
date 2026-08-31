@@ -250,6 +250,9 @@
 .badge-paid      { background: rgba(74,222,128,0.15); color: #4ade80; }
 .badge-pending   { background: rgba(250,204,21,0.15);  color: #facc15; }
 .badge-shipped   { background: rgba(96,165,250,0.15);  color: #60a5fa; }
+.badge-in_production { background: rgba(251,146,60,0.15); color: #fb923c; }
+.badge-ready         { background: rgba(167,139,250,0.15); color: #a78bfa; }
+.badge-delivered     { background: rgba(52,211,153,0.18); color: #34d399; }
 .badge-refunded  { background: rgba(167,139,250,0.15); color: #a78bfa; }
 .badge-cancelled { background: rgba(148,163,184,0.15); color: #94a3b8; }
 .badge-failed    { background: var(--red-glow);        color: var(--red); }
