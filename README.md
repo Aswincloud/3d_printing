@@ -184,6 +184,12 @@ response and is withdrawn by a **per-session** one, so the decision is split acr
 two requests that arrive in either order; this pins down that race, and that a
 hidden banner leaves the nav flush rather than floating above a transparent gap.
 
+**Checkout on a phone, in Chromium and WebKit** (`test/browser/checkout-mobile.mjs`)
+— the promo row's proportions at 360/390/430px, that no checkout field is under
+16px (iOS Safari zooms the viewport on focus below that), that desktop keeps its
+smaller field size, and that arriving at `/#cart` opens the drawer. Both defects
+it guards were reported from a real phone and were invisible on a desktop.
+
 **Deploys are not run from CI.** Cloudflare Workers Builds deploys `main` on
 push; branches produce an unpromoted preview version. **Migrations are never run
 by the deploy** — apply them yourself with `npm run db:migrate:remote`.

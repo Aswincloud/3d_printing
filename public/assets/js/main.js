@@ -859,6 +859,14 @@ async function loadProducts() {
     //
     // After renderProducts() for the same reason as above: openCheckout() prices
     // the cart against the loaded catalogue and does nothing if it is empty.
+    // Arrived from a product page's cart button. That page links here rather
+    // than carrying its own drawer — see the note in src/pdp.js — so this is the
+    // other half of that handoff.
+    if (location.hash === '#cart') {
+      history.replaceState({}, '', location.pathname + location.search);
+      openCart();
+    }
+
     if (location.hash === '#checkout') {
       // Drop the hash first, so a refresh does not reopen checkout on a cart the
       // visitor may since have emptied.

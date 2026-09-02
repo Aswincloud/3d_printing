@@ -255,5 +255,45 @@ section("delivery line reflects the real shipping config");
   ok("a different threshold shows through", other.includes("₹3,000"));
 }
 
+// ── reaching the cart from here ───────────────────────────────────
+//
+// This page had no route to the cart. Adding something said "Added ✓" on the
+// button and then offered nothing — you had to navigate to the homepage to see
+// what was in it, and on a phone the nav was the only thing to fall back on.
+//
+// It is a LINK, not a drawer of its own: the drawer, the pricing and the
+// Razorpay flow all live in main.js, and "Buy now" on this page already hands
+// off to the homepage for that reason. Two implementations of the cart is the
+// thing to avoid, so the test asserts the handoff rather than a local cart.
+section("the cart is reachable from the product page");
+{
+  const h = render(PRODUCT());
+  ok("a cart control exists in the nav", /id="pdpCartLink"/.test(h));
+  ok("it links to the homepage cart", /href="\/#cart"/.test(h));
+  ok("it is a link, not a button that does nothing here",
+     /<a[^>]+id="pdpCartLink"/.test(h));
+  ok("it is labelled for a screen reader", /id="pdpCartLink"[^>]*aria-label="Open cart"/.test(h)
+     || /aria-label="Open cart"[^>]*id="pdpCartLink"/.test(h));
+  ok("it carries a badge for the count", /id="pdpCartBadge"/.test(h));
+
+  // Server-rendered, so the count is not knowable here — product.js fills it in
+  // from localStorage. It must therefore start HIDDEN, or every page would flash
+  // a "0" badge before the script runs.
+  ok("the badge starts hidden", /id="pdpCartBadge"[^>]*hidden/.test(h));
+  ok("the badge does not ship a misleading count",
+     />0<\/span>/.test(h) === false || /id="pdpCartBadge"[^>]*hidden/.test(h));
+
+  // Reuses the homepage's classes so it looks like the same control, and so the
+  // 44px touch target and badge styling come from style.css rather than a copy.
+  ok("reuses the homepage cart styling", /class="nav-cart pdp-cart"/.test(h));
+
+  // Still reachable on a quote-only product: the cart may hold other things.
+  const q = render({ ...PRODUCT(), price_paise: 0 });
+  ok("present on a quote-only product too", /id="pdpCartLink"/.test(q));
+
+  // And the existing way out is untouched.
+  ok("All prints still there", /class="btn-secondary nav-back"/.test(h));
+}
+
 console.log(`\n  pdp: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1,0 +1,164 @@
+// Checkout on a phone.
+//
+// WHY THIS EXISTS. Two defects reported from a real phone, both invisible on a
+// desktop, and both caused by the same rule:
+//
+//   @media (max-width: 480px) { .btn-primary, .btn-secondary { width: 100% } }
+//
+// That exists to stack hero CTAs full-width. But the promo Apply button is a
+// .btn-secondary too, and it also carries `flex: 0 0 auto` — so it took the
+// whole row and refused to shrink, collapsing the promo input to its 31px
+// minimum. Measured before the fix: the input was 31px at 360, 390 AND 430px
+// while the button was 100% of the row. Desktop was fine, which is why it
+// shipped.
+//
+// The second: every checkout field was 15.2px, and iOS Safari zooms the viewport
+// when focusing any input under 16px — so tapping a field on the one page where
+// precision matters left the customer zoomed and scrolled sideways.
+//
+// This file asserts PROPORTIONS and the 16px floor rather than exact pixels, so
+// it survives a redesign and only fails when the layout genuinely breaks again.
+
+import { chromium, webkit } from 'playwright';
+
+const BASE = process.env.BASE_URL || 'http://localhost:4173';
+const PHONES = [360, 390, 430];
+
+let fail = 0;
+const ok = (name, cond, detail = '') => {
+  if (cond) console.log(`  ok   ${name}`);
+  else { fail++; console.log(`  FAIL ${name}${detail ? ' — ' + detail : ''}`); }
+};
+
+const REQUIRE_ALL = process.env.CI === 'true';
+const skipped = new Set();
+async function launch(engine, name) {
+  try { return await engine.launch(); } catch (e) {
+    const msg = String(e.message).split('\n')[0];
+    if (REQUIRE_ALL) { console.error(`\n  ${name} could not start, and CI requires it: ${msg}`); process.exit(1); }
+    if (!skipped.has(name)) { skipped.add(name); console.warn(`  !!   skipping ${name}: ${msg}`); }
+    return null;
+  }
+}
+
+const PRODUCTS = { products: [{
+  id: 'p1', slug: 'dragon', name: 'Dragon Sculpture', description: 'A dragon.',
+  price_paise: 129900, quote_only: false, image: 'assets/images/placeholder.jpg',
+  images: [], category: 'figurine', personalise_label: '', personalise_required: false, pinned: false }],
+  shipping: { flat_paise: 9900, free_threshold_paise: 200000 }, promo: null };
+
+async function page(b, width) {
+  const p = await b.newPage();
+  await p.setViewportSize({ width, height: 900 });
+  await p.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  await p.route('**/api/products', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) }));
+  await p.route('**/api/me', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"signedIn":false}' }));
+  await p.addInitScript(() => localStorage.setItem('ap_cart', JSON.stringify([{ id: 'p1', qty: 1, pz: '' }])));
+  return p;
+}
+
+async function openCheckout(p) {
+  await p.goto(BASE + '/index.html', { waitUntil: 'load' });
+  await p.waitForSelector('.product-card', { timeout: 15000 });
+  await p.evaluate(() => document.getElementById('cartBtn')?.click());
+  await p.waitForFunction(() => !!document.getElementById('cartCheckout'), null, { timeout: 5000 });
+  await p.evaluate(() => document.getElementById('cartCheckout')?.click());
+  await p.waitForFunction(() => {
+    const i = document.getElementById('coPromo');
+    return i && i.getBoundingClientRect().width > 0;
+  }, null, { timeout: 5000 });
+}
+
+async function promoRow(engine, name, width) {
+  const b = await launch(engine, name);
+  if (!b) return;
+  const p = await page(b, width);
+  await openCheckout(p);
+
+  const m = await p.evaluate(() => {
+    const i = document.getElementById('coPromo');
+    const btn = document.getElementById('coPromoApply');
+    const row = document.querySelector('.co-promo-row');
+    const W = (e) => e.getBoundingClientRect().width;
+    return {
+      row: W(row), input: W(i), button: W(btn),
+      inputShare: W(i) / W(row),
+      sameLine: Math.abs(i.getBoundingClientRect().top - btn.getBoundingClientRect().top) < 4,
+      font: parseFloat(getComputedStyle(i).fontSize),
+      overflow: (W(i) + W(btn)) - W(row),
+    };
+  });
+
+  // THE BUG: the input was 11% of the row. A promo code needs to be readable
+  // while it is typed, so it must own the majority of the row.
+  ok(`[${name} ${width}] the input gets most of the row`,
+     m.inputShare > 0.55, `${Math.round(m.inputShare * 100)}% (input ${Math.round(m.input)}px of ${Math.round(m.row)}px)`);
+  // And the button must stay a button, not a banner.
+  ok(`[${name} ${width}] the Apply button is bounded`,
+     m.button >= 60 && m.button <= 130, `${Math.round(m.button)}px`);
+  ok(`[${name} ${width}] both sit on one line`, m.sameLine, JSON.stringify(m));
+  ok(`[${name} ${width}] they fit the row`, m.overflow <= 10, `overflow ${Math.round(m.overflow)}px`);
+
+  // iOS Safari zooms the page on focus for anything under 16px.
+  ok(`[${name} ${width}] the promo input will not trigger iOS focus-zoom`,
+     m.font >= 16, `${m.font}px`);
+
+  const fonts = await p.$$eval('.co-field input, .co-field textarea',
+    (els) => els.map((e) => parseFloat(getComputedStyle(e).fontSize)));
+  ok(`[${name} ${width}] no checkout field will trigger iOS focus-zoom`,
+     fonts.every((f) => f >= 16), JSON.stringify(fonts));
+
+  // The whole point of a phone check: nothing may push the document sideways.
+  const docScroll = await p.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  ok(`[${name} ${width}] checkout does not scroll the page sideways`, docScroll <= 1, String(docScroll));
+
+  await b.close();
+}
+
+// Desktop must NOT be dragged to 16px — the smaller field size is deliberate
+// there, and iOS focus-zoom does not exist.
+async function desktopUntouched(engine, name) {
+  const b = await launch(engine, name);
+  if (!b) return;
+  const p = await page(b, 1280);
+  await openCheckout(p);
+  const font = await p.evaluate(() =>
+    parseFloat(getComputedStyle(document.getElementById('coPromo')).fontSize));
+  ok(`[${name} 1280] desktop keeps its smaller field size`, font < 16, `${font}px`);
+  await b.close();
+}
+
+// The other half of the product page's cart button: it links to /#cart, and the
+// homepage has to answer that by opening the drawer. Asserted here because the
+// link is server-rendered (covered in test/pdp.mjs) but the RESPONSE is not.
+async function cartHash(engine, name) {
+  const b = await launch(engine, name);
+  if (!b) return;
+  const p = await page(b, 390);
+  await p.goto(BASE + '/index.html#cart', { waitUntil: 'load' });
+  await p.waitForSelector('.product-card', { timeout: 15000 });
+  await p.waitForTimeout(600);
+  const m = await p.evaluate(() => {
+    const d = document.querySelector('.cart-drawer');
+    return { open: !!d && d.classList.contains('open'),
+             hash: location.hash,
+             hasItem: (document.getElementById('cartBody')?.textContent || '').includes('Dragon') };
+  });
+  ok(`[${name}] arriving at #cart opens the drawer`, m.open, JSON.stringify(m));
+  ok(`[${name}] with the cart's contents in it`, m.hasItem, JSON.stringify(m));
+  // Cleared so a refresh does not reopen it, matching how #checkout behaves.
+  ok(`[${name}] and the hash is cleared`, m.hash === '', m.hash);
+  await b.close();
+}
+
+for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
+  console.log(`\n${name}`);
+  for (const w of PHONES) await promoRow(engine, name, w);
+  await desktopUntouched(engine, name);
+  await cartHash(engine, name);
+}
+
+if (skipped.size) console.warn(`\n  skipped: ${[...skipped].join(', ')}`);
+console.log(fail ? `\n${fail} failed` : '\nall checkout-mobile checks passed');
+process.exit(fail ? 1 : 0);
