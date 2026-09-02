@@ -1547,7 +1547,16 @@ footer {
   color: var(--text-muted);
   font-size: 1.1rem;
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
+  /* 44x44. This one class closes the cart, the sign-in overlay, checkout AND
+     settings, and it measured 31x28 — the smallest target on the site was the one
+     people reach for when they want out of a modal. Centred with flex so the glyph
+     stays put while the box grows. */
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border-radius: 6px;
   transition: color var(--transition);
 }
@@ -1914,20 +1923,7 @@ footer {
   border-color: var(--red);
   box-shadow: 0 0 0 3px var(--red-glow);
 }
-/* Stops iOS Safari zooming the whole page when a field is focused, which it does
-   for ANY input under 16px. Every checkout field was 15.2px, so tapping one
-   zoomed the viewport and left the customer scrolled sideways mid-form — on the
-   one page where that matters most.
-   
-   Applied only under 480px: the smaller size is deliberate on desktop, where no
-   such behaviour exists. */
-@media (max-width: 480px) {
-  .co-field input,
-  .co-field textarea,
-  .co-field select {
-    font-size: 16px;
-  }
-}
+
 
 
 .co-row {
@@ -2745,7 +2741,17 @@ button.product-featured:focus-visible {
 @media (max-width: 480px) {
   .shop-search { max-width: 100%; }
   .gallery-filter { gap: 0.4rem; }
-  .filter-btn { font-size: 0.78rem; padding: 0.4rem 0.8rem; }
+  /* Was 30px tall. These five chips are how the catalogue is navigated, sitting
+     side by side, and 30px is well under the 44px touch minimum. The height comes
+     from min-height rather than padding so the label stays put and only the box
+     around it grows. */
+  .filter-btn {
+    font-size: 0.78rem;
+    padding: 0.4rem 0.9rem;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
 }
 
 /* The product name is a link to /p/<slug> now, not a plain div. Without this it
@@ -2863,7 +2869,9 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
   .hero-stats { display: flex; gap: 1.1rem; margin-top: 1.1rem; }
   .hero-stats .stat { flex: 1; }
   .hero-stats .stat-num { font-size: 1.35rem; }
-  .hero-stats .stat-label { font-size: 0.6rem; letter-spacing: 0.04em; }
+  /* 0.6rem is 9.6px. These are the only words saying what the numbers above them
+     mean, and they were the smallest text on the page. */
+  .hero-stats .stat-label { font-size: 0.72rem; letter-spacing: 0.03em; }
 }
 
 
@@ -3177,8 +3185,10 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 
   .hero-printer-badge {
     top: 8px; right: 8px;
-    font-size: 0.64rem;
-    padding: 0.28rem 0.55rem;
+    /* 0.64rem is 10.24px. It names the printer, which is a selling point rather
+       than decoration, so it should be readable. */
+    font-size: 0.72rem;
+    padding: 0.3rem 0.6rem;
   }
 }
 
@@ -3260,5 +3270,54 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 
 @media (max-width: 560px) {
   .promo-banner { font-size: 0.78rem; padding-right: 2.6rem; gap: 0.5rem; }
-  .promo-copy { font-size: 0.72rem; }
+  /* 24px tall, beside a ✕ that is already 44 — the inconsistency was visible in a
+     single glance. The banner is already 44+ tall because of that ✕, so this grows
+     the button without growing the banner, and so without moving --promo-h. */
+  .promo-copy {
+    font-size: 0.72rem;
+    min-height: 44px;
+    padding: 0.25rem 0.85rem;
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+/* ── mobile field sizing — DELIBERATELY THE LAST RULE IN THIS FILE ───────────
+   
+   iOS Safari zooms the whole viewport when a field under 16px is focused, and
+   every form on the site was between 13.6 and 15.2px. Tapping any of them left
+   the page zoomed and scrolled sideways.
+   
+   It lives at the end because SOURCE ORDER decides this. Six class-scoped rules
+   set a font-size on a field — .shop-search input, .pz-field input,
+   .form-group input/select/textarea, .co-field input/textarea — and an override
+   placed above any of them silently loses at equal specificity. It did, twice,
+   while this was being written: the rule looked right and the computed size never
+   moved. Anything added BELOW this will beat it.
+   
+   Under 480px only. The smaller sizes are deliberate on desktop, where no such
+   zoom behaviour exists — verified: at 1280px every field is still 15.2px. */
+@media (max-width: 480px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="search"],
+  input[type="password"],
+  input[type="url"],
+  input:not([type]),
+  textarea,
+  select,
+  /* The four class-scoped forms that are actually needed, and why only these:
+     `input[type="…"]` is specificity (0,1,1), so it TIES rules like
+     `.shop-search input` and wins on source order from down here. But bare
+     `textarea` and `select` are (0,1,0)-less — (0,0,1) — and lose to
+     `.form-group textarea` and `.co-field select`. Verified by deleting the whole
+     list: only `type` (a select) and `desc` (a textarea) regressed. */
+  .form-group select,
+  .form-group textarea,
+  .co-field select,
+  .co-field textarea {
+    font-size: 16px;
+  }
 }
