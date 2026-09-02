@@ -14,7 +14,8 @@
     "test:layout": "node test/browser/hero-geometry.mjs",
     "test:pin": "node test/browser/pin-control.mjs",
     "test:tracker": "node test/browser/order-tracker.mjs",
-    "test:promo": "node test/browser/promo-banner.mjs"
+    "test:promo": "node test/browser/promo-banner.mjs",
+    "test:mobile": "node test/browser/checkout-mobile.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.118.0",

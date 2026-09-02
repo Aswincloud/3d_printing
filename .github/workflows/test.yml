@@ -93,3 +93,7 @@ jobs:
           # The promo banner is drawn from a SHARED cached response and withdrawn
           # by a per-session one, so it exists mostly to pin down that race.
           npm run test:promo
+          # Checkout on a phone. Both defects it covers were reported from a real
+          # device and were invisible on a desktop, which is the whole reason this
+          # job runs at viewport widths rather than one.
+          npm run test:mobile

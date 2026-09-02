@@ -1471,10 +1471,18 @@ footer {
      fixed header where a missed tap is most annoying. 44 is the touch-target
      minimum; the 18px icon inside is unchanged, only the box around it grew. */
   width: 44px; height: 44px;
+  /* Never shrink. It sits beside "All prints" on the product page, which is a
+     .btn-secondary and therefore width:100% under 480px — without this the icon
+     gets squeezed to nothing by a neighbour that refuses to yield. The same
+     collision, in the same stylesheet, cost the promo input its width. */
+  flex: 0 0 auto;
   background: var(--dark-3);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
   color: var(--text);
+  /* This class now styles an <a> too (the product page's cart link), and an
+     anchor arrives underlined. */
+  text-decoration: none;
   cursor: pointer;
   transition: all var(--transition);
 }
@@ -1833,11 +1841,26 @@ footer {
   text-transform: uppercase;
 }
 
+
 .co-promo-apply {
   flex: 0 0 auto;
   padding: 0.7rem 1.1rem;
   font-size: 0.88rem;
   white-space: nowrap;
+  /* MUST be stated, and must stay after the 480px rule that sets
+     `.btn-primary, .btn-secondary { width: 100% }`.
+     
+     That rule exists to stack hero CTAs full-width on a phone. This button is a
+     .btn-secondary too, so it inherited width:100% — and because it also says
+     `flex: 0 0 auto` it refused to shrink, took the whole row, and squeezed the
+     input down to its 31px minimum. Measured at 360/390/430px: the input was
+     31px at every width while the button was 100%.
+     
+     Desktop was unaffected, which is why it went unnoticed. */
+  width: auto;
+  /* A floor so "Apply" never looks cramped once the input takes its share. */
+  min-width: 5.2rem;
+  justify-content: center;
 }
 
 .co-promo-apply:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -1891,6 +1914,21 @@ footer {
   border-color: var(--red);
   box-shadow: 0 0 0 3px var(--red-glow);
 }
+/* Stops iOS Safari zooming the whole page when a field is focused, which it does
+   for ANY input under 16px. Every checkout field was 15.2px, so tapping one
+   zoomed the viewport and left the customer scrolled sideways mid-form — on the
+   one page where that matters most.
+   
+   Applied only under 480px: the smaller size is deliberate on desktop, where no
+   such behaviour exists. */
+@media (max-width: 480px) {
+  .co-field input,
+  .co-field textarea,
+  .co-field select {
+    font-size: 16px;
+  }
+}
+
 
 .co-row {
   display: grid;

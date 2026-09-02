@@ -50,6 +50,23 @@ function readCart() {
   }
 }
 
+// The nav cart badge. This page cannot open the cart — the drawer lives in
+// main.js — so the badge's whole job is to say "there is something in there,
+// and here is the way to it".
+//
+// Read from localStorage rather than /api/me/cart: a guest's cart only exists
+// here, and a signed-in customer's is merged on the homepage anyway. Getting the
+// count slightly stale is better than a request on every product page.
+function syncCartBadge() {
+  const badge = document.getElementById('pdpCartBadge');
+  if (!badge) return;
+  const n = readCart().reduce((sum, it) => sum + (Number(it.qty) || 0), 0);
+  badge.textContent = String(n);
+  // Hidden rather than showing "0": an empty cart has nothing to advertise, and
+  // a zero badge reads as a broken one.
+  badge.hidden = n === 0;
+}
+
 function writeCart(cart) {
   try {
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
@@ -161,6 +178,7 @@ async function addToCart(qty) {
   if (line) line.qty = Math.min(MAX_QTY, line.qty + qty);
   else cart.push({ id, qty });
   writeCart(cart);
+  syncCartBadge();
   return true;
 }
 
@@ -319,4 +337,16 @@ document.addEventListener('click', (e) => {
     name: link.dataset.quoteName || '',
     image: link.dataset.quoteImage || '',
   });
+});
+
+// The badge reflects a cart this page did not necessarily fill — the visitor may
+// have added things on the homepage and followed a link here. So it is synced on
+// load, not only after an add.
+syncCartBadge();
+
+// And again when another tab changes the cart. Cheap, and it stops the badge
+// disagreeing with the drawer after someone empties the cart in the tab they left
+// open on the homepage.
+window.addEventListener('storage', (e) => {
+  if (e.key === CART_KEY) syncCartBadge();
 });
