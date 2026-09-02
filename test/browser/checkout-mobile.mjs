@@ -1,7 +1,11 @@
-// Checkout on a phone.
+// The site on a phone. (Named for checkout, where it started; it now also covers
+// touch targets and field sizes across the whole page.)
 //
-// WHY THIS EXISTS. Two defects reported from a real phone, both invisible on a
-// desktop, and both caused by the same rule:
+// WHY THIS EXISTS. Defects reported from a real phone, then a measured sweep that
+// found more of the same kind. All of them were invisible on a desktop, which is
+// the whole reason this runs at phone widths rather than one.
+//
+// It began as checkout-only. Two of those defects came from one rule:
 //
 //   @media (max-width: 480px) { .btn-primary, .btn-secondary { width: 100% } }
 //
@@ -205,12 +209,99 @@ async function badgeMatchesDrawer(engine, name) {
   await b.close();
 }
 
+// ── touch targets and field sizes, site-wide ──────────────────────────────
+//
+// Found by measuring rather than by report. Every one was under the threshold it
+// is now checked against:
+//
+//   filter chips     30px tall — how the catalogue is navigated, five side by side
+//   "Copy code"      24px tall — beside a ✕ that was already correctly 44
+//   modal close ✕    31x28     — the control people reach for to get OUT
+//   shop search      14.72px   — the search over 82 products
+//   "text to print"  13.6px    — in the cart
+//   quote form       15.2px    — how someone asks for custom work
+//   hero stat labels 9.6px     — the only words explaining the numbers above them
+//
+// Thresholds, not exact values, so a redesign stays free to move things.
+async function targetsAndFields(engine, name) {
+  const b = await launch(engine, name);
+  if (!b) return;
+  const p = await page(b, 390);
+  await p.goto(BASE + '/index.html', { waitUntil: 'load' });
+  await p.waitForSelector('.filter-btn', { timeout: 15000 });
+  // Open the cart, checkout and the quote modal so their fields exist to measure.
+  await p.evaluate(() => document.getElementById('cartBtn')?.click());
+  await p.waitForTimeout(250);
+  await p.evaluate(() => {
+    const co = document.getElementById('checkoutModal');
+    if (co) co.hidden = false;
+    if (window.openQuoteModal) window.openQuoteModal({});
+  });
+  await p.waitForTimeout(400);
+
+  // THE ONE THAT MATTERS MOST. iOS Safari zooms the viewport on focus for any
+  // field under 16px, and the first fix was scoped to .co-field only — so the
+  // quote form, the search and the cart's "text to print" all still did it.
+  const under = await p.evaluate(() =>
+    [...document.querySelectorAll('input, textarea, select')]
+      .filter((e) => getComputedStyle(e).display !== 'none' && parseFloat(getComputedStyle(e).fontSize) > 0)
+      .filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16)
+      .map((e) => `${e.id || e.name || e.type} ${parseFloat(getComputedStyle(e).fontSize)}px`));
+  ok(`[${name}] no field anywhere triggers iOS focus-zoom`, under.length === 0, under.join(', '));
+
+  // Real controls only. Inline links inside prose are legitimately not 44px, and
+  // the skip link is deliberately off-screen until focused — measuring those
+  // produced pages of noise on the first sweep.
+  const small = await p.evaluate(() => {
+    const sels = ['.filter-btn', '.promo-copy', '.promo-close', '.cart-close',
+                  '.nav-cart', '#cartBtn', '#accountBtn', '.co-promo-apply'];
+    const out = [];
+    for (const sel of sels) {
+      for (const el of document.querySelectorAll(sel)) {
+        const cs = getComputedStyle(el);
+        if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+        const r = el.getBoundingClientRect();
+        if (!r.height) continue;
+        // 40, not 44: a 44px min-height can compute to 43.x after border-box
+        // rounding, and failing on that would be noise rather than a defect.
+        if (r.height < 40 || r.width < 40)
+          out.push(`${sel} ${Math.round(r.width)}x${Math.round(r.height)}`);
+      }
+    }
+    return out;
+  });
+  ok(`[${name}] every real control meets the touch minimum`, small.length === 0, small.join(', '));
+
+  // Text nobody can read may as well not be there.
+  const tiny = await p.evaluate(() => {
+    const out = [];
+    for (const sel of ['.hero-stats .stat-label', '.hero-printer-badge']) {
+      for (const el of document.querySelectorAll(sel)) {
+        if (getComputedStyle(el).display === 'none') continue;
+        const fs = parseFloat(getComputedStyle(el).fontSize);
+        if (fs < 11) out.push(`${sel} ${fs}px`);
+      }
+    }
+    return out;
+  });
+  ok(`[${name}] hero labels are large enough to read`, tiny.length === 0, tiny.join(', '));
+
+  // The chips wrap to a second row, which they already did at 30px — so this
+  // guards that the extra height did not push the page sideways instead.
+  const scroll = await p.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  ok(`[${name}] the homepage still does not scroll sideways`, scroll <= 1, String(scroll));
+
+  await b.close();
+}
+
 for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
   console.log(`\n${name}`);
   for (const w of PHONES) await promoRow(engine, name, w);
   await desktopUntouched(engine, name);
   await cartHash(engine, name);
   await badgeMatchesDrawer(engine, name);
+  await targetsAndFields(engine, name);
 }
 
 if (skipped.size) console.warn(`\n  skipped: ${[...skipped].join(', ')}`);
