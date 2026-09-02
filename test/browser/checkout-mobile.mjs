@@ -41,10 +41,14 @@ async function launch(engine, name) {
   }
 }
 
-const PRODUCTS = { products: [{
-  id: 'p1', slug: 'dragon', name: 'Dragon Sculpture', description: 'A dragon.',
-  price_paise: 129900, quote_only: false, image: 'assets/images/placeholder.jpg',
-  images: [], category: 'figurine', personalise_label: '', personalise_required: false, pinned: false }],
+const product = (id, slug, name, price) => ({
+  id, slug, name, description: '', price_paise: price, quote_only: false,
+  image: 'assets/images/placeholder.jpg', images: [], category: 'figurine',
+  personalise_label: '', personalise_required: false, pinned: false });
+
+const PRODUCTS = {
+  products: [product('p1', 'dragon', 'Dragon Sculpture', 129900),
+             product('p2', 'batman', 'Batman Figurine', 44900)],
   shipping: { flat_paise: 9900, free_threshold_paise: 200000 }, promo: null };
 
 async function page(b, width) {
@@ -152,11 +156,61 @@ async function cartHash(engine, name) {
   await b.close();
 }
 
+// The badge must agree with the drawer under it.
+//
+// renderCart() drops any line whose product has left the catalogue, but the badge
+// counted raw lines — so a cart holding one delisted item and one real one showed
+// "2" above a drawer listing one. Found on production, after the cart button on
+// the product page made the badge something people would actually look at.
+//
+// The lines are deliberately NOT pruned from storage: a product hidden for a day
+// would otherwise be deleted from someone's cart for good.
+async function badgeMatchesDrawer(engine, name) {
+  const b = await launch(engine, name);
+  if (!b) return;
+
+  const cases = [
+    ['only real lines', [{ id: 'p1', qty: 1 }, { id: 'p2', qty: 2 }], 3, 2],
+    ['one delisted line', [{ id: 'gone', qty: 1 }, { id: 'p1', qty: 1 }], 1, 1],
+    ['every line delisted', [{ id: 'gone', qty: 2 }, { id: 'gone2', qty: 1 }], 0, 0],
+    ['quantities add up', [{ id: 'p1', qty: 3 }], 3, 1],
+  ];
+
+  for (const [label, cart, wantBadge, wantRows] of cases) {
+    const p = await b.newPage();
+    await p.setViewportSize({ width: 390, height: 900 });
+    await p.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    await p.route('**/api/products', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) }));
+    await p.route('**/api/me', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"signedIn":false}' }));
+    await p.addInitScript((c) => localStorage.setItem('ap_cart', JSON.stringify(c)), cart);
+    await p.goto(BASE + '/index.html#cart', { waitUntil: 'load' });
+    await p.waitForSelector('.product-card', { timeout: 15000 });
+    await p.waitForTimeout(500);
+
+    const m = await p.evaluate(() => {
+      const bd = document.getElementById('cartBadge');
+      return { badge: bd?.hidden ? 0 : Number(bd?.textContent),
+               rows: document.querySelectorAll('#cartBody .cart-item').length };
+    });
+    ok(`[${name}] badge counts ${label}`, m.badge === wantBadge,
+       `badge ${m.badge}, wanted ${wantBadge}`);
+    ok(`[${name}] and the drawer shows ${label}`, m.rows === wantRows,
+       `${m.rows} rows, wanted ${wantRows}`);
+    // The invariant behind both: they must never disagree.
+    ok(`[${name}] neither promises more than the other (${label})`,
+       (m.badge === 0) === (m.rows === 0) && m.badge >= m.rows,
+       JSON.stringify(m));
+    await p.close();
+  }
+  await b.close();
+}
+
 for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
   console.log(`\n${name}`);
   for (const w of PHONES) await promoRow(engine, name, w);
   await desktopUntouched(engine, name);
   await cartHash(engine, name);
+  await badgeMatchesDrawer(engine, name);
 }
 
 if (skipped.size) console.warn(`\n  skipped: ${[...skipped].join(', ')}`);

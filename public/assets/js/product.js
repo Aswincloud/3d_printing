@@ -60,7 +60,18 @@ function readCart() {
 function syncCartBadge() {
   const badge = document.getElementById('pdpCartBadge');
   if (!badge) return;
-  const n = readCart().reduce((sum, it) => sum + (Number(it.qty) || 0), 0);
+  // Counts only what the homepage drawer will show, matching cartCount() in
+  // main.js: a line whose product has left the catalogue is ignored, or the badge
+  // here promises more than the drawer the link leads to.
+  //
+  // catalogueIds is null until the /api/products call this page already makes
+  // resolves; until then count everything, because a number briefly too high
+  // beats a badge reading 0 over a cart with things in it.
+  const cart = readCart();
+  const counted = catalogueIds
+    ? cart.filter((it) => catalogueIds.has(it.id))
+    : cart;
+  const n = counted.reduce((sum, it) => sum + (Number(it.qty) || 0), 0);
   badge.textContent = String(n);
   // Hidden rather than showing "0": an empty cart has nothing to advertise, and
   // a zero badge reads as a broken one.
@@ -85,20 +96,29 @@ const slug = location.pathname.startsWith('/p/')
   ? decodeURIComponent(location.pathname.slice(3)).replace(/\/+$/, '')
   : '';
 
+// Every id the catalogue currently lists, captured from the fetch this page
+// already makes. Null until it resolves, which is how syncCartBadge() knows the
+// difference between "no products" and "not known yet".
+let catalogueIds = null;
+
 async function resolveProductId() {
   if (productId || !slug) return productId;
   try {
     const res = await fetch('/api/products');
     if (!res.ok) return null;
     const data = await res.json();
-    const hit = (data.products || []).find((p) => p.slug === slug);
+    const list = data.products || [];
+    catalogueIds = new Set(list.map((p) => p.id).filter(Boolean));
+    const hit = list.find((p) => p.slug === slug);
     productId = hit?.id || null;
   } catch { /* offline; the buttons report failure below */ }
   return productId;
 }
 
-// Warm it up so the first click does not wait on a round trip.
-resolveProductId();
+// Warm it up so the first click does not wait on a round trip. Also what fills
+// catalogueIds, so the badge is re-synced once it lands — the first paint counts
+// every line, this corrects it.
+resolveProductId().then(syncCartBadge);
 
 // ── gallery ───────────────────────────────────────────────────────
 // Only present when a product has more than one image, which is one product of

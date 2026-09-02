@@ -568,8 +568,29 @@ function writeCart(cart) {
   if (typeof syncCartUp === 'function') syncCartUp();
 }
 
+// Counts only the lines the drawer will actually SHOW.
+//
+// renderCart() drops any line whose product has left the catalogue — delisted, or
+// hidden while a tab sat open — so counting raw lines made the badge disagree with
+// the drawer beneath it. Verified on production: a cart holding one delisted item
+// and one real one showed a badge of "2" over a drawer listing a single item.
+//
+// Deliberately does NOT prune those lines from storage. A product hidden for a day
+// would otherwise be silently deleted from someone's cart and never come back;
+// ignoring it is recoverable, deleting it is not.
+//
+// The `!catalogue.length` line is defensive and currently UNREACHABLE: every
+// caller runs after loadProducts() has populated the catalogue, and when that
+// fetch fails loadProducts() returns before renderCart() is reached. Kept because
+// it is one line and the alternative failure — a badge reading 0 over a cart with
+// things in it — is worse than one briefly too high. Mutating it away breaks no
+// test, which is why this note exists instead of a test.
+//
+// readCart() has already sanitised qty to a positive integer.
 function cartCount(cart = readCart()) {
-  return cart.reduce((n, it) => n + it.qty, 0);
+  if (!catalogue.length) return cart.reduce((n, it) => n + it.qty, 0);
+  return cart.reduce((n, it) =>
+    (catalogue.some((c) => c.id === it.id) ? n + it.qty : n), 0);
 }
 
 function addToCart(id) {
