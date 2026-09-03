@@ -167,6 +167,46 @@
 .admin-tab:hover { color: var(--text); }
 .admin-tab.active { color: var(--orange); border-bottom-color: var(--orange); }
 
+/* New-quote count on the Quotes tab. */
+.tab-badge {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0.05em 0.45em;
+  margin-left: 0.35em;
+  border-radius: 999px;
+  background: var(--orange);
+  color: var(--on-orange, #1a1a1f);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.5;
+  text-align: center;
+  vertical-align: 1px;
+}
+.tab-badge[hidden] { display: none; }
+
+/* Courier + tracking form, opened inside the order card by "Mark shipped" and
+   "Edit tracking". Replaced two prompt() dialogs. */
+.order-drawer[hidden] { display: none; }
+.order-drawer {
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--dark-4);
+}
+.ship-form { display: flex; flex-direction: column; gap: 0.6rem; }
+.ship-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: var(--text-muted); }
+.ship-input {
+  background: var(--dark-4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  padding: 0.5rem 0.7rem;
+  max-width: 420px;
+}
+.ship-input:focus-visible { outline: none; border-color: var(--orange); }
+.ship-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
 .panel-head {
   display: flex;
   align-items: center;
