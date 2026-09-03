@@ -102,7 +102,7 @@ export function quoteCustomerEmail(env, q) {
     ]) +
     `</div>` +
     `<p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0">Feel free to reply to this email if you have any questions or want to share more reference images.</p>` +
-    button(base + "/#gallery", "View Our Gallery") +
+    button(base + "/#shop", "Browse the shop") +
     `</div>` + footer()
   );
 }

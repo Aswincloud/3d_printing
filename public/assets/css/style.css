@@ -166,7 +166,15 @@ nav {
   gap: 5px;
   cursor: pointer;
   padding: 4px;
+  background: none;
+  border: 0;
 }
+
+/* The three bars fold into an X while the menu is open, so the same button
+   visibly closes what it opened. */
+.nav-menu-open .nav-hamburger span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.nav-menu-open .nav-hamburger span:nth-child(2) { opacity: 0; }
+.nav-menu-open .nav-hamburger span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
 .nav-hamburger span {
   display: block;
@@ -911,6 +919,31 @@ section { padding: 100px 5%; }
   pointer-events: none;
 }
 
+/* A real button so it is in the tab order; its click bubbles to .file-drop,
+   which is what opens the chooser. */
+.file-browse {
+  pointer-events: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--orange);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.file-clear {
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 4px;
+  line-height: 1;
+}
+.file-clear:hover { color: var(--text); }
+
 .form-note {
   text-align: center;
   font-size: 0.8rem;
@@ -1136,10 +1169,12 @@ footer {
   flex-direction: column;
   position: fixed;
   top: 68px; left: 0; right: 0;
-  background: rgba(10,10,15,0.97);
-  backdrop-filter: blur(20px);
+  /* Opaque. It was rgba(…,0.97) + backdrop blur, and on phones without the
+     blur the hero headline read straight through the menu links. */
+  background: var(--dark);
   padding: 2rem 5%;
   border-bottom: 1px solid rgba(255,107,0,0.12);
+  box-shadow: 0 24px 48px rgba(0,0,0,0.45);
   gap: 1.5rem;
 }
 
@@ -2821,21 +2856,15 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
    paragraph 148, buttons 122, stats 125 — putting the photos at 774px, so the
    whole first screen was text and the tiles only peeked over the fold.
 
-   Nothing is removed; the same words and the same three stats are all still here.
-   The paragraph is clamped, the buttons share a row and the stats sit on one line,
-   which is what a 390px screen has room for anyway. */
+   The same three stats are all still here. The paragraph is a single short
+   sentence, the buttons share a row and the stats sit on one line, which is what
+   a 390px screen has room for anyway. */
 @media (max-width: 640px) {
   .hero { padding-top: 76px; }
 
-  /* Four lines is the pitch; the fifth was the sentence trailing off. The full
-     text stays in the DOM for a crawler and for anyone with a taller screen. */
-  .hero-content p {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    margin-bottom: 1.1rem;
-  }
+  /* The pitch is one sentence now, short enough to fit a 390px screen whole;
+     it used to be clamped to three lines and cut off mid-sentence. */
+  .hero-content p { margin-bottom: 1.1rem; }
 
   /* Side by side rather than stacked. Both labels are short enough at this size,
      and stacking cost 64px for no gain. */
