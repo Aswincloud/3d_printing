@@ -941,6 +941,46 @@ let shopQuery = '';
 let shopCategory = new URLSearchParams(location.search).get('cat') || 'all';
 let shopPriceBand = 'all';
 
+// The grid shows this many cards, then a "Show more" button. It rendered all of
+// them before — 86 cards, a ~9,000px page on a phone, with How It Works, the
+// quote form and the footer buried under the catalogue. Twelve is three rows on
+// a desktop and six on a phone: enough to browse, not so much that the rest of
+// the page disappears.
+const SHOP_PAGE = 12;
+let shopLimit = SHOP_PAGE;
+let shopFilterKey = null;
+let lastShown = [];
+
+function renderShowMore(total, showing) {
+  const box = document.getElementById('shopMore');
+  if (!box) return;
+  const left = total - showing;
+  if (left <= 0) { box.hidden = true; box.innerHTML = ''; return; }
+
+  box.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-secondary';
+  btn.id = 'shopMoreBtn';
+  btn.textContent = `Show ${Math.min(SHOP_PAGE, left)} more`;
+  btn.addEventListener('click', () => {
+    const firstNew = showing;
+    shopLimit += SHOP_PAGE;
+    renderProducts();
+    // Put focus on the first card that just appeared, so a keyboard or
+    // screen-reader user continues from where the button was rather than
+    // being dropped at the top of the page.
+    const card = productGrid?.querySelectorAll('.product-card')[firstNew];
+    card?.querySelector('.product-name')?.focus?.({ preventScroll: true });
+    card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  const count = document.createElement('p');
+  count.className = 'shop-more-count';
+  count.textContent = `Showing ${showing} of ${total}`;
+  box.append(btn, count);
+  box.hidden = false;
+}
+
 // Price bands for the sidebar filter.
 //
 // Chosen from the actual catalogue rather than round numbers: prices run ₹99 to
@@ -1182,6 +1222,15 @@ function renderProducts() {
   const shown = visibleProducts()
     .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
   updateResultCount(shown.length);
+  lastShown = shown;
+
+  // A new filter or search starts back at the first page. Keyed on the filter
+  // state rather than reset by every caller, because renderProducts() is called
+  // from a dozen places and only some of them change what is being shown.
+  const filterKey = `${shopCategory}|${shopPriceBand}|${shopQuery.trim().toLowerCase()}`;
+  if (filterKey !== shopFilterKey) { shopFilterKey = filterKey; shopLimit = SHOP_PAGE; }
+  const page = shown.slice(0, shopLimit);
+  renderShowMore(shown.length, page.length);
 
   // A search that matches nothing is a dead end unless we offer a way out.
   if (!shown.length) {
@@ -1209,7 +1258,7 @@ function renderProducts() {
     return;
   }
 
-  for (const p of shown) {
+  for (const p of page) {
     const card = document.createElement('div');
     card.className = 'product-card';
 
@@ -1500,8 +1549,18 @@ function openSharedProduct() {
   const slug = meta && meta.getAttribute('content');
   if (!slug) return;
 
-  const card = productGrid?.querySelector(`.product-card[data-slug="${CSS.escape(slug)}"]`);
-  if (!card) return;
+  let card = productGrid?.querySelector(`.product-card[data-slug="${CSS.escape(slug)}"]`);
+  if (!card) {
+    // Past the first page of the grid. Extend the page to include it rather than
+    // silently doing nothing — this is the one case where the visitor arrived
+    // asking for a specific card.
+    const at = lastShown.findIndex((p) => p.slug === slug);
+    if (at < 0) return;
+    shopLimit = Math.ceil((at + 1) / SHOP_PAGE) * SHOP_PAGE;
+    renderProducts();
+    card = productGrid?.querySelector(`.product-card[data-slug="${CSS.escape(slug)}"]`);
+    if (!card) return;
+  }
 
   card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   card.classList.add('product-linked');
