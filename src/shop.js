@@ -94,7 +94,7 @@ export async function listProducts(env) {
 // Every reason a code could fail is checked here rather than trusted: paused,
 // expired, or out of uses. Aswin pausing WELCOME10 in the dashboard takes the
 // banner down on its own, with nothing else to remember.
-async function featuredPromo(env) {
+export async function featuredPromo(env) {
   const code = String(env.PROMO_CODE || "").trim();
   if (!code) return null;
 

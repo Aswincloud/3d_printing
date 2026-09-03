@@ -12,7 +12,8 @@
 //
 // Neither shows up by looking at the site.
 
-import { sitemap, robots, productJsonLd, homeJsonLd, jsonLdScript, localPageJsonLd } from "../src/seo.js";
+import { sitemap, robots, productJsonLd, homeJsonLd, jsonLdScript, localPageJsonLd, promoBannerText } from "../src/seo.js";
+import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -265,6 +266,29 @@ section("script serialisation");
     const inner = evil.replace(/^<script[^>]*>/, "").replace(/<\/script>$/, "");
     try { JSON.parse(inner); return true; } catch { return false; }
   })());
+}
+
+// The promo banner is server-rendered by rewriteHome() and then redrawn by
+// renderPromo() in main.js once /api/products answers. The two strings must be
+// identical, or the redraw re-flows a banner that was already on screen — the
+// exact layout shift the server render exists to remove.
+console.log("\npromo banner text matches the client");
+{
+  const full = { code: "WELCOME10", kind: "percent", value: 10, max_discount_paise: 20000,
+                 min_order_paise: 49900, once_per_customer: true };
+  ok("percent, capped, minimum, once",
+     promoBannerText(full) === "10% off — up to ₹200, on orders over ₹499, one use per customer with code WELCOME10",
+     promoBannerText(full));
+  ok("fixed, no terms",
+     promoBannerText({ code: "FLAT50", kind: "fixed", value: 5000, min_order_paise: 0 })
+       === "₹50 off with code FLAT50");
+  // main.js concatenates the same pieces in the same order. Checked textually,
+  // since main.js is a browser script and cannot be imported here.
+  const main = readFileSync(new URL("../public/assets/js/main.js", import.meta.url), "utf8");
+  for (const piece of ["% off'", "' off'", "'up to '", "'on orders over '",
+                       "'one use per customer'", "' with code '", "' — '"]) {
+    ok(`main.js still builds the banner from ${piece}`, main.includes(piece));
+  }
 }
 
 // The shoppable hero is rewritten by rewriteHome(), which uses HTMLRewriter — a

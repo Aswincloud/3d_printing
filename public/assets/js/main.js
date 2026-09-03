@@ -738,6 +738,26 @@ function syncCheckoutGate() {
 
 const PROMO_DISMISS_KEY = 'ap_promo_hidden';
 
+// The Worker renders the banner into the HTML (rewriteHome in src/seo.js) so it
+// is on screen from the first paint instead of pushing the page down when
+// /api/products lands. Dismissal is only known here, in localStorage, so this
+// runs synchronously at load — before the first frame, since main.js is a
+// blocking script at the end of <body> — and hides a banner the visitor already
+// closed. renderPromo() then owns it as before once the API answers.
+(function hideDismissedPromo() {
+  const bar = document.getElementById('promoBanner');
+  const code = bar?.dataset.promoCode;
+  if (!bar || !code || bar.hidden) return;
+  try {
+    if (localStorage.getItem(PROMO_DISMISS_KEY) === code) bar.hidden = true;
+  } catch { /* private mode — leave it showing */ }
+  // The nav's `top` is --promo-h; set it now rather than after the API call so
+  // the header does not sit over the banner for the first few hundred ms. (Not
+  // bindPromoScroll(): its `let` flag is declared further down and would still be
+  // in its temporal dead zone here. renderPromo binds it a moment later.)
+  syncPromoOffset();
+})();
+
 function renderPromo(promo) {
   const bar = document.getElementById('promoBanner');
   if (!bar) return;
@@ -1928,6 +1948,8 @@ function openCheckout(items = null) {
   checkoutModal.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
   document.getElementById('coName')?.focus();
+  // Start fetching checkout.js now; the submit handler awaits the same promise.
+  loadRazorpay().catch(() => { /* reported at submit, where there is a place to say it */ });
 }
 
 function closeCheckout() {
@@ -1961,19 +1983,51 @@ document.addEventListener('keydown', (e) => {
 /* ── submit → Razorpay ─────────────────────────────────────────── */
 let checkoutBusy = false;
 
+// Razorpay's checkout.js used to be a <script> in index.html, so every visitor
+// paid for it — about 50 requests and ~400KB including the Sentry and telemetry
+// bundles it pulls in — on a homepage most of them never buy from. It is now
+// fetched when the checkout modal opens, which gives it the whole form-filling
+// time to arrive. Must still come from their CDN: self-hosting is unsupported.
+// A script element with a src is fine under the CSP; it is inline code that is
+// blocked, and checkout.razorpay.com is already in script-src.
+let razorpayLoad = null;
+function loadRazorpay() {
+  if (typeof window.Razorpay === 'function') return Promise.resolve();
+  if (razorpayLoad) return razorpayLoad;
+  razorpayLoad = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => {
+      // Let the next attempt try again rather than caching the failure.
+      razorpayLoad = null;
+      s.remove();
+      reject(new Error('checkout.js failed to load'));
+    };
+    document.head.appendChild(s);
+  });
+  return razorpayLoad;
+}
+
 checkoutForm?.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (checkoutBusy) return;
   if (!validateCheckout()) return;
 
-  if (typeof window.Razorpay !== 'function') {
-    showCoError("Payment couldn't load. Check your connection and try again, or use the quote form.");
-    return;
-  }
-
   const v = (n) => (checkoutForm.querySelector('[name="' + n + '"]')?.value || '').trim();
 
   setCheckoutBusy(true, 'Starting payment…');
+
+  // Normally already in flight since openCheckout() kicked it off; this only
+  // waits when someone fills the form faster than their connection.
+  try {
+    await loadRazorpay();
+  } catch {
+    setCheckoutBusy(false);
+    showCoError("Payment couldn't load. Check your connection and try again, or use the quote form.");
+    return;
+  }
 
   let data;
   try {
