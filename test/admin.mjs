@@ -349,7 +349,11 @@ function makeDB(seed = {}) {
       return { meta: { changes: o ? 1 : 0 } };
     }
     if (s.startsWith("SELECT COUNT(*) AS orders, COALESCE(SUM(total_paise),0) AS revenue")) {
-      const rows = db.orders.filter((o) => ["paid", "shipped"].includes(o.status));
+      // Parse the IN (...) list out of the SQL rather than hardcoding it, so
+      // the fake cannot agree with the test while disagreeing with the query.
+      const list = (s.match(/status IN \(([^)]*)\)/) || [])[1] || "";
+      const statuses = list.split(",").map((x) => x.trim().replace(/^'|'$/g, ""));
+      const rows = db.orders.filter((o) => statuses.includes(o.status));
       return { first: { orders: rows.length, revenue: rows.reduce((n, o) => n + o.total_paise, 0) } };
     }
     if (s.startsWith("SELECT COUNT(*) AS n FROM orders WHERE status = 'pending'")) {
@@ -440,6 +444,22 @@ section("admin products — list includes hidden rows");
   const [, out] = await read(await listProducts(env));
   ok("returns both visible and hidden", out.products.length === 2);
   ok("exposes the visible flag", out.products.some((p) => p.visible === 0));
+}
+
+section("admin products — update checks the image against the manifest");
+{
+  const env = envDB({ products: [PRODUCT] });
+  for (const image of ["https://evil.example/x.jpg", "//evil.example/x.jpg", "../../etc/passwd", "not-in-manifest.jpg"]) {
+    const [status] = await read(await updateProduct(env, PRODUCT.id, { image }));
+    ok(`rejects ${image}`, status === 400, String(status));
+  }
+  const [status] = await read(await updateProduct(env, PRODUCT.id, { image: "dragon.jpg", images: "extra1.jpg, assets/images/extra2.jpg" }));
+  ok("accepts a file that exists", status === 200, String(status));
+  const row = env.DB._db.products[0];
+  ok("stores the canonical path", row.image === "assets/images/dragon.jpg", row.image);
+  ok("extras are canonical too", row.images === "assets/images/extra1.jpg,assets/images/extra2.jpg", row.images);
+  const [bad] = await read(await updateProduct(env, PRODUCT.id, { images: "extra1.jpg,ghost.jpg" }));
+  ok("an unknown extra is refused", bad === 400);
 }
 
 section("admin products — price validation");
@@ -1304,13 +1324,19 @@ section("admin stats");
       { ...ORDER, id: "o2", status: "shipped", total_paise: 100000 },
       { ...ORDER, id: "o3", status: "pending", total_paise: 50000 },
       { ...ORDER, id: "o4", status: "cancelled", total_paise: 70000 },
+      // Mid-pipeline. These used to drop out of revenue the moment an order was
+      // marked "in production" and reappear when it shipped.
+      { ...ORDER, id: "o5", status: "in_production", total_paise: 20000 },
+      { ...ORDER, id: "o6", status: "ready", total_paise: 10000 },
+      { ...ORDER, id: "o7", status: "delivered", total_paise: 5000 },
+      { ...ORDER, id: "o8", status: "refunded", total_paise: 90000 },
     ],
     products: [PRODUCT, { ...PRODUCT, id: "p2", visible: 0 }],
   });
   const [, s] = await read(await stats(env));
-  ok("counts paid + shipped as revenue", s.revenue_paise === 144800, String(s.revenue_paise));
-  ok("excludes pending and cancelled from revenue", s.revenue_paise !== 264800);
-  ok("paid order count", s.paid_orders === 2);
+  ok("counts every stage from paid to delivered as revenue", s.revenue_paise === 179800, String(s.revenue_paise));
+  ok("excludes pending, cancelled and refunded from revenue", s.revenue_paise !== 264800 && s.revenue_paise < 269800);
+  ok("paid order count spans the pipeline", s.paid_orders === 5, String(s.paid_orders));
   ok("pending count", s.pending_orders === 1);
   ok("product totals", s.products_total === 2 && s.products_visible === 1);
 }

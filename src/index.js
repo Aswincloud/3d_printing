@@ -167,10 +167,14 @@ export default {
         && (request.method === "GET" || request.method === "HEAD")) {
       const page = await env.ASSETS.fetch(request);
       try {
+        // The SAME order listProducts() in shop.js produces, or the grid a
+        // crawler indexes (and a visitor sees for the first moment) is a
+        // different grid from the one main.js draws a second later.
         const [{ results }, promo] = await Promise.all([
           env.DB.prepare(
-            `SELECT slug, name, description, price_paise, image
-               FROM products WHERE visible = 1 ORDER BY sort ASC, name ASC`
+            `SELECT slug, name, description, price_paise, image, pinned
+               FROM products WHERE visible = 1
+              ORDER BY pinned DESC, created_at DESC, (sort = 0), sort ASC, name ASC`
           ).all(),
           // Non-fatal: a banner that fails to render server-side just appears
           // the old way, from /api/products, once main.js runs.
@@ -179,8 +183,11 @@ export default {
             return null;
           }),
         ]);
+        const ordered = (results || []).slice().sort((a, b) =>
+          Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+          Number(!(a.price_paise > 0)) - Number(!(b.price_paise > 0)));
 
-        const rendered = rewriteHome(env, page, results || [], url, promo);
+        const rendered = rewriteHome(env, page, ordered, url, promo);
 
         // Edge-cached, because this added a D1 query to the hot path.
         //
