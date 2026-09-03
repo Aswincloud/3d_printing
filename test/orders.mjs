@@ -57,9 +57,19 @@ function makeDB() {
       return { first: db.quotes.find((q) => q.receipt === args[0]) || null };
     }
     if (s.startsWith("UPDATE quotes SET status = 'paid'")) {
+      // The conditional claim. `AND order_id IS NULL` is what makes a second
+      // delivery a no-op, so the fake has to honour it or the race test below
+      // passes for the wrong reason.
       const q = db.quotes.find((x) => x.id === args[2]);
-      if (q) { q.status = "paid"; q.order_id = args[0]; q.updated_at = args[1]; }
-      return { meta: { changes: q ? 1 : 0 } };
+      if (!q || (s.includes("order_id IS NULL") && q.order_id)) return { meta: { changes: 0 } };
+      q.status = "paid"; q.order_id = args[0]; q.updated_at = args[1];
+      return { meta: { changes: 1 } };
+    }
+    if (s.startsWith("UPDATE quotes SET status = ?, order_id = NULL")) {
+      const q = db.quotes.find((x) => x.id === args[2] && x.order_id === args[3]);
+      if (!q) return { meta: { changes: 0 } };
+      q.status = args[0]; q.order_id = null; q.updated_at = args[1];
+      return { meta: { changes: 1 } };
     }
     if (s.startsWith("SELECT * FROM orders WHERE id = ?")) {
       return { first: db.orders.find((o) => o.id === args[0]) || null };
@@ -870,6 +880,58 @@ section("payment_link.paid — a redelivery does nothing twice");
 
   ok("exactly one order", env.DB._db.orders.length === 1, String(env.DB._db.orders.length));
   ok("exactly one line", env.DB._db.order_items.length === 1);
+}
+
+section("payment_link.paid — two deliveries with NO event id race for one quote");
+{
+  // No x-razorpay-event-id header at all, so webhook_events cannot help, and the
+  // two deliveries interleave: both read the quote before either has written.
+  // The conditional UPDATE is the only thing between this and two orders, two
+  // receipts and two invoices for one payment.
+  const env = ENV(); stubFetch();
+  env.DB._db.quotes.push({ ...QUOTE_ROW });
+  const raw = linkPaidBody();
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+
+  const c1 = makeCtx(), c2 = makeCtx();
+  const noId = (r) => { const h = new Headers(r.headers); h.delete("x-razorpay-event-id"); return new Request(r.url, { method: "POST", headers: h, body: raw }); };
+  await Promise.all([
+    razorpayWebhook(noId(webhookReq(raw, sig, "")), env, c1),
+    razorpayWebhook(noId(webhookReq(raw, sig, "")), env, c2),
+  ]);
+  await settle(c1); await settle(c2);
+
+  ok("exactly one order despite the race", env.DB._db.orders.length === 1, String(env.DB._db.orders.length));
+  ok("exactly one line", env.DB._db.order_items.length === 1);
+  ok("the quote points at the order that exists",
+     env.DB._db.quotes[0].order_id === env.DB._db.orders[0]?.id);
+}
+
+section("payment_link.paid — a failed order write releases the claim");
+{
+  const env = ENV(); stubFetch();
+  env.DB._db.quotes.push({ ...QUOTE_ROW });
+  const raw = linkPaidBody();
+  const sig = await hmacHex(raw, WEBHOOK_SECRET);
+
+  // D1 falls over on the batch, once.
+  const realBatch = env.DB.batch.bind(env.DB);
+  let failed = false;
+  env.DB.batch = async (stmts) => {
+    if (!failed) { failed = true; throw new Error("D1 hiccup"); }
+    return realBatch(stmts);
+  };
+  const c1 = makeCtx();
+  let threw = false;
+  try { await razorpayWebhook(webhookReq(raw, sig, "evt_pl_fail1"), env, c1); } catch { threw = true; }
+  ok("the first delivery fails loudly so Razorpay retries", threw);
+  ok("no order was written", env.DB._db.orders.length === 0);
+  ok("the quote is NOT left marked paid", env.DB._db.quotes[0].status !== "paid" && env.DB._db.quotes[0].order_id == null,
+     JSON.stringify(env.DB._db.quotes[0]));
+
+  const c2 = makeCtx();
+  await razorpayWebhook(webhookReq(raw, sig, "evt_pl_fail2"), env, c2); await settle(c2);
+  ok("the retry converts the quote", env.DB._db.orders.length === 1 && env.DB._db.quotes[0].status === "paid");
 }
 
 section("payment_link.paid — an unknown reference is refused quietly");

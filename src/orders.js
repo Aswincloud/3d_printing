@@ -400,35 +400,54 @@ async function handleQuotePaid(env, ctx, evt) {
   const orderId = uid();
   const orderReceipt = "AP-" + orderId.replace(/-/g, "").slice(0, 8).toUpperCase();
   const t = now();
+  const priorStatus = quote.status;
+
+  // CLAIM THE QUOTE FIRST, conditionally. The read above and the writes below
+  // are two round trips, and two deliveries of the same payment — Razorpay
+  // retries, and the event-id header is not guaranteed — could both read
+  // order_id = NULL and both build an order. `AND order_id IS NULL` makes the
+  // claim atomic: exactly one delivery changes a row; the other sees 0 and
+  // stops, before it has created anything.
+  const claim = await env.DB.prepare(
+    `UPDATE quotes SET status = 'paid', order_id = ?, updated_at = ?
+      WHERE id = ? AND order_id IS NULL`
+  ).bind(orderId, t, quote.id).run();
+  if (claim.meta?.changes === 0) return;
 
   // The address is deliberately blank: a quote request never asks for one. The
   // dashboard flags this order as needing an address, and Aswin is already in an
   // email thread with the customer by the time it is paid.
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO orders (id, receipt, rzp_order_id, rzp_payment_id, status,
-                           subtotal_paise, shipping_paise, total_paise, currency,
-                           delivery, cust_name, cust_email, cust_phone,
-                           notes, created_at, paid_at)
-       VALUES (?,?,?,?,'paid',?,0,?,'INR','ship',?,?,?,?,?,?)`
-    ).bind(orderId, orderReceipt, rzpOrder.id || payment.order_id || null,
-           payment.id || null, paid, paid,
-           quote.cust_name, quote.cust_email, quote.cust_phone,
-           `Quotation ${quote.receipt}`, t, t),
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO orders (id, receipt, rzp_order_id, rzp_payment_id, status,
+                             subtotal_paise, shipping_paise, total_paise, currency,
+                             delivery, cust_name, cust_email, cust_phone,
+                             notes, created_at, paid_at)
+         VALUES (?,?,?,?,'paid',?,0,?,'INR','ship',?,?,?,?,?,?)`
+      ).bind(orderId, orderReceipt, rzpOrder.id || payment.order_id || null,
+             payment.id || null, paid, paid,
+             quote.cust_name, quote.cust_email, quote.cust_phone,
+             `Quotation ${quote.receipt}`, t, t),
 
-    // product_id NULL — the column is nullable for exactly this: a line that
-    // never came from the catalogue.
-    env.DB.prepare(
-      `INSERT INTO order_items
-         (id, order_id, product_id, name, price_paise, qty, personalisation, pos)
-       VALUES (?,?,NULL,?,?,1,?,0)`
-    ).bind(uid(), orderId, `Custom print — ${quote.receipt}`, paid,
-           String(quote.description || "").slice(0, 500)),
-
-    env.DB.prepare(
-      `UPDATE quotes SET status = 'paid', order_id = ?, updated_at = ? WHERE id = ?`
-    ).bind(orderId, t, quote.id),
-  ]);
+      // product_id NULL — the column is nullable for exactly this: a line that
+      // never came from the catalogue.
+      env.DB.prepare(
+        `INSERT INTO order_items
+           (id, order_id, product_id, name, price_paise, qty, personalisation, pos)
+         VALUES (?,?,NULL,?,?,1,?,0)`
+      ).bind(uid(), orderId, `Custom print — ${quote.receipt}`, paid,
+             String(quote.description || "").slice(0, 500)),
+    ]);
+  } catch (e) {
+    // Release the claim so Razorpay's retry can convert the quote, rather than
+    // leaving it marked paid and pointing at an order that was never written.
+    await env.DB.prepare(
+      `UPDATE quotes SET status = ?, order_id = NULL, updated_at = ?
+        WHERE id = ? AND order_id = ?`
+    ).bind(priorStatus, now(), quote.id, orderId).run().catch(() => {});
+    throw e;
+  }
 
   const order = await env.DB.prepare(`SELECT * FROM orders WHERE id = ?`).bind(orderId).first();
   const { results: items } = await env.DB.prepare(

@@ -610,12 +610,34 @@ export async function updateProduct(env, id, body) {
   if ("personalise_required" in body) {
     put("personalise_required", body.personalise_required ? 1 : 0);
   }
-  if ("image" in body) {
-    const image = clip(body.image, MAXLEN.image);
-    if (!image) return bad("Image path cannot be empty.");
-    put("image", image);
+  // Same check as createProduct: the client names a file, the manifest decides
+  // whether it exists. This path used to accept any string — an external URL,
+  // a traversal, a typo — and the shop would render whatever it was told.
+  if ("image" in body || "images" in body) {
+    const manifest = await readManifest(env);
+    if (!manifest) return bad("Image manifest unavailable — run `npm run images` and deploy.", 503);
+    const known = new Set(manifest.images.map((i) => i.file));
+
+    if ("image" in body) {
+      const image = clip(body.image, MAXLEN.image);
+      if (!image) return bad("Image path cannot be empty.");
+      const named = image.replace(/^.*\//, "");
+      if (!known.has(named) || /^https?:|^\/\/|\.\./i.test(image)) {
+        return bad("That image is not in assets/images. Push the photo, run `npm run images`, and try again.");
+      }
+      put("image", `assets/images/${named}`);
+    }
+    if ("images" in body) {
+      const extras = [];
+      for (const part of clip(body.images, MAXLEN.images).split(",")) {
+        const f = part.trim().replace(/^.*\//, "");
+        if (!f) continue;
+        if (!known.has(f)) return bad(`Extra image "${f}" is not in assets/images.`);
+        extras.push(`assets/images/${f}`);
+      }
+      put("images", extras.join(","));
+    }
   }
-  if ("images" in body) put("images", clip(body.images, MAXLEN.images));
   if ("category" in body) put("category", clip(body.category, MAXLEN.category));
   if ("visible" in body) put("visible", body.visible ? 1 : 0);
   // Leads the catalogue. A toggle, so coerced rather than validated — there is
@@ -1080,9 +1102,13 @@ export async function refundOrder(env, id, body) {
 
 // ── dashboard summary ─────────────────────────────────────────────
 export async function stats(env) {
+  // Every stage from paid onwards is money that has arrived. This counted only
+  // 'paid' and 'shipped', so the moment an order was marked "in production" it
+  // fell out of the revenue figure and came back when it shipped — the number on
+  // the dashboard went DOWN as work progressed.
   const paid = await env.DB.prepare(
     `SELECT COUNT(*) AS orders, COALESCE(SUM(total_paise),0) AS revenue
-       FROM orders WHERE status IN ('paid','shipped')`
+       FROM orders WHERE status IN ('paid','in_production','ready','shipped','delivered')`
   ).first();
   const pending = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM orders WHERE status = 'pending'`
