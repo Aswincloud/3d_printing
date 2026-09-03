@@ -9,7 +9,7 @@ import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
-import { listProducts, priceCart } from "./shop.js";
+import { listProducts, priceCart, featuredPromo } from "./shop.js";
 // Aliased like the admin.js imports below: coupons.js exports its own CRUD names
 // that would otherwise read ambiguously next to the product ones.
 import {
@@ -167,12 +167,20 @@ export default {
         && (request.method === "GET" || request.method === "HEAD")) {
       const page = await env.ASSETS.fetch(request);
       try {
-        const { results } = await env.DB.prepare(
-          `SELECT slug, name, description, price_paise, image
-             FROM products WHERE visible = 1 ORDER BY sort ASC, name ASC`
-        ).all();
+        const [{ results }, promo] = await Promise.all([
+          env.DB.prepare(
+            `SELECT slug, name, description, price_paise, image
+               FROM products WHERE visible = 1 ORDER BY sort ASC, name ASC`
+          ).all(),
+          // Non-fatal: a banner that fails to render server-side just appears
+          // the old way, from /api/products, once main.js runs.
+          featuredPromo(env).catch((e) => {
+            console.error("home promo lookup failed", e?.message || e);
+            return null;
+          }),
+        ]);
 
-        const rendered = rewriteHome(env, page, results || [], url);
+        const rendered = rewriteHome(env, page, results || [], url, promo);
 
         // Edge-cached, because this added a D1 query to the hot path.
         //

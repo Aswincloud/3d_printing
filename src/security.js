@@ -12,7 +12,7 @@ import { json } from "./lib.js";
 // worse than no CSP, so the domains were collected by opening real Razorpay
 // Standard Checkout in a browser and recording every origin it contacted:
 //
-//   checkout.razorpay.com              the script tag in index.html
+//   checkout.razorpay.com              checkout.js, injected by main.js at checkout
 //   api.razorpay.com                   the checkout iframe + its XHR
 //   cdn.razorpay.com                   secondary bundles
 //   checkout-static-next.razorpay.com  css, fonts, chunks

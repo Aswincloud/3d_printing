@@ -308,7 +308,29 @@ function cardHtml(env, p, resize) {
 // Failure is silent by design: this is a crawler optimisation on the page every
 // visitor loads, and a D1 hiccup must not cost a human the homepage. The caller
 // wraps it, and any error returns the untouched response.
-export function rewriteHome(env, response, products, url) {
+// The promo banner's one line, built server-side so the banner is in the first
+// HTML rather than appearing after /api/products and pushing the whole page
+// down (a measured 43–85px layout shift on every load while a promo ran).
+// renderPromo() in main.js builds the identical string, and test/seo.mjs pins
+// this one — if the two ever differ the banner would visibly re-flow.
+export function promoBannerText(promo) {
+  const off = promo.kind === "percent" ? promo.value + "% off" : rupees(promo.value) + " off";
+  const caps = [];
+  if (promo.kind === "percent" && promo.max_discount_paise) {
+    caps.push("up to " + rupees(promo.max_discount_paise));
+  }
+  if (promo.min_order_paise) caps.push("on orders over " + rupees(promo.min_order_paise));
+  if (promo.once_per_customer) caps.push("one use per customer");
+  return off + (caps.length ? " — " + caps.join(", ") : "") + " with code " + promo.code;
+}
+
+// Widths the hero photos are offered at. Rendered sizes run from ~160px (a
+// portrait card on a 360px phone) to ~520px (the landscape card on a tablet), so
+// with DPR 2–3 the useful range is roughly 320–1200. The single 900px version
+// was 2–3x more pixels than a phone could show for the two portraits.
+const HERO_WIDTHS = [320, 480, 640, 900, 1200];
+
+export function rewriteHome(env, response, products, url, promo = null) {
   const base = baseUrl(env);
   const canonical = base + "/";
 
@@ -343,6 +365,23 @@ export function rewriteHome(env, response, products, url) {
     .on("#productGrid", {
       element(el) { el.setInnerContent(grid, { html: true }); },
     })
+    // The promo banner, in the HTML rather than filled in by JS after
+    // /api/products lands. main.js still owns dismissal and the "already
+    // redeemed" case; it reads data-promo-code to hide a dismissed banner before
+    // first paint, and redraws the same text once the API answers.
+    .on("#promoBanner", {
+      element(el) {
+        if (!promo || !promo.code) return;
+        el.removeAttribute("hidden");
+        el.setAttribute("data-promo-code", promo.code);
+      },
+    })
+    .on("#promoText", {
+      element(el) {
+        if (!promo || !promo.code) return;
+        el.setInnerContent(promoBannerText(promo));
+      },
+    })
     // Point each hero photo at its product page. Left as the #shop anchor when the
     // product is not in the visible set — a hidden or deleted piece degrades to a
     // decorative photo rather than a 302 from the first thing on the page.
@@ -364,10 +403,10 @@ export function rewriteHome(env, response, products, url) {
       element(el) {
         const src = String(el.getAttribute("src") || "").replace(/^\/+/, "");
         if (resize && src && !/^https?:/i.test(src)) {
-          el.setAttribute(
-            "src",
-            `/cdn-cgi/image/width=900,format=auto,onerror=redirect/${src}`,
-          );
+          const at = (w) => `/cdn-cgi/image/width=${w},format=auto,onerror=redirect/${src}`;
+          el.setAttribute("src", at(640));
+          // `sizes` is in the markup per card, since the landscape card is wider.
+          el.setAttribute("srcset", HERO_WIDTHS.map((w) => `${at(w)} ${w}w`).join(", "));
         }
         heroImg += 1;
         if (heroImg === 1) {
