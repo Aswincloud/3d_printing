@@ -267,7 +267,12 @@ function cdnImage(path, width, resize) {
   return `/cdn-cgi/image/width=${width},format=auto,onerror=redirect/${p}`;
 }
 
-function cardHtml(env, p, resize) {
+// Must match SHOP_PAGE in main.js: the server draws the first paint and the
+// script redraws the same grid, so a different page size here would make the
+// grid grow or shrink the instant JS runs.
+export const SHOP_PAGE = 12;
+
+function cardHtml(env, p, resize, overflow = false) {
   const base = baseUrl(env);
   const priceLabel = p.price_paise > 0
     ? "₹" + Math.round(p.price_paise / 100).toLocaleString("en-IN")
@@ -281,7 +286,7 @@ function cardHtml(env, p, resize) {
     ? `<a class="product-name" href="${esc(href)}">${esc(p.name)}</a>`
     : `<div class="product-name">${esc(p.name)}</div>`;
 
-  return `<div class="product-card">` +
+  return `<div class="product-card${overflow ? " is-overflow" : ""}">` +
     `<div class="product-media">` +
       `<img src="${esc(cdnImage(p.image, 480, resize))}" alt="${esc(p.name)}" loading="lazy" decoding="async" width="400" height="400">` +
     `</div>` +
@@ -337,7 +342,15 @@ export function rewriteHome(env, response, products, url, promo = null) {
   // /cdn-cgi/ is an edge feature; under wrangler dev it 404s, so the whole grid
   // would render broken while developing.
   const resize = !/^(localhost|127\.0\.0\.1)$/.test(url.hostname);
-  const grid = products.map((p) => cardHtml(env, p, resize)).join("");
+  // Every product is in the HTML — that is the crawler's route to all the
+  // product pages — but only the first page is visible, the same twelve
+  // main.js will draw. The rest carry .is-overflow (display: none).
+  const grid = products.map((p, i) => cardHtml(env, p, resize, i >= SHOP_PAGE)).join("");
+  const left = products.length - SHOP_PAGE;
+  const showMore = left > 0
+    ? `<button type="button" class="btn-secondary" id="shopMoreBtn">Show ${Math.min(SHOP_PAGE, left)} more</button>` +
+      `<p class="shop-more-count">Showing ${SHOP_PAGE} of ${products.length}</p>`
+    : "";
 
   // The three hero photos are real products. Keyed on image FILENAME rather than a
   // hardcoded slug: the photos were chosen because they compose well together, and
@@ -364,6 +377,13 @@ export function rewriteHome(env, response, products, url, promo = null) {
     // to it, so a crawler never sees both.
     .on("#productGrid", {
       element(el) { el.setInnerContent(grid, { html: true }); },
+    })
+    .on("#shopMore", {
+      element(el) {
+        if (!showMore) return;
+        el.removeAttribute("hidden");
+        el.setInnerContent(showMore, { html: true });
+      },
     })
     // The promo banner, in the HTML rather than filled in by JS after
     // /api/products lands. main.js still owns dismissal and the "already

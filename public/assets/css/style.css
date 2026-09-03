@@ -1281,6 +1281,38 @@ footer {
   .shop-sidebar { display: none; }
 }
 
+/* ── "Show more" under the grid ────────────────────────────────────
+   The grid used to render every product at once — 86 cards, a ~9,000px page on
+   a phone — with How It Works, the quote form and the footer buried beneath.
+   Twelve at a time is three desktop rows or six phone rows; the button says
+   how many are left so nobody wonders whether that was everything. */
+.shop-more {
+  grid-column: 2;             /* under the grid, not under the sidebar */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.75rem;
+}
+.shop-more[hidden] { display: none; }
+.shop-more .btn-secondary { font-size: 0.92rem; padding: 0.7rem 1.6rem; }
+.shop-more-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+/* Server-rendered cards past the first page. main.js re-renders the grid
+   from /api/products, so this only shapes the first paint — and keeps every
+   product link in the HTML for a crawler. */
+.product-card.is-overflow { display: none; }
+
+/* No sidebar below 1100px (see .shop-layout above), so there is only the one
+   column to sit in. After the base rule on purpose: same specificity, and the
+   later declaration is the one that wins. */
+@media (max-width: 1100px) {
+  .shop-more { grid-column: 1; }
+}
+
 .product-grid {
   display: grid;
   /* 195px, arrived at by measuring rather than picking a round number.
