@@ -112,51 +112,6 @@ export const rupees = (paise) =>
     maximumFractionDigits: 2,
   });
 
-// ── the struck-through "MRP" shown beside the selling price ───────
-//
-// A DISPLAY figure, computed as the selling price + 15%. Aswin asked for this after
-// being told what it is: no item has ever been sold at the higher number, so it is a
-// fabricated reference price rather than a former one. That is the pattern India's
-// CCPA Guidelines for Prevention and Regulation of Dark Patterns (2023) describe,
-// and "MRP" is a defined term under the Legal Metrology (Packaged Commodities)
-// Rules rather than a marketing figure. His shop, his decision — recorded here so
-// whoever reads this next knows the number is derived and not historical, and does
-// not mistake it for data.
-//
-// WHERE IT MUST NOT GO, and this is the part to preserve if anything here changes:
-//
-//   * the cart, checkout, Razorpay amount, invoices, order emails. Those state money
-//     actually charged, and a fabricated "you saved ₹X" beside a real total is a
-//     different and much worse claim than a struck price on a card.
-//   * the JSON-LD on product pages. That is a machine-readable price claim made to
-//     Google; the structured data keeps declaring the real selling price, which is
-//     accurate. Nothing about the on-page display needs it there.
-//
-// So it is exported from here rather than inlined, and every caller is a display
-// surface. test/pricing-display.mjs asserts the exclusions above by name.
-export const COMPARE_AT_MULTIPLIER = 1.15;
-
-export const compareAtPaise = (paise) => {
-  const p = Math.round(Number(paise) || 0);
-  // Quote-only products (0) and anything non-numeric get nothing, rather than a
-  // struck "₹0" next to "Price on request".
-  if (!(p > 0)) return 0;
-  // Rounded to whole RUPEES, not whole paise. p is in paise, so a bare
-  // Math.round(p * 1.15) leaves ₹399 showing as "₹458.85" — a reference price with
-  // two decimals reads as a number a computer produced, which is the one thing it
-  // must not look like. Rounding to the rupee gives ₹459.
-  return Math.round((p * COMPARE_AT_MULTIPLIER) / 100) * 100;
-};
-
-// The percentage is derived from the two numbers actually shown, not hardcoded to
-// 15. Rounding moves it — ₹99 becomes ₹114, which is 13% off, not 15 — and a badge
-// claiming a discount the arithmetic beside it contradicts is worse than no badge.
-export const comparePercentOff = (paise) => {
-  const was = compareAtPaise(paise), now = Math.round(Number(paise) || 0);
-  if (!(was > now) || !(now > 0)) return 0;
-  return Math.round(((was - now) / was) * 100);
-};
-
 // ── Resend email (NOTE: User-Agent header is REQUIRED or Resend 403s /1010) ──
 function fromHeader(env, name) {
   const addr = env.RESEND_FROM_EMAIL || "noreply@aswincloud.com";
