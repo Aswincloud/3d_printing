@@ -4,7 +4,7 @@
 // binding; everything else falls through to api(). Same shape as
 // ~/projects/invoicer, which runs this config in production.
 
-import { json, bad, isEmail, sendEmail, now } from "./lib.js";
+import { json, bad, isEmail, sendEmail, now, rupees } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
@@ -121,7 +121,14 @@ export default {
       try {
         const canonical = (env.APP_BASE_URL || "https://3d-prints.aswincloud.com")
           .replace(/\/$/, "") + "/3d-printing-in-pondicherry";
-        const out = new HTMLRewriter()
+        // "59 pieces, ₹99 to ₹12,000" was typed into the HTML and drifted the
+        // first time a product was added. Read it from the same table the shop
+        // uses; if D1 is down the static text stands, which is at worst stale.
+        const stats = await env.DB.prepare(
+          `SELECT COUNT(*) AS n, MIN(price_paise) AS lo, MAX(price_paise) AS hi
+             FROM products WHERE visible = 1 AND price_paise > 0`
+        ).first().catch(() => null);
+        let rewriter = new HTMLRewriter()
           .on("head", {
             element(el) {
               el.append(
@@ -130,9 +137,17 @@ export default {
                 { html: true },
               );
             },
-          })
-          .transform(page);
-        return withSecurityHeaders(out);
+          });
+        if (stats && stats.n > 0) {
+          rewriter = rewriter
+            .on("#shopCount", { element(el) {
+              el.setInnerContent(`${stats.n} piece${stats.n === 1 ? "" : "s"} in the shop`);
+            } })
+            .on("#shopRange", { element(el) {
+              el.setInnerContent(`${rupees(stats.lo)} to ${rupees(stats.hi)}`);
+            } });
+        }
+        return withSecurityHeaders(rewriter.transform(page));
       } catch (e) {
         console.error("local page rewrite failed", e?.message || e);
         return withSecurityHeaders(page);
@@ -185,9 +200,44 @@ export default {
 
     // Static assets get the headers too: the CSP only protects the pages if it
     // is on the HTML response itself, not just on the API JSON.
-    return withSecurityHeaders(await env.ASSETS.fetch(request));
+    const asset = await env.ASSETS.fetch(request);
+    if (asset.status === 404 && (request.method === "GET" || request.method === "HEAD")) {
+      return withSecurityHeaders(await notFoundPage(request, env, url));
+    }
+    return withSecurityHeaders(asset);
   },
 };
+
+// A missing page used to be a blank white screen with the status code as its
+// only content — the assets binding's default 404. Someone arriving from an old
+// Instagram link or a mistyped address got no way back in. This serves
+// public/404.html WITH the 404 status kept, so crawlers still drop the URL
+// while a person gets a page with the shop, quote and contact one tap away.
+//
+// Only for requests that look like a navigation. A missing image or script
+// should stay a plain 404, not a 3KB HTML document parsed as an image.
+async function notFoundPage(request, env, url) {
+  const accept = request.headers.get("accept") || "";
+  const looksLikePage = accept.includes("text/html")
+    || !/\.[a-z0-9]{2,5}$/i.test(url.pathname);
+  if (!looksLikePage) return new Response("not found", { status: 404 });
+  try {
+    const page = await env.ASSETS.fetch(new Request(new URL("/404.html", url.origin), {
+      method: "GET", headers: request.headers,
+    }));
+    if (!page.ok) throw new Error("404.html missing: " + page.status);
+    return new Response(request.method === "HEAD" ? null : page.body, {
+      status: 404,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=0, must-revalidate",
+      },
+    });
+  } catch (e) {
+    console.error("404 page failed", e?.message || e);
+    return new Response("not found", { status: 404 });
+  }
+}
 
 // Which /api/ responses may be stored by a shared cache. An ALLOWLIST, not a
 // blocklist, and this is the second attempt at it.

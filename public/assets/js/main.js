@@ -1,11 +1,33 @@
 /* ===== NAV ===== */
 const hamburger = document.querySelector('.nav-hamburger');
+const navLinks = document.getElementById('navLinks');
+
+function setNavMenu(open) {
+  document.body.classList.toggle('nav-menu-open', open);
+  hamburger?.setAttribute('aria-expanded', String(open));
+  hamburger?.setAttribute('aria-label', open ? 'Close menu' : 'Menu');
+}
+
 hamburger?.addEventListener('click', () => {
-  document.body.classList.toggle('nav-menu-open');
+  setNavMenu(!document.body.classList.contains('nav-menu-open'));
 });
 
 document.querySelectorAll('.nav-links a').forEach(link => {
-  link.addEventListener('click', () => document.body.classList.remove('nav-menu-open'));
+  link.addEventListener('click', () => setNavMenu(false));
+});
+
+// Escape and a tap anywhere outside close it — the same two gestures the cart
+// drawer and the account menu already honour, so the nav is not the odd one out.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('nav-menu-open')) {
+    setNavMenu(false);
+    hamburger?.focus();
+  }
+});
+document.addEventListener('click', (e) => {
+  if (!document.body.classList.contains('nav-menu-open')) return;
+  if (hamburger?.contains(e.target) || navLinks?.contains(e.target)) return;
+  setNavMenu(false);
 });
 
 /* ===== SCROLL ANIMATIONS ===== */
@@ -197,7 +219,14 @@ fileInput?.addEventListener('change', () => {
   }
 });
 
+// Both the drop zone and the "browse" button inside it open the chooser through
+// this one listener (the button's click bubbles here). The ✕ on the attached-file
+// row lives outside the drop zone, so it gets its own. These used to be inline
+// onclick= attributes, which the CSP (script-src 'self') silently blocks — the ✕
+// did nothing at all in production, and the only way to change a file was to
+// pick another one.
 fileDrop?.addEventListener('click', () => fileInput.click());
+document.getElementById('fileClear')?.addEventListener('click', clearFile);
 
 fileDrop?.addEventListener('dragover', (e) => { e.preventDefault(); fileDrop.classList.add('drag-over'); });
 fileDrop?.addEventListener('dragleave', () => fileDrop.classList.remove('drag-over'));
@@ -908,7 +937,10 @@ async function loadProducts() {
    request, so there's no reason to round-trip for a filter. */
 
 let shopQuery = '';
-let shopCategory = 'all';
+// /?cat=figurine#shop lands on the grid already filtered — the footer's Services
+// column and any shared link use it. Unknown values fall back to "all" once the
+// catalogue is known (see renderFilters), so a stale link never shows an empty grid.
+let shopCategory = new URLSearchParams(location.search).get('cat') || 'all';
 let shopPriceBand = 'all';
 
 // Price bands for the sidebar filter.
@@ -1002,6 +1034,7 @@ function renderFilters() {
     const c = p.category || 'other';
     counts.set(c, (counts.get(c) || 0) + 1);
   }
+  if (shopCategory !== 'all' && !counts.has(shopCategory)) shopCategory = 'all';
 
   box.innerHTML = '';
   const chip = (slug, label, n) => {

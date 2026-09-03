@@ -399,7 +399,7 @@ Reachable two ways, both ending at the same `OWNER_EMAIL` allowlist check:
 
 1. **Broker OAuth** (`ap_session`) — preferred, but needs `site=3dprints`
    registered at `provision.aswincloud.com`.
-2. **An emailed code** (`ap_user`) — sign in at `/login` with an address on the
+2. **An emailed code** (`ap_user`) — sign in at `/shop` (the dashboard) with an address on the
    allowlist. This exists because the broker has no registration for this site
    yet, which left the dashboard unreachable and the placeholder prices
    uneditable.
