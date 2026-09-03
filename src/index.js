@@ -20,6 +20,7 @@ import {
 import { chatCouponHandler } from "./chatcoupons.js";
 import { chatOrdersHandler } from "./chatorders.js";
 import { listQuotes, replyToQuote, updateQuoteStatus } from "./quotes.js";
+import { uploadQuoteFile, downloadQuoteFile, validFileKey, quoteFileUrl } from "./uploads.js";
 import { agentVerdict } from "./agent.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
@@ -333,6 +334,10 @@ async function api(request, env, url, ctx) {
   // the bot has no session, it carries its own signature. See chatorders.js.
   if (p === "/api/chat/orders" && m === "POST") return chatOrdersHandler(request, env);
 
+  // The quote form's file, as raw bytes — so it too must be dispatched before
+  // the JSON parse below. Anonymous, like the form; rate-limited with it.
+  if (p === "/api/quote/upload" && m === "POST") return uploadQuoteFile(request, env);
+
   const body = (m === "POST" || m === "PUT" || m === "PATCH")
     ? await request.json().catch(() => ({}))
     : {};
@@ -520,6 +525,9 @@ async function api(request, env, url, ctx) {
     // AGENT_ROUTES: these read customer names, emails and phone numbers, and
     // /reply mints a live payment link.
     if (p === "/api/admin/quotes" && m === "GET") return listQuotes(env, url);
+    // The customer's uploaded model or photo. Owner-only by position: this is
+    // the only route that can read the UPLOADS bucket back.
+    if (p === "/api/admin/quotes/file" && m === "GET") return downloadQuoteFile(env, url);
 
     // Longest path first — /reply would otherwise be shadowed by the bare :id
     // form below, the same ordering trap the coupon routes above call out.
@@ -555,7 +563,10 @@ function validateQuote(b) {
     type: clip(b.type, MAX.type),
     qty: Math.max(1, Math.min(1000, parseInt(b.qty, 10) || 0)),
     desc: clip(b.desc, MAX.desc),
-    file_url: clip(b.file_url, MAX.file),
+    // The R2 key returned by /api/quote/upload. Turned into an owner-only
+    // download URL below; the browser never supplies a URL any more.
+    file_key: clip(b.file_key, MAX.file),
+    file_url: "",
     file_name: clip(b.file_name, MAX.file),
     // Set when the request came from a gallery image or a product card. Free
     // text from the client, so it's clipped and escaped like any other field —
@@ -569,18 +580,24 @@ function validateQuote(b) {
   if (q.desc.length < 10) errors.push("Please describe your project in a little more detail.");
   if (!b.qty || q.qty < 1) errors.push("Quantity must be at least 1.");
 
-  // Only accept an https URL from the uploader — never echo arbitrary text
-  // into a link in the owner's email.
-  if (q.file_url && !/^https:\/\/[^\s"'<>]+$/.test(q.file_url)) {
-    q.file_url = "";
-    q.file_name = "";
-  }
+  // Only a key of the exact shape the uploader mints becomes a link in the
+  // owner's email — never arbitrary text, and never a URL the browser chose.
+  if (q.file_key && !validFileKey(q.file_key)) q.file_key = "";
+  if (!q.file_key) q.file_name = "";
   return { q, errors };
 }
 
 async function quote(request, env, ctx, body) {
   const { q, errors } = validateQuote(body);
   if (errors.length) return json({ error: errors[0], errors }, 400);
+
+  // The stored file_url is the owner-only download route for the key, so the
+  // email's "Download" button and the dashboard's link both work unchanged, and
+  // both require signing in as the owner.
+  if (q.file_key) {
+    q.file_url = quoteFileUrl(env, q.file_key);
+    if (!q.file_name) q.file_name = q.file_key.split("/").pop();
+  }
 
   // Record it before mailing. A request used to exist ONLY as two emails, so
   // losing the email lost the job — including the uploaded model, which was a

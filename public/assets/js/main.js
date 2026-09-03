@@ -237,17 +237,21 @@ fileDrop?.addEventListener('drop', (e) => {
   if (file) { fileInput.files = e.dataTransfer.files; showFile(file); }
 });
 
+// To our own Worker and our own R2 bucket. This used to POST the customer's
+// file to litterbox.catbox.moe — an anonymous public host with a 72-hour expiry
+// — which is not where someone's part design belongs. See src/uploads.js.
 async function uploadFile(file) {
-  const fd = new FormData();
-  fd.append('reqtype', 'fileupload');
-  fd.append('time', '72h');
-  fd.append('fileToUpload', file);
-  const res = await fetch('https://litterbox.catbox.moe/resources/internals/api.php', {
-    method: 'POST', body: fd,
+  const res = await fetch('/api/quote/upload', {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+      'X-File-Name': encodeURIComponent(file.name),
+    },
+    body: file,
   });
-  const url = await res.text();
-  if (!url.startsWith('https://')) throw new Error('Upload failed');
-  return url.trim();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.file_key) throw new Error(data.error || 'Upload failed');
+  return data;
 }
 
 /* ===== QUOTE FORM ===== */
@@ -408,7 +412,7 @@ form?.addEventListener('submit', async (e) => {
     type:  form.querySelector('[name=type]').value,
     qty:   form.querySelector('[name=qty]').value,
     desc:  form.querySelector('[name=desc]').value.trim(),
-    file_url: '',
+    file_key: '',
     file_name: '',
     // Set when they arrived here from a gallery image or a product card. Empty
     // for an ordinary quote request, so that path is unchanged.
@@ -420,10 +424,13 @@ form?.addEventListener('submit', async (e) => {
   if (file) {
     btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Uploading file…';
     try {
-      payload.file_url = await uploadFile(file);
-      payload.file_name = file.name;
-    } catch {
-      showFormError('The file upload failed. Please check your connection and try again.');
+      const up = await uploadFile(file);
+      payload.file_key = up.file_key;
+      payload.file_name = up.file_name;
+    } catch (err) {
+      showFormError(err?.message && err.message !== 'Upload failed'
+        ? err.message
+        : 'The file upload failed. Please check your connection and try again.');
       btn.innerHTML = SUBMIT_LABEL;
       btn.disabled = false;
       return;

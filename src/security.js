@@ -82,10 +82,11 @@ const CSP = [
   // previews the quote uploader generates client-side.
   `img-src 'self' data: blob: https://*.razorpay.com ${CHATWOOT}`,
 
-  // litterbox.catbox.moe is the quote-form file uploader (see main.js).
   // cloudflareinsights also POSTs its collected metrics back, so allowing only
   // the script would still leave a violation on every page view.
-  `connect-src 'self' https://litterbox.catbox.moe ${CF_ANALYTICS} ${CHATWOOT} ${CHATWOOT_WS} ${RAZORPAY.join(" ")}`,
+  // Quote-form files go to our own /api/quote/upload ('self'); they used to go
+  // to litterbox.catbox.moe from the browser.
+  `connect-src 'self' ${CF_ANALYTICS} ${CHATWOOT} ${CHATWOOT_WS} ${RAZORPAY.join(" ")}`,
 
   // Razorpay Standard Checkout renders as an iframe from api.razorpay.com.
   `frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com ${CHATWOOT}`,
@@ -181,6 +182,8 @@ const RULES = [
   { test: (p, m) => p === "/api/orders" && m === "POST", limiter: "RL_ORDER" },
   // Sends email.
   { test: (p, m) => p === "/api/quote" && m === "POST", limiter: "RL_QUOTE" },
+  // Writes up to 100 MB into R2 per call. Same budget as the form it belongs to.
+  { test: (p, m) => p === "/api/quote/upload" && m === "POST", limiter: "RL_QUOTE" },
   // Unauthenticated and sends email. The per-email cap in customers.js already
   // bounds damage to one mailbox; this bounds how fast one IP can spray many.
   { test: (p) => p.startsWith("/api/auth/code"), limiter: "RL_AUTH" },
