@@ -18,11 +18,15 @@ const el = (tag, cls, text) => {
 const rupees = (paise) =>
   '₹' + (Math.round(Number(paise) || 0) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
+// Always IST. The shop, the couriers and the customers are in India; a
+// timestamp that silently shifted with wherever the laptop happened to be would
+// make "paid at 11:40" mean two different things on two days.
+const IST = 'Asia/Kolkata';
 const when = (ms) => {
   if (!ms) return '—';
   const d = new Date(Number(ms));
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) +
-    ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: IST }) +
+    ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST }) + ' IST';
 };
 
 /* ── api ───────────────────────────────────────────────────────── */
@@ -131,7 +135,22 @@ async function boot() {
   who.textContent = me.email;
   who.hidden = false;
 
-  await Promise.all([loadStats(), loadOrders(), loadProducts(), loadCoupons()]);
+  await Promise.all([loadStats(), loadOrders(), loadProducts(), loadCoupons(), loadQuoteBadge()]);
+}
+
+// New quote requests are the one thing on this page with a person waiting on
+// the other end, and they were invisible until the Quotes tab was clicked. A
+// count on the tab itself, fetched at boot and refreshed whenever the list is.
+async function loadQuoteBadge(counts) {
+  const badge = $('quotesBadge');
+  if (!badge) return;
+  try {
+    if (!counts) counts = (await api('/api/admin/quotes?status=new')).counts || {};
+    const n = Number(counts.new || 0);
+    badge.textContent = String(n);
+    badge.hidden = n === 0;
+    badge.setAttribute('aria-label', `${n} new quote request${n === 1 ? '' : 's'}`);
+  } catch { badge.hidden = true; }
 }
 
 async function loadProviders() {
@@ -205,9 +224,20 @@ async function loadOrders() {
     return;
   }
 
+  // Live counts on the filter itself — "Paid (3)" — so the dropdown says where
+  // the work is before it is opened, and an empty status is visibly empty.
+  const byStatus = new Map((data.counts || []).map((c) => [c.status, c.n]));
+  for (const opt of $('orderFilter').options) {
+    const base = opt.dataset.label || (opt.dataset.label = opt.textContent);
+    const n = opt.value ? (byStatus.get(opt.value) || 0)
+                        : [...byStatus.values()].reduce((a, b) => a + b, 0);
+    opt.textContent = `${base} (${n})`;
+  }
+
   box.innerHTML = '';
   if (!data.orders.length) {
-    box.appendChild(el('p', 'admin-muted', status ? `No ${status} orders.` : 'No orders yet.'));
+    const label = $('orderFilter').selectedOptions[0]?.dataset.label || status;
+    box.appendChild(el('p', 'admin-muted', status ? `No orders in "${label}".` : 'No orders yet.'));
     return;
   }
   for (const o of data.orders) box.appendChild(orderCard(o));
@@ -278,6 +308,12 @@ function orderCard(o) {
 
   const actions = el('div', 'order-actions');
 
+  // Where the inline forms below open, under the buttons, inside the card.
+  const drawer = el('div', 'order-drawer');
+  drawer.hidden = true;
+  const openDrawer = (node) => { drawer.innerHTML = ''; drawer.appendChild(node); drawer.hidden = false; };
+  const closeDrawer = () => { drawer.innerHTML = ''; drawer.hidden = true; };
+
   // One button per stage this order may legally move to. Mirrors
   // ALLOWED_TRANSITIONS in src/admin.js, which re-checks and is the authority —
   // a button that should not be here earns a 409, not a bad write.
@@ -288,34 +324,56 @@ function orderCard(o) {
   // a confirmation — it is not a step forward and should not sit among them.
   for (const next of (o.next_stages || []).filter((x) => x !== 'cancelled')) {
     const label = STAGE_ACTION[next] || `Mark ${next}`;
+    if (next === 'shipped') {
+      // An inline form rather than two prompt() dialogs. The prompts could not
+      // be corrected once dismissed, had no field labels, and on a phone the
+      // second one appeared with no context. Both fields stay optional: a print
+      // handed to a local courier with no tracking number is still shipped.
+      actions.appendChild(actionBtn(label, 'admin-btn', async () => {
+        openDrawer(shipForm(o, {
+          courier: o.courier || '', tracking: o.tracking_id || '',
+          submitLabel: `Ship & email ${o.cust_email}`,
+          onCancel: closeDrawer,
+          onSubmit: async (fields) => {
+            const out = await api(`/api/admin/orders/${o.id}`, {
+              method: 'PATCH', body: JSON.stringify({ status: 'shipped', ...fields }),
+            });
+            flash(`${o.receipt} → Shipped` + (out.emailed ? ` — ${o.cust_email} notified.` : '.'));
+            await Promise.all([loadOrders(), loadStats()]);
+          },
+        }));
+      }));
+      continue;
+    }
+
     actions.appendChild(actionBtn(label, 'admin-btn', async () => {
-      const body = { status: next };
-
-      if (next === 'shipped') {
-        // Both optional. A print handed to a local courier with no tracking number
-        // is still shipped, so cancelling out of either prompt continues rather
-        // than aborting — only Cancel on the FIRST prompt abandons the whole thing.
-        const courier = prompt(
-          `Mark ${o.receipt} shipped and email ${o.cust_email}.\n\n` +
-          `Courier (optional — leave blank to skip):`
-        );
-        if (courier === null) return;   // cancelled the whole action
-
-        const tracking = prompt('Tracking number (optional — leave blank to skip):');
-        if (tracking === null) return;
-
-        body.courier = courier.trim();
-        body.tracking_id = tracking.trim();
-      }
-
       const out = await api(`/api/admin/orders/${o.id}`, {
-        method: 'PATCH', body: JSON.stringify(body),
+        method: 'PATCH', body: JSON.stringify({ status: next }),
       });
       // `emailed` comes back false for 'ready', which sends nothing on purpose —
       // so the toast says what happened rather than claiming a mail went out.
       flash(`${o.receipt} → ${STAGE_ACTION[next] || next}` +
         (out.emailed ? ` — ${o.cust_email} notified.` : '.'));
       await Promise.all([loadOrders(), loadStats()]);
+    }));
+  }
+
+  // A shipped or delivered order can have its courier and tracking corrected —
+  // a typo'd tracking number used to be permanent, because the only way to set
+  // one was the transition to shipped, which happens once. PATCH without a
+  // status change stores the fields and stamps no new time (see updateOrder).
+  if (o.status === 'shipped' || o.status === 'delivered') {
+    actions.appendChild(actionBtn(o.tracking_id ? 'Edit tracking' : 'Add tracking', 'admin-btn-ghost', async () => {
+      openDrawer(shipForm(o, {
+        courier: o.courier || '', tracking: o.tracking_id || '',
+        submitLabel: 'Save',
+        onCancel: closeDrawer,
+        onSubmit: async (fields) => {
+          await api(`/api/admin/orders/${o.id}`, { method: 'PATCH', body: JSON.stringify(fields) });
+          flash(`${o.receipt} — tracking updated.`);
+          await loadOrders();
+        },
+      }));
     }));
   }
 
@@ -352,7 +410,62 @@ function orderCard(o) {
   }
 
   if (actions.children.length) card.appendChild(actions);
+  card.appendChild(drawer);
   return card;
+}
+
+// Courier + tracking, as labelled fields. Shared by "Mark shipped" (where it
+// also fires the transition and the email) and "Edit tracking" (where it only
+// saves the two columns).
+function shipForm(o, { courier, tracking, submitLabel, onSubmit, onCancel }) {
+  const form = el('form', 'ship-form');
+  form.setAttribute('aria-label', `Courier and tracking for ${o.receipt}`);
+
+  const field = (id, label, value, placeholder, maxLength) => {
+    const wrap = el('label', 'ship-field');
+    wrap.htmlFor = id;
+    wrap.appendChild(el('span', null, label));
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = id;
+    input.value = value;
+    input.placeholder = placeholder;
+    input.maxLength = maxLength;
+    input.autocomplete = 'off';
+    input.className = 'ship-input';
+    wrap.appendChild(input);
+    return [wrap, input];
+  };
+  const [cWrap, cIn] = field(`courier-${o.id}`, 'Courier (optional)', courier, 'India Post, Delhivery, DTDC…', 60);
+  const [tWrap, tIn] = field(`tracking-${o.id}`, 'Tracking number (optional)', tracking, 'e.g. EK123456789IN', 80);
+
+  const row = el('div', 'ship-row');
+  const submit = el('button', 'admin-btn', submitLabel);
+  submit.type = 'submit';
+  // "Close", not "Cancel": the order card's own Cancel button (which cancels
+  // the ORDER) sits a few pixels above this one.
+  const cancel = el('button', 'admin-btn-ghost', 'Close');
+  cancel.type = 'button';
+  cancel.addEventListener('click', onCancel);
+  row.append(submit, cancel);
+
+  form.append(cWrap, tWrap, row);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submit.disabled = true;
+    const original = submit.textContent;
+    submit.textContent = 'Working…';
+    try {
+      await onSubmit({ courier: cIn.value.trim(), tracking_id: tIn.value.trim() });
+    } catch (err) {
+      flash(err.message, true);
+      submit.disabled = false;
+      submit.textContent = original;
+    }
+  });
+  // Focus the first field once it is in the DOM.
+  setTimeout(() => cIn.focus(), 0);
+  return form;
 }
 
 // Disables the button while its request is in flight, so a double-click can't
@@ -1692,6 +1805,7 @@ async function loadQuotes() {
   }
 
   const counts = data.counts || {};
+  loadQuoteBadge(counts);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const cs = $('quoteCounts');
   if (cs) {

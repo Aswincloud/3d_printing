@@ -68,7 +68,7 @@
     <button class="admin-tab" id="tabCoupons" role="tab" type="button"
             aria-selected="false" data-panel="couponsPanel">Coupons</button>
     <button class="admin-tab" id="tabQuotes" role="tab" type="button"
-            aria-selected="false" data-panel="quotesPanel">Quotes</button>
+            aria-selected="false" data-panel="quotesPanel">Quotes <span class="tab-badge" id="quotesBadge" hidden></span></button>
   </div>
 
   <div class="admin-alert admin-alert-err" id="adminError" hidden></div>
@@ -78,13 +78,20 @@
   <section class="admin-panel" id="ordersPanel">
     <div class="panel-head">
       <h2>Orders</h2>
+      <!-- Every status the pipeline has, in pipeline order. In production, Ready and
+           Delivered were missing, so an order in any of those could only be found
+           under "All statuses". admin.js appends live counts to each label. -->
       <select id="orderFilter" class="admin-select" aria-label="Filter orders by status">
         <option value="">All statuses</option>
-        <option value="paid">Paid</option>
         <option value="pending">Pending</option>
+        <option value="paid">Paid</option>
+        <option value="in_production">In production</option>
+        <option value="ready">Ready to ship</option>
         <option value="shipped">Shipped</option>
-        <option value="refunded">Refunded</option>
+        <option value="delivered">Delivered</option>
+        <option value="failed">Payment failed</option>
         <option value="cancelled">Cancelled</option>
+        <option value="refunded">Refunded</option>
       </select>
     </div>
     <div id="ordersList" class="orders-list"><p class="admin-muted">Loading…</p></div>
