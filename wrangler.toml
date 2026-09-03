@@ -60,6 +60,15 @@ binding = "DB"
 database_name = "3dprints-db"
 database_id = "f553c677-81a3-4d47-a012-9179ddfceb63"
 
+# Quote-form uploads (STL/OBJ/3MF/STEP, photos, PDFs). Private: nothing is
+# served from it except through the owner-only route in src/uploads.js.
+# Create once with `wrangler r2 bucket create 3dprints-uploads`. Set a lifecycle
+# rule on the bucket in the dashboard if files should expire (e.g. 180 days on
+# the `quotes/` prefix); there is no rule by default, so they are kept.
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "3dprints-uploads"
+
 # Rate limiting. Counted at the edge, keyed on CF-Connecting-IP (see
 # src/security.js). `period` accepts only 10 or 60 — not arbitrary windows — so
 # the limits below are expressed per-minute.
