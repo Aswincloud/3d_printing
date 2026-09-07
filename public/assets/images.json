@@ -1,7 +1,12 @@
 {
-  "generated_at": 1788700405999,
-  "count": 95,
+  "generated_at": 1788764932633,
+  "count": 96,
   "images": [
+    {
+      "file": "staircase_wall_scene.jpg",
+      "bytes": 275700,
+      "hash": "2556ee6e"
+    },
     {
       "file": "baby_in_hands.jpg",
       "bytes": 696499,
