@@ -21,8 +21,13 @@ on:
 permissions:
   contents: read
 
+# Keyed on event as well as ref. On a merge-queue branch both `push` and
+# `merge_group` fire for the same ref; with ref-only grouping the second run
+# cancels the first, and it was the merge_group run -- the one the queue was
+# actually waiting on -- that got cancelled. The PR was then evicted from the
+# queue with the ruleset's required check never reported.
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
