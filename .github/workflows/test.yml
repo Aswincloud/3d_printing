@@ -12,6 +12,10 @@ name: Tests
 on:
   push:
   pull_request:
+  # The merge queue runs checks on a gh-readonly-queue/main/* branch before
+  # merging. 'npm test' is a required check, so without this trigger nothing
+  # reports there and the queue evicts every PR after 60 minutes.
+  merge_group:
 
 # Read-only. This workflow reports; it must never be able to change anything.
 permissions:
