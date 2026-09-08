@@ -1,7 +1,12 @@
 {
-  "generated_at": 1788764932633,
-  "count": 96,
+  "generated_at": "2026-09-08T11:42:49.797Z",
+  "count": 97,
   "images": [
+    {
+      "file": "spiderman_web_shot.jpg",
+      "bytes": 449935,
+      "hash": "49aa6996"
+    },
     {
       "file": "staircase_wall_scene.jpg",
       "bytes": 275700,
