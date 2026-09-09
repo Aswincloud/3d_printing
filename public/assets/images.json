@@ -1,7 +1,12 @@
 {
-  "generated_at": 1788928162458,
-  "count": 98,
+  "generated_at": 1788942462607,
+  "count": 99,
   "images": [
+    {
+      "file": "nataraja_gold.jpg",
+      "bytes": 63790,
+      "hash": "bd3992e1"
+    },
     {
       "file": "ganesha_mooshika_gold.jpg",
       "bytes": 50935,
