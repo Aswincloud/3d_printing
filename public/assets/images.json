@@ -1,7 +1,12 @@
 {
-  "generated_at": 1789026511040,
-  "count": 101,
+  "generated_at": 1789275403822,
+  "count": 102,
   "images": [
+    {
+      "file": "ganesha_box_idol.jpg",
+      "bytes": 91674,
+      "hash": "f8fa0027"
+    },
     {
       "file": "murugan_vel_arch.jpg",
       "bytes": 199058,
