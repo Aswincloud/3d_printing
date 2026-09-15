@@ -1,0 +1,13 @@
+-- A real former price, set per product by the owner. Shown crossed out beside
+-- the selling price ONLY when it is higher than it.
+--
+-- This replaces a struck-through "MRP" that PR #28 removed: the selling price
+-- × 1.15, which nothing had ever sold at. Under the Consumer Protection Act 2019
+-- and the CCPA Guidelines for Prevention and Regulation of Dark Patterns (2023) a
+-- discount against a price that never existed is a false discount, and "MRP" is
+-- a defined term under the Legal Metrology (Packaged Commodities) Rules.
+--
+-- So this is a COLUMN and never a computation: the only thing that can put a
+-- number here is the owner typing one, as a claim about a price he actually sold
+-- at. NULL means no former price, which is every product's honest starting state.
+ALTER TABLE products ADD COLUMN compare_at_paise INTEGER;

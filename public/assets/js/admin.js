@@ -1071,10 +1071,12 @@ function productRow(p) {
   input.setAttribute('aria-label', 'Price for ' + p.name);
   const onEdit = () => {
     const priceChanged = input.value !== initial;
+    const wasChanged = wasInput.value !== wasInitial;
     const descChanged = desc.value !== descInitial;
     const pzChanged = pzLabel.value !== pzLabelInitial || pzReq.checked !== pzReqInitial;
-    const changed = priceChanged || descChanged || pzChanged || vis.checked !== visInitial;
+    const changed = priceChanged || wasChanged || descChanged || pzChanged || vis.checked !== visInitial;
     wrap.classList.toggle('dirty', priceChanged);
+    wasWrap.classList.toggle('dirty', wasChanged);
     panel.classList.toggle('dirty', descChanged);
     if (changed) {
       // Send rupees -> paise here so the bar holds exactly what will be saved.
@@ -1082,6 +1084,9 @@ function productRow(p) {
       markDirty(p.id, {
         id: p.id,
         price_paise: Number.isFinite(rupeeVal) && rupeeVal >= 0 ? Math.round(rupeeVal * 100) : NaN,
+        // null is "no former price" and is a real value to save — it is how one
+        // is cleared. NaN is a typo, caught by the save bar before anything is sent.
+        compare_at_paise: readWas(wasInput),
         visible: vis.checked,
         description: desc.value,
         personalise_label: pzLabel.value,
@@ -1090,6 +1095,7 @@ function productRow(p) {
         // half-typed or invalid price survives a re-render instead of silently
         // reverting to the server's value while the bar still counts the row.
         _text: input.value,
+        _wasText: wasInput.value,
       }, row);
     } else {
       clearDirty(p.id, row);
@@ -1098,6 +1104,25 @@ function productRow(p) {
   input.addEventListener('input', onEdit);
   wrap.appendChild(input);
   row.appendChild(wrap);
+
+  // ── the former price ──
+  // A price Aswin actually sold at, struck through beside today's on the shop
+  // when it is higher. His own claim about his own past prices — the placeholder
+  // says so — and the server refuses anything not higher than the selling price,
+  // so this cannot become the fabricated "MRP" that PR #28 removed. Blank clears.
+  const wasWrap = el('div', 'price-input was');
+  wasWrap.appendChild(el('span', null, 'Was ₹'));
+  const wasInput = document.createElement('input');
+  wasInput.type = 'text';
+  wasInput.inputMode = 'decimal';
+  wasInput.placeholder = 'a price you sold at';
+  const wasInitial = p.compare_at_paise ? String(p.compare_at_paise / 100) : '';
+  wasInput.value = '_wasText' in pending ? pending._wasText : wasInitial;
+  wasInput.setAttribute('aria-label', 'Former price for ' + p.name);
+  wasInput.title = 'Only a price you actually sold at. Blank means no strike-through.';
+  wasInput.addEventListener('input', () => onEdit());
+  wasWrap.appendChild(wasInput);
+  row.appendChild(wasWrap);
 
   const visWrap = el('label', 'toggle pr-visible');
   const vis = document.createElement('input');
@@ -1185,10 +1210,13 @@ function productRow(p) {
     const rupeeVal = Number(input.value.trim());
     if (!Number.isFinite(rupeeVal) || rupeeVal < 0) throw new Error('Enter a valid price.');
     const paise = Math.round(rupeeVal * 100);
+    const wasPaise = readWas(wasInput);
+    if (Number.isNaN(wasPaise)) throw new Error('Enter a valid former price, or leave it blank.');
     const out = await api(`/api/admin/products/${p.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         price_paise: paise,
+        compare_at_paise: wasPaise,
         visible: vis.checked,
         description: desc.value,
         personalise_label: pzLabel.value,
@@ -1196,6 +1224,7 @@ function productRow(p) {
       }),
     });
     wrap.classList.remove('dirty');
+    wasWrap.classList.remove('dirty');
     panel.classList.remove('dirty');
     clearDirty(p.id, row);
     row.classList.toggle('is-hidden', !out.product.visible);
@@ -1204,7 +1233,12 @@ function productRow(p) {
     // pre-save copy and show the old text back.
     const cached = allProducts.find((x) => x.id === p.id);
     if (cached) Object.assign(cached, out.product);
-    flash(`${p.name} updated — ${rupees(out.product.price_paise)}${out.product.visible ? '' : ' (hidden)'}.`);
+    // Says what the shop will now show. A former price the server CLEARED — the
+    // price was raised past it — is worth a word, or the blank box looks like a bug.
+    const was = out.product.compare_at_paise;
+    const wasNote = was ? ` (was ${rupees(was)})`
+      : (wasPaise && !was ? ' — former price cleared' : '');
+    flash(`${p.name} updated — ${rupees(out.product.price_paise)}${wasNote}${out.product.visible ? '' : ' (hidden)'}.`);
     loadStats();
   });
   actions.appendChild(save);
@@ -1233,6 +1267,15 @@ $('bulkSave')?.addEventListener('click', async () => {
   const bad = [...pendingEdits.values()].filter((x) => !Number.isFinite(x.price_paise));
   if (bad.length) {
     flash(`${bad.length} price(s) aren't valid numbers. Fix them and try again.`, true);
+    return;
+  }
+  // The server's rule, applied here first so one bad row does not fail 26. Same
+  // message the server would give, so the two never disagree about why.
+  const badWas = [...pendingEdits.values()].filter((x) =>
+    x.compare_at_paise !== null && x.compare_at_paise !== undefined &&
+    (!Number.isFinite(x.compare_at_paise) || x.compare_at_paise <= x.price_paise));
+  if (badWas.length) {
+    flash(`${badWas.length} former price(s) aren't higher than the selling price. Fix them and try again.`, true);
     return;
   }
 
@@ -1322,6 +1365,16 @@ function expiryLabel(ms) {
 
 // Rupees in the form, paise on the wire — the same convention as the product
 // price editor, and the server rejects anything non-integer either way.
+// The former-price box. Blank is a real answer — "no former price" — so it must
+// come back as null and be saved, not skipped. Anything unparseable is NaN so
+// the caller can refuse it before the request goes out.
+const readWas = (inputEl) => {
+  const t = String(inputEl.value ?? '').trim();
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : NaN;
+};
+
 const toPaise = (v) => {
   const n = Number(String(v ?? '').trim());
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;

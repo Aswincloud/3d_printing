@@ -110,6 +110,36 @@
   font-weight: 800;
   color: var(--orange);
   margin-bottom: 1.25rem;
+  /* A row, so a former price and its percentage can sit beside the selling
+     price when there is one, and wrap under it on a narrow phone rather than
+     push it off the edge. With no former price this is one child and looks
+     exactly as it did. */
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+/* A real former price Aswin sold at, struck through beside today's — only when
+   it is higher. Never computed: the struck "MRP" this replaces was price × 1.15,
+   which nothing had ever sold at (migration 0022). */
+.pdp-was {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+.pdp-off {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.14);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  white-space: nowrap;
 }
 /* Quieter for an unpriced item: this is an invitation to ask, not a number to
    compare, and it should not shout louder than a real price. */

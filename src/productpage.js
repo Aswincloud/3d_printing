@@ -64,8 +64,9 @@ async function loadProduct(env, slug) {
   // `images` is the gallery. Both were unnecessary when this route only rewrote
   // meta tags on the homepage, and both are required now that it renders a page.
   return env.DB.prepare(
-    `SELECT slug, name, description, price_paise, image, images, category
-       FROM products WHERE slug = ? AND visible = 1`
+    `SELECT slug, name, description, price_paise, image, images, category,
+              compare_at_paise
+         FROM products WHERE slug = ? AND visible = 1`
   ).bind(slug).first();
 }
 

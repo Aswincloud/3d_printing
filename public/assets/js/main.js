@@ -537,6 +537,15 @@ let promoUsed = false;
 let isAdmin = false;
 
 /* ── money ─────────────────────────────────────────────────────── */
+// Mirrors percentOff() in src/lib.js. FLOORS: 1499 → 1299 is 13%, never 14 — a
+// shop must not overstate its own discount by a rounding rule. 0 for anything
+// that is not a genuine reduction, and the card renders nothing for 0.
+function percentOff(wasPaise, nowPaise) {
+  const was = Number(wasPaise), now = Number(nowPaise);
+  if (!Number.isFinite(was) || !Number.isFinite(now) || now <= 0 || was <= now) return 0;
+  return Math.floor(((was - now) / was) * 100);
+}
+
 // Mirrors rupees() in src/lib.js so the drawer and the emails agree.
 function rupees(paise) {
   return '₹' + (Math.round(Number(paise) || 0) / 100)
@@ -1370,6 +1379,31 @@ function renderProducts() {
 
       foot.append(price, askNow);
     } else {
+      // A real former price, set by Aswin per product and exposed by the server
+      // only when it is genuinely higher than today's — see shape() in shop.js.
+      // Never computed here: the struck "MRP" this replaces was price × 1.15,
+      // which nothing had ever sold at. Stacked ABOVE the selling price, because
+      // two prices side by side is what pushed Add-to-cart off a 160px card.
+      if (p.compare_at_paise) {
+        const wasRow = document.createElement('div');
+        wasRow.className = 'product-wasrow';
+        const was = document.createElement('del');
+        was.className = 'product-was';
+        // "Was", not "MRP": a former-price claim, not a Legal Metrology term.
+        const sr = document.createElement('span');
+        sr.className = 'sr-only';
+        sr.textContent = 'Was ';
+        was.append(sr, document.createTextNode(rupees(p.compare_at_paise)));
+        wasRow.appendChild(was);
+        const off = percentOff(p.compare_at_paise, p.price_paise);
+        if (off > 0) {
+          const pill = document.createElement('span');
+          pill.className = 'product-off';
+          pill.textContent = off + '% off';
+          wasRow.appendChild(pill);
+        }
+        price.appendChild(wasRow);
+      }
       // Built as an element rather than innerHTML because product names and prices
       // come from the database and this file treats them as untrusted everywhere else.
       const now = document.createElement('span');

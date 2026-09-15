@@ -382,7 +382,9 @@
 
 .product-row {
   display: grid;
-  grid-template-columns: 56px minmax(140px, 1fr) 110px 90px auto;
+  /* thumb · name · price · former price · listed · actions. The former price is a
+     second 110px column beside the price, so the pair reads as one edit. */
+  grid-template-columns: 56px minmax(140px, 1fr) 110px 110px 90px auto;
   align-items: center;
   gap: 1rem;
   background: var(--dark-2);
@@ -562,6 +564,16 @@
 
 .price-input.dirty { border-color: var(--orange); }
 
+/* The former price — "Was ₹". Muted, so it reads as the secondary of the pair:
+   the price is what a customer pays, this is a claim about what they used to. It
+   is Aswin's own claim about his own past prices; the placeholder says so, and the
+   server refuses anything that is not higher than the selling price. */
+.price-input.was { border-style: dashed; }
+.price-input.was > span { color: var(--text-muted); font-size: 0.8rem; }
+.price-input.was input { font-weight: 500; color: var(--text-muted); }
+.price-input.was input::placeholder { color: rgba(136, 136, 160, 0.6); font-weight: 400; }
+.price-input.was.dirty { border-style: solid; }
+
 .pr-actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
 
 .toggle {
@@ -578,17 +590,20 @@
 
 @media (max-width: 720px) {
   .product-row {
-    grid-template-columns: 48px 1fr;
+    /* Three tracks, not two: the price and the former price share a row on a
+       phone. Without this both inputs claimed the `price` area and stacked. */
+    grid-template-columns: 48px 1fr 1fr;
     grid-template-areas:
-      "img name"
-      "price price"
-      "vis vis"
-      "act act";
+      "img name name"
+      "price price was"
+      "vis vis vis"
+      "act act act";
     row-gap: 0.7rem;
   }
   .product-row img { grid-area: img; width: 48px; height: 48px; }
   .product-row .pr-info { grid-area: name; }
   .product-row .price-input { grid-area: price; }
+  .product-row .price-input.was { grid-area: was; }
   .product-row .pr-visible { grid-area: vis; }
   .product-row .pr-actions { grid-area: act; justify-content: flex-start; }
 }
