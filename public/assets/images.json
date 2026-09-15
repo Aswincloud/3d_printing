@@ -1,7 +1,12 @@
 {
-  "generated_at": 1789460665922,
-  "count": 105,
+  "generated_at": 1789466341651,
+  "count": 106,
   "images": [
+    {
+      "file": "taj_mahal.jpg",
+      "bytes": 55957,
+      "hash": "91631f56"
+    },
     {
       "file": "flexi_cat_keychain.jpg",
       "bytes": 33207,
