@@ -137,12 +137,24 @@ section("proof 2 — which customer, and only from a signed token");
      m.orders.length === 1 && m.orders[0].receipt === "AP-MMMM9999", JSON.stringify(m.orders));
 }
 
+const tamper = (tok) => {
+  const [body, sig] = tok.split(".");
+  return body + "." + (sig[0] === "A" ? "B" : "A") + sig.slice(1);
+};
+
 section("the token must be the right token");
 {
   for (const [label, tok] of [
     ["missing", ""],
     ["gibberish", "not-a-token"],
-    ["tampered", (await tokenFor(ALICE)).slice(0, -1) + "x"],
+    // The FIRST character of the signature is flipped, not the last. A 32-byte
+    // HMAC is 43 base64url characters and the last one carries two unused bits
+    // that atob ignores; replacing it with "x" decoded to the IDENTICAL signature
+    // whenever the real character shared its top four bits — 4 of 64, so the old
+    // `.slice(0, -1) + "x"` handed verifyToken an untampered token about 6% of the
+    // time and this case failed at random in CI. Flipping a leading character
+    // always changes a decoded byte. Measured: 129 leaks in 2,000 before, 0 after.
+    ["tampered", tamper(await tokenFor(ALICE))],
     ["expired", await tokenFor(ALICE, "chat_lookup", -10)],
     // The session cookie is signed with the SAME secret. Purpose-binding is what
     // stops one being replayed as the other in either direction.
