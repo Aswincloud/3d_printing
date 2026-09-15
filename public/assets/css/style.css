@@ -1451,6 +1451,49 @@ footer {
 
 .product-now { display: block; }
 
+/* A real former price, struck through above the selling price, with the saving
+   as a percentage. Only rendered when the server exposes compare_at_paise — a
+   price Aswin sold at, higher than today's. Never computed: the struck "MRP" this
+   replaces was price × 1.15, which nothing had ever sold at. */
+.product-wasrow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  line-height: 1.2;
+}
+.product-was {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.product-off {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.14);
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  white-space: nowrap;
+}
+
+/* Visually hidden, read aloud. The struck price carries "Was " for a screen
+   reader — a former-price claim — and nothing on the site says "MRP". */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 .product-add {
   background: rgba(255, 107, 0, 0.12);
   border: 1px solid rgba(255, 107, 0, 0.3);

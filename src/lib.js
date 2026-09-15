@@ -225,3 +225,22 @@ export function stageTimeline(order) {
     current: i === currentIndex,
   }));
 }
+
+// ── former price ──────────────────────────────────────────────────
+//
+// The percentage shown beside a struck-through former price. Both inputs are
+// REAL numbers the customer can see — a former price the owner set and today's
+// selling price — so this is arithmetic on displayed figures, not a claim.
+//
+// FLOORS, never rounds: 1499 → 1299 is 13.34%, shown as 13, never 14. A shop
+// must not overstate its own discount by a rounding rule.
+//
+// 0 for anything that is not a genuine reduction — equal, inverted, unpriced,
+// missing — and the callers render nothing for 0. main.js is a classic script and
+// cannot import this, so it carries a three-line copy; test/pricing-display.mjs
+// asserts both use Math.floor.
+export const percentOff = (wasPaise, nowPaise) => {
+  const was = Number(wasPaise), now = Number(nowPaise);
+  if (!Number.isFinite(was) || !Number.isFinite(now) || now <= 0 || was <= now) return 0;
+  return Math.floor(((was - now) / was) * 100);
+};

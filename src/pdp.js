@@ -21,7 +21,7 @@
 // for every product (material, printer, delivery), so even the sparsest page
 // reads as finished rather than unfinished.
 
-import { esc, rupees } from "./lib.js";
+import { esc, rupees, percentOff } from "./lib.js";
 
 const CATEGORY_LABEL = {
   figurine: "Figurines",
@@ -37,6 +37,28 @@ const baseUrl = (env) =>
 // grouping every other surface uses, so prices read the same here as in the
 // cart, the emails and the invoice.
 const price = (paise) => rupees(paise);
+
+// The struck-through former price and its percentage, or nothing.
+//
+// `compare_at_paise` is a REAL former price the owner set per product — never a
+// computed figure. The struck "MRP" this replaces was selling price × 1.15, which
+// nothing had ever sold at; see migration 0022 for the legal position.
+//
+// Guarded here as well as in shape(): this page gets the raw row, not the
+// catalogue's shaped object, so it must not trust the column on its own. A former
+// price at or below today's is not a discount, and an unpriced piece must never
+// have one struck through "Price on request".
+//
+// The visible label is the bare figure; the screen-reader label is "Was" — a
+// former-price claim, deliberately not "MRP", which is a defined term under the
+// Legal Metrology rules.
+function wasBlock(product) {
+  const was = Number(product.compare_at_paise), now = Number(product.price_paise);
+  if (!(now > 0) || !(was > now)) return "";
+  const off = percentOff(was, now);
+  return `<del class="pdp-was"><span class="sr-only">Was </span>${esc(price(was))}</del>` +
+         (off > 0 ? `<span class="pdp-off">${off}% off</span>` : "");
+}
 
 // ── breadcrumbs ───────────────────────────────────────────────────
 //
@@ -127,7 +149,7 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
        </div>
        <p class="pdp-note">This piece isn't priced yet — ask and you'll get a
           quote, usually within 24–48 hours.</p>`
-    : `<div class="pdp-price"><span class="pdp-now">${esc(price(product.price_paise))}</span></div>
+    : `<div class="pdp-price">${wasBlock(product)}<span class="pdp-now">${esc(price(product.price_paise))}</span></div>
        <div class="pdp-actions">
          <div class="pdp-qty">
            <button type="button" id="pdpMinus" aria-label="Decrease quantity">−</button>

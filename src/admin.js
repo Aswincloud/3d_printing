@@ -34,7 +34,7 @@ export async function listProducts(env) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category,
             visible, sort, personalise_label, personalise_required, pinned,
-            created_at, updated_at
+            compare_at_paise, created_at, updated_at
        FROM products
         ORDER BY pinned DESC, created_at DESC, (sort = 0), sort ASC, name ASC`
   ).all();
@@ -583,8 +583,42 @@ function writeProductRows(env, rows) {
 
 // PATCH semantics: only the fields present in the body are touched, so the
 // dashboard can send just a price or just a visibility toggle.
+// The former-price rule, shared by the single-row and bulk editors so they can
+// never disagree. Returns { error } to refuse, or { write, value } — `write` false
+// means the column is untouched.
+//
+//   supplied blank/null/0        → clear
+//   supplied, not whole paise    → refuse
+//   supplied on an unpriced row  → refuse: nothing to be a former price OF
+//   supplied ≤ resulting price   → refuse: not a discount
+//   not supplied, existing ≤ new price → clear (self-heal on a price rise)
+function resolveCompareAt(body, existing, resultingPrice) {
+  const has = body && "compare_at_paise" in body;
+  const current = existing.compare_at_paise ?? null;
+
+  if (!has) {
+    if (current !== null && current <= resultingPrice) return { write: true, value: null };
+    return { write: false };
+  }
+
+  const raw = body.compare_at_paise;
+  if (raw === null || raw === undefined || raw === "" || raw === 0 || raw === "0") {
+    return { write: true, value: null };
+  }
+  const v = parsePaise(raw);
+  if (v === null) return { error: "The former price must be a whole number of paise." };
+  if (!(resultingPrice > 0)) return { error: "Set a selling price before a former price." };
+  if (v <= resultingPrice) return { error: "The former price must be higher than the selling price." };
+  return { write: true, value: v };
+}
+
 export async function updateProduct(env, id, body) {
-  const existing = await env.DB.prepare(`SELECT id FROM products WHERE id = ?`).bind(id).first();
+  // price_paise and compare_at_paise as well as id: the former-price rule below
+  // has to be checked against the price the row will END UP with, which may be
+  // the one in this body or the one already stored.
+  const existing = await env.DB.prepare(
+    `SELECT id, price_paise, compare_at_paise FROM products WHERE id = ?`
+  ).bind(id).first();
   if (!existing) return bad("Product not found.", 404);
 
   const sets = [];
@@ -596,11 +630,30 @@ export async function updateProduct(env, id, body) {
     if (name.length < 2) return bad("Name is too short.");
     put("name", name);
   }
+  let newPrice = existing.price_paise;
   if ("price_paise" in body) {
     const price = parsePaise(body.price_paise);
     if (price === null) return bad("Price must be a whole number of paise.");
     put("price_paise", price);
+    newPrice = price;
   }
+
+  // ── the former price ──
+  //
+  // A real price the owner sold at, shown struck through beside today's. It is a
+  // COLUMN he types into and never a computation — the struck "MRP" this replaces
+  // was price × 1.15, which nothing had ever sold at (see migration 0022).
+  //
+  // Two rules, both enforced here and again in shape() on the way out:
+  //   · a former price must be HIGHER than the resulting selling price, or it is
+  //     not a discount and showing it would be the false claim the other way;
+  //   · raising the price to meet or pass an existing former price CLEARS it,
+  //     rather than leaving "was ₹399" beside "₹449" on the shop.
+  // Blank, null or 0 means "no former price", and must be settable — it is the
+  // off switch.
+  const outcome = resolveCompareAt(body, existing, newPrice);
+  if (outcome.error) return bad(outcome.error);
+  if (outcome.write) put("compare_at_paise", outcome.value);
   if ("description" in body) put("description", clip(body.description, MAXLEN.desc));
   // An empty label means "this product does not ask" — that is the off switch,
   // so it must be settable back to empty, not just to a new string.
@@ -666,7 +719,7 @@ export async function updateProduct(env, id, body) {
 
   const row = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category,
-            visible, sort, updated_at FROM products WHERE id = ?`
+            visible, sort, compare_at_paise, updated_at FROM products WHERE id = ?`
   ).bind(id).first();
   return json({ ok: true, product: row });
 }
@@ -674,7 +727,7 @@ export async function updateProduct(env, id, body) {
 // ── bulk update ───────────────────────────────────────────────────
 // PATCH /api/admin/products with
 // { items: [{id, price_paise?, visible?, description?, personalise_label?,
-//            personalise_required?, pinned?}] }.
+//            personalise_required?, pinned?, compare_at_paise?}] }.
 //
 // Exists because correcting the seeded placeholder prices meant 26 separate
 // round trips through the single-row endpoint. Same validation as
@@ -714,8 +767,9 @@ export async function bulkUpdateProducts(env, body) {
     const sets = [];
     const args = [];
 
+    let price = null;
     if ("price_paise" in (it || {})) {
-      const price = parsePaise(it.price_paise);
+      price = parsePaise(it.price_paise);
       if (price === null) {
         return bad(`Price for one item isn't a whole number of paise (got ${JSON.stringify(it.price_paise)}).`);
       }
@@ -746,9 +800,12 @@ export async function bulkUpdateProducts(env, body) {
       sets.push("pinned = ?");
       args.push(it.pinned ? 1 : 0);
     }
-    if (!sets.length) return bad("An item has nothing to update.");
+    // The former price cannot be validated yet: its rule needs the row's stored
+    // price, which pass 2 fetches. Carried through and applied there.
+    const hasCompare = "compare_at_paise" in (it || {});
+    if (!sets.length && !hasCompare) return bad("An item has nothing to update.");
 
-    planned.push({ id, sets, args });
+    planned.push({ id, sets, args, price, body: it });
   }
 
   // Confirm every id exists before touching anything — otherwise a typo'd id
@@ -756,12 +813,22 @@ export async function bulkUpdateProducts(env, body) {
   const ids = planned.map((p) => p.id);
   const ph = ids.map(() => "?").join(",");
   const { results } = await env.DB.prepare(
-    `SELECT id FROM products WHERE id IN (${ph})`
+    `SELECT id, price_paise, compare_at_paise FROM products WHERE id IN (${ph})`
   ).bind(...ids).all();
-  const found = new Set((results || []).map((r) => r.id));
-  const missing = ids.filter((i) => !found.has(i));
+  const byId = new Map((results || []).map((r) => [r.id, r]));
+  const missing = ids.filter((i) => !byId.has(i));
   if (missing.length) {
     return bad(`${missing.length} product(s) in this request no longer exist. Reload and try again.`, 409);
+  }
+
+  // The former-price rule, per item, against the price each row will end up
+  // with. Same function as the single-row editor — see resolveCompareAt().
+  for (const p of planned) {
+    const row = byId.get(p.id);
+    const outcome = resolveCompareAt(p.body, row, p.price ?? row.price_paise);
+    if (outcome.error) return bad(`${outcome.error} (${row.id.slice(0, 8)}…)`);
+    if (outcome.write) { p.sets.push("compare_at_paise = ?"); p.args.push(outcome.value); }
+    if (!p.sets.length) return bad("An item has nothing to update.");
   }
 
   // Pass 2: write. batch() is a single D1 transaction, so a failure mid-way

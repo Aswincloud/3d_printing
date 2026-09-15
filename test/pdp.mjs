@@ -295,5 +295,42 @@ section("the cart is reachable from the product page");
   ok("All prints still there", /class="btn-secondary nav-back"/.test(h));
 }
 
+// ── the former price ──────────────────────────────────────────────
+//
+// A real price the owner sold at, struck through beside today's with the saving
+// as a percentage. The page gets the raw row rather than the catalogue's shaped
+// object, so it guards itself: shown only when the former price is ABOVE the
+// selling price on a product that has one. Never computed — the struck "MRP" PR
+// #28 removed was price × 1.15, which nothing had ever sold at.
+section("the former price, struck through, only when it is a genuine reduction");
+{
+  const h = render(PRODUCT({ price_paise: 129900, compare_at_paise: 149900 }));
+  ok("the former price is struck through", /<del class="pdp-was">/.test(h));
+  ok("it shows the former figure", /<del class="pdp-was">.*?₹1,499<\/del>/.test(h));
+  ok("the selling price is still the one in .pdp-now", /<span class="pdp-now">₹1,299<\/span>/.test(h));
+  // 200/1499 = 13.34% — FLOORED to 13. A shop must not round its discount up.
+  ok("the percentage floors, 13 not 14", /<span class="pdp-off">13% off<\/span>/.test(h));
+  ok("struck figure comes BEFORE the selling price",
+     h.indexOf('class="pdp-was"') < h.indexOf('class="pdp-now"'));
+  // "Was", a former-price claim — not "MRP", a defined Legal Metrology term.
+  ok("screen readers hear \"Was\"", /<span class="sr-only">Was <\/span>/.test(h));
+  ok("the page never says MRP", !/\bMRP\b/.test(h));
+}
+{
+  ok("no former price → no <del>", !/<del/.test(render(PRODUCT())));
+  ok("equal to the price → nothing",
+     !/pdp-was|pdp-off/.test(render(PRODUCT({ price_paise: 129900, compare_at_paise: 129900 }))));
+  ok("below the price → nothing",
+     !/pdp-was|pdp-off/.test(render(PRODUCT({ price_paise: 129900, compare_at_paise: 99900 }))));
+  // Without the price>0 clause, ₹5 would be struck through "Price on request".
+  const q = render(PRODUCT({ price_paise: 0, compare_at_paise: 500 }));
+  ok("quote-only → nothing, whatever the column says", !/pdp-was|pdp-off|<del/.test(q));
+  ok("quote-only still reads Price on request", /Price on request/.test(q));
+  // A ₹1 reduction on ₹1,000 is 0.1% — the struck price shows, the pill does not.
+  const tiny = render(PRODUCT({ price_paise: 100000, compare_at_paise: 100100 }));
+  ok("a sub-1% saving shows the struck price but no pill",
+     /pdp-was/.test(tiny) && !/pdp-off/.test(tiny));
+}
+
 console.log(`\n  pdp: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

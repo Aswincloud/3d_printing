@@ -416,6 +416,7 @@ const row = (o) => ({
   price_paise: o.price_paise ?? 34900, image: `assets/images/${o.image}`,
   images: o.images || "", category: "figurine", sort: o.sort ?? 10,
   visible: o.visible ?? 1, pinned: o.pinned ?? 0,
+  compare_at_paise: o.compare_at_paise ?? null,
 });
 
 {
@@ -874,6 +875,44 @@ section("listProducts() — catalogue ordering (real SQLite, shipped SQL)");
   ok("the dashboard orders products by the same clause as the shop",
      adminClause !== null && adminClause[0].replace(/\s+/g, " ").trim() === ORDER.replace(/\s+/g, " ").trim(),
      `shop: ${ORDER} | admin: ${adminClause ? adminClause[0].trim() : "none"}`);
+}
+
+// ── the former price reaches the shop only when it is a genuine reduction ────
+//
+// compare_at_paise is a price the owner sold at, set per product — never a
+// computation. shape() is the last line of defence for the storefront: whatever
+// the column holds, a customer sees it struck through ONLY when it is above
+// today's price on a product that has a price. Both clauses are tested here
+// because both have failed elsewhere: a former price at or below the price is a
+// false claim the other way round, and a former price on an unpriced piece would
+// strike through "Price on request".
+section("listProducts() — the former price is exposed only when honest");
+{
+  const list = async (rows) => {
+    const env = catalogueEnv({ products: rows, manifest: rows.map((r) => r.image.replace(/^.*\//, "")) });
+    const out = await (await listProducts(env)).json();
+    return Object.fromEntries(out.products.filter((p) => p.id).map((p) => [p.id, p.compare_at_paise]));
+  };
+  const got = await list([
+    row({ id: "higher", image: "h.jpg", price_paise: 129900, compare_at_paise: 149900 }),
+    row({ id: "equal",  image: "e.jpg", price_paise: 129900, compare_at_paise: 129900 }),
+    row({ id: "lower",  image: "l.jpg", price_paise: 129900, compare_at_paise: 99900 }),
+    row({ id: "none",   image: "n.jpg", price_paise: 129900 }),
+    row({ id: "unpriced", image: "u.jpg", price_paise: 0, compare_at_paise: 500 }),
+  ]);
+  ok("higher than the price → exposed", got.higher === 149900, JSON.stringify(got.higher));
+  ok("equal to the price → null", got.equal === null, JSON.stringify(got.equal));
+  ok("below the price → null", got.lower === null, JSON.stringify(got.lower));
+  ok("not set → null, not undefined", got.none === null, JSON.stringify(got.none));
+  ok("on an unpriced product → null, whatever the column says",
+     got.unpriced === null, JSON.stringify(got.unpriced));
+
+  // A synthesised card has no row and so no former price — stated as null so
+  // every card the API returns has the same shape.
+  const env = catalogueEnv({ products: [row({ id: "a", image: "a.jpg" })], manifest: ["a.jpg", "brand-new.jpg"] });
+  const out = await (await listProducts(env)).json();
+  const synth = out.products.find((p) => p.id === null);
+  ok("a synthesised card carries compare_at_paise: null", synth && synth.compare_at_paise === null);
 }
 
 // The JS pass that runs AFTER the query, which is where pin has to outrank the

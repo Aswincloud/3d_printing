@@ -41,7 +41,7 @@ import { suggestName } from "./admin.js";
 export async function listProducts(env) {
   const { results } = await env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category, sort,
-            personalise_label, personalise_required, pinned
+            personalise_label, personalise_required, pinned, compare_at_paise
        FROM products WHERE visible = 1
       ORDER BY pinned DESC, created_at DESC, (sort = 0), sort ASC, name ASC`
   ).all();
@@ -171,6 +171,7 @@ async function synthesised(env, rows, manifest, version) {
       // No row means nothing to pin. Stated rather than left undefined so every
       // card the API returns has the same shape.
       pinned: false,
+      compare_at_paise: null,
       // Versioned like the real products, off the same manifest entry — a
       // synthesised card shows a real photo and should earn the same immutable
       // cache. No hash means no ?v=, which falls back to the short cache.
@@ -240,6 +241,19 @@ function shape(r) {
     // Drives the "Featured" badge, and the pin toggle an admin sees in its place.
     // Not sensitive: it is already readable from the order of the grid.
     pinned: Boolean(r.pinned),
+    // A real former price, set by the owner — never computed. See migration 0022
+    // for why: the multiplier this replaces was a fabricated reference price.
+    //
+    // Exposed ONLY when it is a genuine reduction. Both clauses matter:
+    //   price_paise > 0      an unpriced piece shows "Price on request", and a
+    //                        stray former price must not strike through that;
+    //   compare_at > price   a former price at or below today's is not a
+    //                        discount, and showing it would be the false claim
+    //                        the other way round.
+    // Belt and braces with the write-side check in admin.js: this is what makes
+    // the storefront correct even if the data is not.
+    compare_at_paise:
+      r.price_paise > 0 && r.compare_at_paise > r.price_paise ? r.compare_at_paise : null,
   };
 }
 

@@ -413,6 +413,38 @@ The trade is worth stating: route 2 makes admin access **email-strength**.
 Whoever can read the owner's inbox can issue refunds and read customer addresses.
 Prefer route 1 once the broker knows this site.
 
+### The former price, and why it is a column
+
+A product may show a struck-through former price with an "N% off" pill, on its
+card and its page. It is `products.compare_at_paise`: a price Aswin actually sold
+at, typed per product in the dashboard's **Was ₹** box beside the price.
+
+It used to be computed — the selling price × 1.15, shown as "MRP" — and PR #28
+removed it: nothing had ever been sold at that figure, which is the false-discount
+pattern the CCPA *Guidelines for Prevention and Regulation of Dark Patterns* (2023)
+describe, and "MRP" is a defined term under the Legal Metrology rules. This is the
+honest version #28 itself proposed, and `test/pricing-display.mjs` now guards the
+properties that keep it that way rather than the absence of the feature:
+
+1. **Never computed.** No multiplier exists anywhere; the only source is the column.
+2. **Only when true.** `shape()` in `src/shop.js` exposes it only when
+   `price_paise > 0` and the former price is *higher*. The product page guards
+   itself the same way. A former price at or below today's is not a discount, and
+   one on an unpriced piece would strike through "Price on request".
+3. **Never "MRP".** The visible label is the bare struck figure; screen readers
+   hear "Was".
+4. **Floors, never rounds.** `percentOff()` in `src/lib.js`: 1499 → 1299 is 13%,
+   not 14. `main.js` carries a copy (it cannot import), and the test holds both to
+   the same `Math.floor`.
+5. **Self-healing.** `resolveCompareAt()` in `src/admin.js` refuses a former price
+   that is not higher than the resulting selling price, and *clears* an existing
+   one when the price is raised to meet it — otherwise the shop would say
+   "was ₹399" beside "₹449".
+
+`priceCart()` never reads the column. What a customer is charged is unchanged by
+any of this; it is display, and it is the owner's own claim about his own past
+prices, which is what the guidance asks for.
+
 ### Pinning, and the order of the catalogue
 
 Products come out in this order, set by one clause in `listProducts()`

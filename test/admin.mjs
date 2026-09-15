@@ -189,7 +189,11 @@ function makeDB(seed = {}) {
 
     // Matched on a stable PREFIX rather than the full column list: pinning added a
     // column and the exact-list match broke every test in the file at once.
-    if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort,")) {
+    // …but the prefix must reach the column that DIFFERS from the single-row
+    // read-back (`sort, compare_at_paise, updated_at FROM products WHERE id = ?`),
+    // or that query lands here first and gets a results-shaped answer with no
+    // `first` — which is a null product on every PATCH response.
+    if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort, personalise_label")) {
       // Same ordering the query asks for: pinned, then newest, then the curated
       // sequence within a batch. Emulated here only so the dashboard fixture is
       // not misleading — the real clause runs against real SQLite in
@@ -217,6 +221,14 @@ function makeDB(seed = {}) {
       const want = new Set(a);
       return { results: db.products.filter((p) => want.has(p.id)).map((p) => ({ id: p.id })) };
     }
+    // The bulk editor's existence check now also reads the price pair, so the
+    // former-price rule can be applied against what each row will end up with.
+    // Projected to exactly those three, as the real query is.
+    if (s.startsWith("SELECT id, price_paise, compare_at_paise FROM products WHERE id IN (")) {
+      const want = new Set(a);
+      return { results: db.products.filter((p) => want.has(p.id))
+        .map((p) => project(p, ["id", "price_paise", "compare_at_paise"])) };
+    }
     if (s.startsWith("SELECT id, slug, name, price_paise, visible FROM products WHERE id IN (")) {
       const want = new Set(a);
       return { results: db.products.filter((p) => want.has(p.id))
@@ -224,6 +236,10 @@ function makeDB(seed = {}) {
     }
     if (s.startsWith("SELECT id FROM products WHERE id = ?")) {
       return { first: db.products.find((p) => p.id === a[0]) || null };
+    }
+    if (s.startsWith("SELECT id, price_paise, compare_at_paise FROM products WHERE id = ?")) {
+      const o = db.products.find((p) => p.id === a[0]);
+      return { first: o ? project(o, ["id", "price_paise", "compare_at_paise"]) : null };
     }
     if (s.startsWith("SELECT id, name FROM products WHERE id = ?")) {
       return { first: db.products.find((p) => p.id === a[0]) || null };
@@ -362,7 +378,7 @@ function makeDB(seed = {}) {
     if (s.startsWith("SELECT COUNT(*) AS total, COALESCE(SUM(visible),0) AS visible FROM products")) {
       return { first: { total: db.products.length, visible: db.products.reduce((n, p) => n + (p.visible ? 1 : 0), 0) } };
     }
-    if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort, updated_at FROM products WHERE id = ?")) {
+    if (s.startsWith("SELECT id, slug, name, description, price_paise, image, images, category, visible, sort, compare_at_paise, updated_at FROM products WHERE id = ?")) {
       return { first: db.products.find((p) => p.id === a[0]) || null };
     }
     throw new Error("unhandled SQL: " + s.slice(0, 100));
@@ -550,6 +566,128 @@ section("admin products — pinning in bulk");
   ok("pinned alone is not an empty patch",
      (await read(await bulkUpdateProducts(envDB({ products: [PRODUCT] }),
        { items: [{ id: PRODUCT.id, pinned: true }] })))[0] === 200);
+}
+
+section("admin products — the former price");
+{
+  // A real price the owner sold at, struck through on the shop beside today's.
+  // It is a COLUMN he sets, never a computation — the "MRP" PR #28 removed was
+  // price × 1.15, which nothing had ever sold at. These hold the two rules that
+  // make the relanded version honest: it must be HIGHER than the selling price,
+  // and it must go away by itself if the price rises to meet it.
+  const MSG = "The former price must be higher than the selling price.";
+
+  const env = envDB({ products: [PRODUCT] });                      // price ₹349
+  ok("a higher former price is accepted",
+     (await read(await updateProduct(env, PRODUCT.id, { compare_at_paise: 44900 })))[0] === 200);
+  ok("stored as paise", env.DB._db.products[0].compare_at_paise === 44900);
+  ok("read-back carries it",
+     (await read(await updateProduct(env, PRODUCT.id, { compare_at_paise: 45900 })))[1].product.compare_at_paise === 45900);
+
+  for (const [label, val] of [["null", null], ["empty string", ""], ["zero", 0], ["\"0\"", "0"]]) {
+    const e = envDB({ products: [{ ...PRODUCT, compare_at_paise: 44900 }] });
+    const [st] = await read(await updateProduct(e, PRODUCT.id, { compare_at_paise: val }));
+    ok(`${label} clears it`, st === 200 && e.DB._db.products[0].compare_at_paise === null,
+       `status ${st}, stored ${JSON.stringify(e.DB._db.products[0].compare_at_paise)}`);
+  }
+
+  // THE RULE. Equal is not a discount; lower is the false claim the other way.
+  for (const [label, val] of [["equal to the price", 34900], ["below the price", 29900]]) {
+    const e = envDB({ products: [PRODUCT] });
+    const [st, out] = await read(await updateProduct(e, PRODUCT.id, { compare_at_paise: val }));
+    ok(`${label} is refused`, st === 400, String(st));
+    ok(`${label} says why`, out.error === MSG, out.error);
+    ok(`${label} writes nothing`, e.DB._db.products[0].compare_at_paise === undefined);
+  }
+  ok("a float is refused",
+     (await read(await updateProduct(envDB({ products: [PRODUCT] }), PRODUCT.id, { compare_at_paise: 449.5 })))[0] === 400);
+  ok("junk is refused",
+     (await read(await updateProduct(envDB({ products: [PRODUCT] }), PRODUCT.id, { compare_at_paise: "abc" })))[0] === 400);
+
+  // Nothing to be a former price OF. Without this, ₹5 would strike through
+  // "Price on request".
+  {
+    const e = envDB({ products: [{ ...PRODUCT, price_paise: 0 }] });
+    const [st, out] = await read(await updateProduct(e, PRODUCT.id, { compare_at_paise: 500 }));
+    ok("refused on an unpriced product", st === 400, String(st));
+    ok("and says to price it first", /selling price before/i.test(out.error), out.error);
+  }
+
+  // Checked against the RESULTING price when both arrive together.
+  {
+    const e = envDB({ products: [PRODUCT] });
+    ok("price and former price in one body: judged against the new price",
+       (await read(await updateProduct(e, PRODUCT.id, { price_paise: 49900, compare_at_paise: 45900 })))[0] === 400);
+    ok("…and accepted when the pair is consistent",
+       (await read(await updateProduct(e, PRODUCT.id, { price_paise: 39900, compare_at_paise: 45900 })))[0] === 200);
+  }
+
+  // SELF-HEAL. Raising the price past the former price must clear it, or the
+  // shop shows "was ₹449" beside "₹499".
+  {
+    const e = envDB({ products: [{ ...PRODUCT, compare_at_paise: 44900 }] });
+    const [st, out] = await read(await updateProduct(e, PRODUCT.id, { price_paise: 49900 }));
+    ok("raising the price past it succeeds", st === 200, String(st));
+    ok("and clears the former price", e.DB._db.products[0].compare_at_paise === null,
+       JSON.stringify(e.DB._db.products[0].compare_at_paise));
+    ok("the read-back shows it cleared", out.product.compare_at_paise === null);
+  }
+  {
+    const e = envDB({ products: [{ ...PRODUCT, compare_at_paise: 44900 }] });
+    await updateProduct(e, PRODUCT.id, { price_paise: 44900 });
+    ok("raising the price TO it clears it too", e.DB._db.products[0].compare_at_paise === null);
+  }
+  {
+    const e = envDB({ products: [{ ...PRODUCT, compare_at_paise: 44900 }] });
+    await updateProduct(e, PRODUCT.id, { price_paise: 39900 });
+    ok("raising the price but staying below it keeps it", e.DB._db.products[0].compare_at_paise === 44900);
+  }
+  {
+    // Omitting the field on an unrelated edit leaves a valid former price alone.
+    const e = envDB({ products: [{ ...PRODUCT, compare_at_paise: 44900 }] });
+    await updateProduct(e, PRODUCT.id, { description: "new words" });
+    ok("an unrelated edit leaves it alone", e.DB._db.products[0].compare_at_paise === 44900);
+  }
+}
+
+section("admin products — the former price, in bulk");
+{
+  const MSG = "The former price must be higher than the selling price.";
+  const two = () => envDB({ products: [PRODUCT, { ...PRODUCT, id: "p2", slug: "second", price_paise: 89900 }] });
+
+  const e = two();
+  const [st] = await read(await bulkUpdateProducts(e, { items: [
+    { id: PRODUCT.id, compare_at_paise: 44900 },
+    { id: "p2", compare_at_paise: null },
+  ] }));
+  ok("bulk accepts a valid former price", st === 200, String(st));
+  ok("bulk stores it", e.DB._db.products[0].compare_at_paise === 44900);
+  ok("bulk null clears it", e.DB._db.products[1].compare_at_paise === null);
+
+  ok("former price alone is a real update",
+     (await read(await bulkUpdateProducts(two(), { items: [{ id: PRODUCT.id, compare_at_paise: 44900 }] })))[0] === 200);
+
+  {
+    const f = two();
+    const [code, out] = await read(await bulkUpdateProducts(f, { items: [
+      { id: PRODUCT.id, compare_at_paise: 44900 },
+      { id: "p2", compare_at_paise: 50000 },                        // below ₹899
+    ] }));
+    ok("one bad row refuses the batch", code === 400, String(code));
+    ok("…naming the rule", out.error.startsWith(MSG), out.error);
+    ok("…and nothing in the batch was written", f.DB._db.products[0].compare_at_paise === undefined);
+  }
+  {
+    // Same self-heal as the single editor, judged per row against the new price.
+    const f = envDB({ products: [{ ...PRODUCT, compare_at_paise: 44900 }] });
+    await bulkUpdateProducts(f, { items: [{ id: PRODUCT.id, price_paise: 49900 }] });
+    ok("bulk price rise past the former price clears it", f.DB._db.products[0].compare_at_paise === null);
+  }
+  {
+    const f = two();
+    await bulkUpdateProducts(f, { items: [{ id: PRODUCT.id, price_paise: 39900, compare_at_paise: 45900 }] });
+    ok("bulk judges the pair against the new price", f.DB._db.products[0].compare_at_paise === 45900);
+  }
 }
 
 section("admin products — misc validation");
