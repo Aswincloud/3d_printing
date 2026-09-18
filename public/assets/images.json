@@ -1,7 +1,12 @@
 {
-  "generated_at": 1789628488832,
-  "count": 108,
+  "generated_at": 1789754654031,
+  "count": 109,
   "images": [
+    {
+      "file": "doctor_penholder.jpg",
+      "bytes": 104374,
+      "hash": "4fd141a4"
+    },
     {
       "file": "spiderman_webshooter.jpg",
       "bytes": 150134,
