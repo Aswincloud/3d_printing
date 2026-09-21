@@ -1,7 +1,12 @@
 {
-  "generated_at": 1789830955519,
-  "count": 110,
+  "generated_at": 1790006841867,
+  "count": 111,
   "images": [
+    {
+      "file": "shiva_lingam.jpg",
+      "bytes": 38746,
+      "hash": "118c8df5"
+    },
     {
       "file": "custom_trophy.jpg",
       "bytes": 40011,
