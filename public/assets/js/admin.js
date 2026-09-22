@@ -417,6 +417,22 @@ function orderCard(o) {
 // Courier + tracking, as labelled fields. Shared by "Mark shipped" (where it
 // also fires the transition and the email) and "Edit tracking" (where it only
 // saves the two columns).
+// The couriers ShipTrack tracks, by display name. These are what the shipped
+// WhatsApp's Track button can open live; anything else still ships and is named,
+// but the button lands on ShipTrack's unknown-carrier page. Kept in step with
+// CARRIERS in the invoicer's src/shipment.js — five names, no ids.
+const SHIPTRACK_CARRIERS = ['Blue Dart', 'Delhivery', 'Shiprocket', 'ST Courier', 'The Professional Couriers'];
+
+// A stored courier string → the list entry it means, or "" if it is not one of
+// the five. Letters only, so "bluedart", "Blue-Dart" and "BLUE DART" all match,
+// and "TPC" reaches The Professional Couriers.
+function matchCarrier(text) {
+  const key = String(text || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (!key) return '';
+  if (key === 'tpc') return 'The Professional Couriers';
+  return SHIPTRACK_CARRIERS.find((c) => c.toLowerCase().replace(/[^a-z]/g, '') === key) || '';
+}
+
 function shipForm(o, { courier, tracking, submitLabel, onSubmit, onCancel }) {
   const form = el('form', 'ship-form');
   form.setAttribute('aria-label', `Courier and tracking for ${o.receipt}`);
@@ -436,7 +452,48 @@ function shipForm(o, { courier, tracking, submitLabel, onSubmit, onCancel }) {
     wrap.appendChild(input);
     return [wrap, input];
   };
-  const [cWrap, cIn] = field(`courier-${o.id}`, 'Courier (optional)', courier, 'India Post, Delhivery, DTDC…', 60);
+  // Courier: a dropdown of the carriers ShipTrack can track, plus "Other…" for
+  // anything else. The SELECT submits the carrier's display name ("Blue Dart"),
+  // not an id — every surface downstream reads the stored text as-is (the shipped
+  // email, My Orders, the chat bot's answer), and both trackingUrlFor() here and
+  // Invoicer's shopCourier() match on letters, so the name resolves everywhere an
+  // id would and reads properly where an id would not. "Other…" reveals the free
+  // text box, so a local courier can still be recorded by name.
+  const cWrap = el('label', 'ship-field');
+  cWrap.htmlFor = `courier-${o.id}`;
+  cWrap.appendChild(el('span', null, 'Courier (optional)'));
+  const cSel = document.createElement('select');
+  cSel.id = `courier-${o.id}`;
+  cSel.className = 'ship-input ship-select';
+  const OTHER = '__other__';
+  for (const [value, label] of [['', 'None'], ...SHIPTRACK_CARRIERS.map((c) => [c, c]), [OTHER, 'Other…']]) {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = label;
+    cSel.appendChild(opt);
+  }
+  // The free-text box, shown only for "Other…". Its own aria-label so it is still
+  // named when revealed; the visible label points at the select.
+  const cIn = document.createElement('input');
+  cIn.type = 'text';
+  cIn.className = 'ship-input';
+  cIn.placeholder = 'Courier name, e.g. DTDC, India Post';
+  cIn.maxLength = 60;
+  cIn.autocomplete = 'off';
+  cIn.setAttribute('aria-label', 'Courier name');
+  // Pre-select from what the order already has: a listed carrier selects itself
+  // (matched on letters, so "bluedart" or "BLUE DART" from an older row still
+  // lands on Blue Dart); anything else opens "Other…" with the text in the box.
+  const known = matchCarrier(courier);
+  if (known) cSel.value = known;
+  else if (courier) { cSel.value = OTHER; cIn.value = courier; }
+  cIn.hidden = cSel.value !== OTHER;
+  cSel.addEventListener('change', () => {
+    cIn.hidden = cSel.value !== OTHER;
+    if (!cIn.hidden) setTimeout(() => cIn.focus(), 0);
+  });
+  cWrap.append(cSel, cIn);
+  // What the form submits: the carrier's name, the typed text for Other, or "".
+  const courierValue = () => cSel.value === OTHER ? cIn.value.trim() : cSel.value;
   const [tWrap, tIn] = field(`tracking-${o.id}`, 'Tracking number (optional)', tracking, 'e.g. EK123456789IN', 80);
 
   const row = el('div', 'ship-row');
@@ -456,7 +513,7 @@ function shipForm(o, { courier, tracking, submitLabel, onSubmit, onCancel }) {
     const original = submit.textContent;
     submit.textContent = 'Working…';
     try {
-      await onSubmit({ courier: cIn.value.trim(), tracking_id: tIn.value.trim() });
+      await onSubmit({ courier: courierValue(), tracking_id: tIn.value.trim() });
     } catch (err) {
       flash(err.message, true);
       submit.disabled = false;
@@ -464,7 +521,7 @@ function shipForm(o, { courier, tracking, submitLabel, onSubmit, onCancel }) {
     }
   });
   // Focus the first field once it is in the DOM.
-  setTimeout(() => cIn.focus(), 0);
+  setTimeout(() => cSel.focus(), 0);
   return form;
 }
 

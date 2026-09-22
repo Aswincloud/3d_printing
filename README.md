@@ -516,6 +516,19 @@ is no identity to check it against, and inventing one is not worth it.
 
 ### Order stages
 
+**The courier picker.** "Mark shipped" and "Edit tracking" offer ShipTrack's five
+carriers — Blue Dart, Delhivery, Shiprocket, ST Courier, The Professional Couriers
+— plus **Other…**, which reveals a free-text box. The picker stores the carrier's
+display **name**, never an id: the shipped email, My Orders and the chat bot all
+show the stored text verbatim, and both `trackingUrlFor()` and Invoicer's
+`shopCourier()` match on letters, so a name resolves everywhere an id would and
+reads properly where an id would not. A stored `bluedart` from before the picker
+still pre-selects Blue Dart. A ShipTrack carrier gives the customer a live Track
+button on WhatsApp and a live link in the email (the three without a public
+tracking page of their own link to ShipTrack); anything under Other… is named as
+typed and the WhatsApp button lands on ShipTrack's unknown-carrier page.
+`test/browser/dashboard-courier.mjs` is the dashboard's first browser coverage.
+
 **WhatsApp, via Invoicer.** The shop holds no Meta credentials and sends no
 WhatsApp itself. Every paid order already reaches Invoicer as an invoice; Invoicer
 owns the approved templates, the customer's number and the invoice PDF the

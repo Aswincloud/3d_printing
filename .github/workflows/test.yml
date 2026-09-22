@@ -106,3 +106,6 @@ jobs:
           # device and were invisible on a desktop, which is the whole reason this
           # job runs at viewport widths rather than one.
           npm run test:mobile
+          # The dashboard's courier picker — the first browser coverage shop.html has
+          # had. Auth and the orders API are stubbed; no Worker needed.
+          npm run test:dashboard
