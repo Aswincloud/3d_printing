@@ -931,6 +931,16 @@ async function loadProducts() {
       openCart();
     }
 
+    // Straight to My Orders. The order emails link here, and a WhatsApp
+    // customer with a courier ShipTrack cannot track is told the courier and
+    // tracking id live on this page. Same shape as #cart: open, switch tab,
+    // clear the hash so a refresh does not reopen it.
+    if (location.hash === '#orders') {
+      history.replaceState({}, '', location.pathname + location.search);
+      openCart();
+      selectDrawerTab('orders');
+    }
+
     if (location.hash === '#checkout') {
       // Drop the hash first, so a refresh does not reopen checkout on a cart the
       // visitor may since have emptied.
