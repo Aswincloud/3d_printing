@@ -205,6 +205,11 @@
   max-width: 420px;
 }
 .ship-input:focus-visible { outline: none; border-color: var(--orange); }
+/* The courier select shares .ship-input's box; this only adds the arrow room a
+   native select needs and stacks the "Other…" text box beneath it. */
+.ship-select { padding-right: 2rem; cursor: pointer; }
+.ship-field > .ship-input + .ship-input { margin-top: 0.35rem; }
+
 .ship-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
 .panel-head {

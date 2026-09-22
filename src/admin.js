@@ -1122,6 +1122,12 @@ function trackingUrlFor(courier, tracking) {
   }
   if (key.includes("xpressbees")) return `https://www.xpressbees.com/shipment/tracking?awb=${id}`;
   if (key.includes("ecom")) return `https://ecomexpress.in/tracking/?awb_field=${id}`;
+  // The carriers ShipTrack tracks that have no clean public tracking URL of their
+  // own. Sent to ShipTrack so the shipped EMAIL's button opens live tracking, the
+  // same page the WhatsApp's Track button opens — the two channels should agree.
+  if (key.includes("shiprocket")) return `https://shiptrack.aswincloud.com/track/shiprocket/${id}`;
+  if (key.includes("stcourier")) return `https://shiptrack.aswincloud.com/track/stcourier/${id}`;
+  if (key === "tpc" || key.includes("professional")) return `https://shiptrack.aswincloud.com/track/tpc/${id}`;
   return "";
 }
 

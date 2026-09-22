@@ -1381,6 +1381,28 @@ section("marking shipped emails the customer");
   ok("links to the courier's tracking page", (calls[0]?.html || "").includes("bluedart.com"));
 }
 {
+  // The three ShipTrack carriers with no clean public tracking page of their own
+  // link to ShipTrack, so the shipped EMAIL's button opens the same live page the
+  // WhatsApp's Track button does. The two channels must agree.
+  for (const [courier, path] of [["Shiprocket", "shiprocket"], ["ST Courier", "stcourier"],
+                                 ["The Professional Couriers", "tpc"], ["TPC", "tpc"]]) {
+    const env = envDB({ orders: [ORDER] });
+    const calls = stubResend();
+    await updateOrder(env, ORDER.id, { status: "shipped", courier, tracking_id: "AWB77" });
+    ok(`${courier} → ShipTrack link in the shipped email`,
+       (calls[0]?.html || "").includes(`https://shiptrack.aswincloud.com/track/${path}/AWB77`),
+       (calls[0]?.html || "").match(/https:\/\/[^"]*track[^"]*/)?.[0] || "no tracking link");
+  }
+  // One that is neither: the email falls back to the receipt button, never a
+  // guessed URL. A wrong link is worse than none — the customer clicks it, gets
+  // an error page, and concludes the parcel is lost.
+  const env = envDB({ orders: [ORDER] });
+  const calls = stubResend();
+  await updateOrder(env, ORDER.id, { status: "shipped", courier: "local courier", tracking_id: "L1" });
+  ok("an unknown courier gets no tracking link, only the receipt button",
+     !/track\/|tracking\?|awb=/.test(calls[0]?.html || "") && /View Order/.test(calls[0]?.html || ""));
+}
+{
   // Both optional: a parcel handed to a local courier with no tracking number is
   // still shipped, and the customer should still be told.
   const env = envDB({ orders: [ORDER] });
