@@ -516,6 +516,20 @@ is no identity to check it against, and inventing one is not worth it.
 
 ### Order stages
 
+**WhatsApp, via Invoicer.** The shop holds no Meta credentials and sends no
+WhatsApp itself. Every paid order already reaches Invoicer as an invoice; Invoicer
+owns the approved templates, the customer's number and the invoice PDF the
+confirmation template requires as its header, so it sends the confirmation on
+ingest. On the **transition** into `shipped` or `delivered`, `updateOrder()` also
+posts `{ receipt, kind, courier, tracking }` to Invoicer's `/api/ingest/shipment`
+(`sendOrderShipment` in `src/invoicing.js`, signed like the invoice ingest), and
+Invoicer sends the shipped or delivered message. Transition-only, so correcting a
+tracking number never re-notifies; Invoicer refuses a repeat too. Fire-and-forget
+through `waitUntil`: the status change is written whether or not Invoicer is up,
+and the email has already gone from here. `INVOICE_ENABLED` is the kill switch
+for both the invoice and the WhatsApp.
+
+
 An order used to have two states a customer ever saw: paid, then shipped. Between
 them sat every day the print was actually being made, and nothing was said. The
 pipeline is now six stages, defined once in `ORDER_STAGES` (`src/lib.js`) and

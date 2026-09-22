@@ -101,3 +101,61 @@ export async function sendOrderInvoice(env, order, items) {
     console.error("invoice error", order.receipt, e?.message || e);
   }
 }
+
+// ── shipped / delivered → the customer's WhatsApp, via Invoicer ────────────
+//
+// The invoicer owns the WhatsApp templates, the customer's number and the
+// invoice this order became, so it sends the shipped and delivered messages;
+// the shop only tells it the order moved. Same door as the invoice itself: same
+// kill switch, same secret, same HMAC over the exact bytes sent.
+//
+// Called by updateOrder() on the TRANSITION into shipped or delivered only —
+// never on a re-save — and the invoicer refuses to send the same kind twice on
+// top of that, so correcting a tracking number cannot re-notify a customer.
+//
+// Never throws, never blocks the dashboard: the order IS shipped whether or not
+// this reaches the invoicer, and the email has already gone from here.
+//
+//   → { ok, whatsapp: "sent" | "already_sent" | "skipped" | "failed" | "off" | "error", why? }
+export async function sendOrderShipment(env, order, kind) {
+  if (String(env.INVOICE_ENABLED ?? "").toLowerCase() !== "true") return { ok: true, whatsapp: "off" };
+  const url = env.INVOICER_URL;
+  const secret = env.SHOP_INGEST_SECRET;
+  if (!url || !secret) {
+    console.error("shipment notify not configured", { url: Boolean(url), secret: Boolean(secret) });
+    return { ok: false, whatsapp: "off" };
+  }
+  if (kind !== "shipped" && kind !== "delivered") return { ok: false, whatsapp: "error", why: "bad kind" };
+
+  const raw = JSON.stringify({
+    ts: now(),
+    receipt: order.receipt,
+    kind,
+    // Free text as typed in the dashboard. The invoicer maps it to a ShipTrack
+    // carrier when it can and names it as typed when it cannot.
+    courier: order.courier || "",
+    tracking: order.tracking_id || "",
+  });
+
+  try {
+    const signature = await hmacHex(raw, secret);
+    const res = await fetch(`${url.replace(/\/$/, "")}/api/ingest/shipment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-shop-signature": signature,
+                 "User-Agent": "aswinprints-shop/1.0" },
+      body: raw,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // 404 is expected for orders that predate invoicing; everything else is a fault.
+      const log = res.status === 404 ? console.log : console.error;
+      log("shipment notify", kind, order.receipt, res.status, JSON.stringify(body).slice(0, 160));
+      return { ok: false, whatsapp: "error", why: body?.error || `HTTP ${res.status}` };
+    }
+    console.log("shipment notify", kind, order.receipt, body.whatsapp, body.why || "");
+    return { ok: true, whatsapp: body.whatsapp || "sent", why: body.why };
+  } catch (e) {
+    console.error("shipment notify error", kind, order.receipt, e?.message || e);
+    return { ok: false, whatsapp: "error", why: String(e?.message || e) };
+  }
+}

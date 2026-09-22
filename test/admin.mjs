@@ -5,6 +5,7 @@
 // /refund moves real money — so "unauthenticated request is refused" is not a
 // nice-to-have, it's the feature.
 
+import { hmacHex } from "../src/lib.js";
 import { ownerAllowed, ssoConfigured, currentOwner } from "../src/auth.js";
 import {
   listProducts, createProduct, updateProduct, deleteProduct, unlistedImages,
@@ -42,16 +43,34 @@ const BASE_ENV = {
 // point of the re-save case.
 function stubResend() {
   const calls = [];
+  // The shipment notify to Invoicer is captured alongside, on the same array's
+  // `.shipments` property, so a test can assert on both channels at once. A test
+  // can make Invoicer fail by setting calls.invoicerStatus first.
+  calls.shipments = [];
+  calls.invoicerStatus = 200;
   globalThis.fetch = async (url, init) => {
     const u = String(url);
     if (u.includes("api.resend.com")) {
       calls.push(JSON.parse(init.body || "{}"));
       return new Response(JSON.stringify({ id: "email_stub" }), { status: 200 });
     }
+    if (u.includes("/api/ingest/shipment")) {
+      calls.shipments.push({ body: JSON.parse(init.body || "{}"),
+                             signature: init.headers?.["x-shop-signature"] || "", raw: init.body });
+      const ok = calls.invoicerStatus === 200;
+      return new Response(JSON.stringify(ok ? { ok: true, whatsapp: "sent", id: "wamid.x" } : { error: "boom" }),
+                          { status: calls.invoicerStatus, headers: { "content-type": "application/json" } });
+    }
     throw new Error("unexpected fetch in admin test: " + u);
   };
   return calls;
 }
+
+// updateOrder's WhatsApp hand-off needs the invoicing trio set, exactly as
+// production has it. Kept OFF in BASE_ENV so every other test proves the hook is
+// opt-in by config.
+const INVOICING = { INVOICE_ENABLED: "true", INVOICER_URL: "https://invoicer.example",
+                    SHOP_INGEST_SECRET: "shop-ingest-test-secret" };
 
 // ══ INVARIANT 6 ══════════════════════════════════════════════════
 // @aswincloud/auth's isOwner() treats an EMPTY allowlist as "allow anyone":
@@ -1207,6 +1226,79 @@ section("admin orders — a refund survives every stage");
     const env = envDB({ orders: [{ ...ORDER, status: st }] });
     ok(`not refundable at ${st}`, (await read(await refundOrder(env, ORDER.id, {})))[0] === 409);
   }
+}
+
+section("admin orders — shipped and delivered are handed to Invoicer for WhatsApp");
+{
+  // The invoicer owns the templates and the customer's number, so the shop does
+  // not call Meta; it tells the invoicer the order moved. Signed the same way as
+  // the invoice ingest, on the TRANSITION only.
+  const env = { ...envDB({ orders: [{ ...ORDER, status: "ready" }] }), ...INVOICING };
+  const calls = stubResend();
+  const c = { waitUntil: (p) => c._p.push(p), _p: [] };
+  const [st, out] = await read(await updateOrder(env, ORDER.id, { status: "shipped", courier: "Blue Dart", tracking_id: "BD 1234" }, c));
+  await Promise.all(c._p);
+  ok("PATCH succeeds", st === 200, String(st));
+  ok("response says WhatsApp was queued", out.whatsapp === "queued", out.whatsapp);
+  ok("exactly one call to Invoicer", calls.shipments.length === 1, String(calls.shipments.length));
+  const sent = calls.shipments[0];
+  ok("kind=shipped with the receipt", sent.body.kind === "shipped" && sent.body.receipt === ORDER.receipt, JSON.stringify(sent.body));
+  ok("carries the courier as typed and the tracking id", sent.body.courier === "Blue Dart" && sent.body.tracking === "BD 1234", JSON.stringify(sent.body));
+  ok("carries a fresh timestamp", Math.abs(Date.now() - sent.body.ts) < 5000);
+  ok("signed over the exact bytes sent", sent.signature === await hmacHex(sent.raw, INVOICING.SHOP_INGEST_SECRET));
+  ok("the shipped EMAIL still went too", calls.length === 1, String(calls.length));
+}
+{
+  // Correcting a tracking number a day later is a re-save, not a transition.
+  const env = { ...envDB({ orders: [{ ...ORDER, status: "shipped", shipped_at: 5000, courier: "Blue Dart", tracking_id: "BD1" }] }), ...INVOICING };
+  const calls = stubResend();
+  const c = { waitUntil: (p) => c._p.push(p), _p: [] };
+  const [, out] = await read(await updateOrder(env, ORDER.id, { tracking_id: "BD2" }, c));
+  await Promise.all(c._p);
+  ok("a re-save posts nothing to Invoicer", calls.shipments.length === 0, String(calls.shipments.length));
+  ok("and reports WhatsApp off", out.whatsapp === "off", out.whatsapp);
+  ok("re-sending the same status posts nothing either",
+     (await (async () => { await updateOrder(env, ORDER.id, { status: "shipped" }, c); await Promise.all(c._p); return calls.shipments.length; })()) === 0);
+}
+{
+  const env = { ...envDB({ orders: [{ ...ORDER, status: "shipped", shipped_at: 5000 }] }), ...INVOICING };
+  const calls = stubResend();
+  const c = { waitUntil: (p) => c._p.push(p), _p: [] };
+  await updateOrder(env, ORDER.id, { status: "delivered" }, c);
+  await Promise.all(c._p);
+  ok("delivered posts kind=delivered", calls.shipments.length === 1 && calls.shipments[0].body.kind === "delivered",
+     JSON.stringify(calls.shipments.map((x) => x.body.kind)));
+}
+{
+  // Stages that do not message on WhatsApp must not reach Invoicer at all.
+  for (const [from, to] of [["paid", "in_production"], ["in_production", "ready"], ["paid", "cancelled"]]) {
+    const env = { ...envDB({ orders: [{ ...ORDER, status: from }] }), ...INVOICING };
+    const calls = stubResend();
+    const c = { waitUntil: (p) => c._p.push(p), _p: [] };
+    const [, out] = await read(await updateOrder(env, ORDER.id, { status: to }, c));
+    await Promise.all(c._p);
+    ok(`${from} → ${to} posts nothing`, calls.shipments.length === 0 && out.whatsapp === "off", `${calls.shipments.length} ${out.whatsapp}`);
+  }
+}
+{
+  // Opt-in by config: without INVOICE_ENABLED the hook is inert.
+  const env = envDB({ orders: [{ ...ORDER, status: "ready" }] });          // BASE_ENV: no invoicing keys
+  const calls = stubResend();
+  const c = { waitUntil: (p) => c._p.push(p), _p: [] };
+  const [, out] = await read(await updateOrder(env, ORDER.id, { status: "shipped" }, c));
+  await Promise.all(c._p);
+  ok("invoicing off → nothing posted, whatsapp=off", calls.shipments.length === 0 && out.whatsapp === "off", `${calls.shipments.length} ${out.whatsapp}`);
+}
+{
+  // Invoicer down must not fail the status change — the order IS shipped.
+  const env = { ...envDB({ orders: [{ ...ORDER, status: "ready" }] }), ...INVOICING };
+  const calls = stubResend(); calls.invoicerStatus = 502;
+  const c = { waitUntil: (p) => c._p.push(p), _p: [] };
+  const [st] = await read(await updateOrder(env, ORDER.id, { status: "shipped" }, c));
+  await Promise.all(c._p);
+  ok("PATCH is still 200 when Invoicer 502s", st === 200, String(st));
+  ok("the status was written", env.DB._db.orders[0].status === "shipped");
+  ok("the email still went", calls.length === 1);
 }
 
 section("admin orders — which stages email, and which do not");

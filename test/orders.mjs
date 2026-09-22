@@ -232,6 +232,11 @@ function stubFetch({ invoicerStatus = 200, invoicerBody = null } = {}) {
         currency: "INR", receipt: body.receipt, status: "created",
       }), { status: 200, headers: { "content-type": "application/json" } });
     }
+    if (u.includes("/api/ingest/shipment")) {
+      calls.invoicer.push({ url: u, body: JSON.parse(init.body || "{}"), kind: "shipment" });
+      return new Response(JSON.stringify({ ok: true, whatsapp: "sent" }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    }
     if (u.includes("api.resend.com")) {
       calls.resend.push(JSON.parse(init.body || "{}"));
       return new Response(JSON.stringify({ id: "email_stub" }), { status: 200 });

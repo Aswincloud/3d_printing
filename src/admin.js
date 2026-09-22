@@ -5,6 +5,7 @@
 import { json, bad, uid, now, sendEmail, statusLabel } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
 import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail } from "./emails.js";
+import { sendOrderShipment } from "./invoicing.js";
 import { checkAgentEntries, checkDescribeEntries } from "./agent.js";
 
 const MAXLEN = { name: 120, slug: 80, desc: 2000, image: 300, images: 2000, category: 40, note: 500,
@@ -1081,9 +1082,25 @@ export async function updateOrder(env, id, body, ctx = null) {
     if (ctx?.waitUntil) ctx.waitUntil(send); else await send;
   }
 
+  // The customer's WhatsApp, for shipped and delivered. Sent BY THE INVOICER —
+  // it holds the templates, the number and the invoice — so this only tells it
+  // the order moved. Transition-only, like the email above: a re-save to correct
+  // a tracking number must not re-notify, and the invoicer refuses a repeat too.
+  //
+  // Fire-and-forget through waitUntil. sendOrderShipment never throws, and the
+  // dashboard must not wait on a second Worker to confirm a status change that
+  // has already been written.
+  let whatsapp = "off";
+  if ((entered === "shipped" || entered === "delivered")
+      && String(env.INVOICE_ENABLED ?? "").toLowerCase() === "true") {
+    whatsapp = "queued";
+    const notify = sendOrderShipment(env, { ...order, ...row }, entered);
+    if (ctx?.waitUntil) ctx.waitUntil(notify); else await notify;
+  }
+
   // `emailed` drives the dashboard's toast, so it must reflect whether a mail
   // actually went — entering `ready` changes the order and sends nothing.
-  return json({ ok: true, order: row, emailed: Boolean(mail && env.RESEND_API_KEY) });
+  return json({ ok: true, order: row, emailed: Boolean(mail && env.RESEND_API_KEY), whatsapp });
 }
 
 // A direct tracking link where the courier is one we can recognise, otherwise
