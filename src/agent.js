@@ -50,6 +50,24 @@ export const AGENT_ROUTES = new Set([
   // UPDATE statement itself carries `AND (description IS NULL OR TRIM(description) =
   // '')`, so overwriting is not a thing the SQL can do. See describeProducts().
   "POST /api/admin/products/describe",
+  // Add a gallery photo. The route that removes the reason this agent needed a
+  // git push at all: photos used to reach the site as a pull request, because
+  // the [assets] binding cannot list a directory and the manifest therefore had
+  // to be committed. R2 can list, so they no longer do. See gallery.js.
+  //
+  // Safe on the same terms as the create-only pair above, and for the same kind
+  // of reason — the handler, not the token. uploadGalleryImage() refuses any
+  // filename that already exists in R2 or in the committed manifest, so there is
+  // no overwrite; there is no delete route at all; and the object is an image,
+  // validated by extension and capped at 12MB. The worst an abused token does is
+  // add an unreferenced photo to the unlisted list, which is a thing Aswin sees
+  // in the dashboard and can ignore.
+  //
+  // Named /gallery/upload rather than /gallery so it keeps the four-segment
+  // shape the allowlist guard in test/agent.mjs insists on: an entry short
+  // enough to be a bare prefix of other admin routes is the failure mode that
+  // guard exists to catch, and the name should not be the exception to it.
+  "POST /api/admin/gallery/upload",
 ]);
 
 // The shop's filter sidebar is built from whatever categories exist in the table, so

@@ -22,6 +22,7 @@ import { chatOrdersHandler } from "./chatorders.js";
 import { listQuotes, replyToQuote, updateQuoteStatus } from "./quotes.js";
 import { uploadQuoteFile, downloadQuoteFile, validFileKey, quoteFileUrl } from "./uploads.js";
 import { agentVerdict } from "./agent.js";
+import { uploadGalleryImage, serveGalleryImage } from "./gallery.js";
 import {
   createOrderHandler, verifyOrderHandler, getOrderHandler, razorpayWebhook,
 } from "./orders.js";
@@ -218,6 +219,16 @@ export default {
     // is on the HTML response itself, not just on the API JSON.
     const asset = await env.ASSETS.fetch(request);
     if (asset.status === 404 && (request.method === "GET" || request.method === "HEAD")) {
+      // A gallery photo that was uploaded rather than committed. Tried only
+      // AFTER the binding has missed, so every photo in the repo is served
+      // exactly as it was — this path never runs for the 113 already there.
+      // Same URL either way, which is the point: nothing downstream of the URL
+      // needs to know where the bytes came from. See gallery.js.
+      if (url.pathname.startsWith("/assets/images/")) {
+        const file = url.pathname.slice("/assets/images/".length);
+        const img = await serveGalleryImage(request, env, file);
+        if (img) return withSecurityHeaders(img);
+      }
       return withSecurityHeaders(await notFoundPage(request, env, url));
     }
     return withSecurityHeaders(asset);
@@ -316,6 +327,32 @@ function noStoreUnlessCacheable(url, res) {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
+// Who is allowed through the /api/admin/ gate, as data rather than control flow,
+// so the one raw-body admin route dispatched above the gate can apply the very
+// same decision. Returns {actor} to proceed or {response} to refuse.
+async function adminActor(request, env, m, p) {
+  // Either transport: a broker session, or an OTP-verified email that is on
+  // the OWNER_EMAIL allowlist. Same allowlist check either way.
+  const owner = await currentAdmin(request, env);
+  if (owner) return { actor: "owner" };
+
+  // Second actor: the listing agent, which holds a token authorising a named
+  // handful of routes. Checked only when there is no owner session, so nothing
+  // about the owner path changes — and `actor` is threaded to the handlers so
+  // they can apply the tighter limits in agent.js rather than trusting the caller.
+  const verdict = await agentVerdict(request, env, m, p);
+  if (verdict === "agent") return { actor: "agent" };
+
+  // A valid token on a route it does not cover is 403, not 401: the credential
+  // was accepted, the action was not. 401 would invite the agent to retry with
+  // different credentials it does not have, and hide a real misconfiguration.
+  if (verdict === "forbidden") {
+    console.warn(`agent token denied: ${m} ${p}`);
+    return { response: bad("This token may only read unlisted photos, add photos, and create new listings.", 403) };
+  }
+  return { response: bad("unauthorized", 401) };
+}
+
 async function api(request, env, url, ctx) {
   const p = url.pathname;
   const m = request.method;
@@ -337,6 +374,18 @@ async function api(request, env, url, ctx) {
   // The quote form's file, as raw bytes — so it too must be dispatched before
   // the JSON parse below. Anonymous, like the form; rate-limited with it.
   if (p === "/api/quote/upload" && m === "POST") return uploadQuoteFile(request, env);
+
+  // A gallery photo, also raw bytes, also before the JSON parse — and therefore
+  // above the positional admin gate, which is the one thing that must not
+  // silently make an /api/admin/ route public. So it runs the gate itself,
+  // through the same adminActor() the gate below now uses. Two call sites, one
+  // implementation: a change to who counts as an admin cannot reach one and
+  // miss the other.
+  if (p === "/api/admin/gallery/upload" && m === "POST") {
+    const gate = await adminActor(request, env, m, p);
+    if (gate.response) return gate.response;
+    return uploadGalleryImage(request, env, gate.actor);
+  }
 
   const body = (m === "POST" || m === "PUT" || m === "PATCH")
     ? await request.json().catch(() => ({}))
@@ -452,27 +501,9 @@ async function api(request, env, url, ctx) {
   // position: any /api/admin/* route added ABOVE it would be public. Keep new
   // admin routes below.
   if (p.startsWith("/api/admin/")) {
-    // Either transport: a broker session, or an OTP-verified email that is on
-    // the OWNER_EMAIL allowlist. Same allowlist check either way.
-    const owner = await currentAdmin(request, env);
-
-    // Second actor: the listing agent, which holds a token authorising exactly two
-    // routes. Checked only when there is no owner session, so nothing about the
-    // owner path changes — and `actor` is threaded to the batch handler so it can
-    // apply the tighter limits in agent.js rather than trusting the caller.
-    let actor = owner ? "owner" : null;
-    if (!owner) {
-      const verdict = await agentVerdict(request, env, m, p);
-      if (verdict === "agent") actor = "agent";
-      // A valid token on a route it does not cover is 403, not 401: the credential
-      // was accepted, the action was not. 401 would invite the agent to retry with
-      // different credentials it does not have, and hide a real misconfiguration.
-      else if (verdict === "forbidden") {
-        console.warn(`agent token denied: ${m} ${p}`);
-        return bad("This token may only read unlisted photos and create new listings.", 403);
-      }
-    }
-    if (!actor) return bad("unauthorized", 401);
+    const gate = await adminActor(request, env, m, p);
+    if (gate.response) return gate.response;
+    const actor = gate.actor;
 
     if (p === "/api/admin/stats" && m === "GET") return adminStats(env);
 
