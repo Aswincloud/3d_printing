@@ -181,10 +181,37 @@ console.log("\nthe gate in index.js is actually wired to all this");
 // every assertion passing, because they exercised the extracted function directly.
 const idx = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 ok("index.js calls agentVerdict", /agentVerdict\(request, env, m, p\)/.test(idx));
+// The gate now lives in adminActor(), because one admin route — the gallery
+// upload — takes a raw body and must therefore be dispatched above the
+// positional gate. Two copies of an auth decision is how one of them ends up
+// stale, so there is one function and two callers. These assertions moved with
+// it, and the last one is new: it is the whole reason the extraction is safe.
+const actorFn = idx.slice(idx.indexOf("async function adminActor"),
+                          idx.indexOf("async function api(request, env, url, ctx)"));
 ok("it is only consulted when there is no owner session",
-   /if \(!owner\) \{[\s\S]{0,400}agentVerdict/.test(idx));
-ok("'forbidden' returns 403, not 401", /verdict === "forbidden"[\s\S]{0,200}403/.test(idx));
-ok("anything else still 401s", /if \(!actor\) return bad\("unauthorized", 401\);/.test(idx));
+   /if \(owner\) return \{ actor: "owner" \};[\s\S]{0,600}agentVerdict/.test(actorFn));
+ok("'forbidden' returns 403, not 401", /verdict === "forbidden"[\s\S]{0,300}403/.test(actorFn));
+ok("anything else still 401s",
+   /return \{ response: bad\("unauthorized", 401\) \};\s*\}/.test(actorFn));
+ok("the positional gate calls it",
+   /if \(p\.startsWith\("\/api\/admin\/"\)\) \{\s*const gate = await adminActor\(request, env, m, p\);\s*if \(gate\.response\) return gate\.response;/.test(idx));
+// The route dispatched ABOVE the positional gate. If this ever stops gating
+// itself it is a public upload endpoint, and the gate below will never see it.
+ok("the raw-body gallery route gates itself before handling",
+   /"\/api\/admin\/gallery\/upload" && m === "POST"\) \{\s*const gate = await adminActor\(request, env, m, p\);\s*if \(gate\.response\) return gate\.response;\s*return uploadGalleryImage/.test(idx));
+// Belt and braces on the above: no /api/admin/ route may be dispatched before
+// the gate without one, whatever it is called.
+{
+  const beforeGate = idx.slice(idx.indexOf("async function api(request, env, url, ctx)"),
+                               idx.indexOf('if (p.startsWith("/api/admin/"))'));
+  const early = [...beforeGate.matchAll(/p === "(\/api\/admin\/[^"]+)"/g)].map((m) => m[1]);
+  const ungated = early.filter((route) => {
+    const at = beforeGate.indexOf(`p === "${route}"`);
+    return !/adminActor\(request, env, m, p\)/.test(beforeGate.slice(at, at + 400));
+  });
+  ok("every admin route above the positional gate runs adminActor",
+     ungated.length === 0, ungated.join(","));
+}
 ok("the actor is passed to the batch handler",
    /adminBatchCreate\(env, body, actor, ctx\)/.test(idx));
 

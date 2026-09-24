@@ -9,6 +9,7 @@ import { applyCoupon } from "./coupons.js";
 // Shared with the dashboard's unlisted-photos panel, so a synthesised card and
 // the admin form suggest the same name for the same file.
 import { suggestName } from "./admin.js";
+import { galleryImages } from "./gallery.js";
 
 // ── products ──────────────────────────────────────────────────────
 // Public listing. Only visible rows, and deliberately no internal columns.
@@ -181,22 +182,14 @@ async function synthesised(env, rows, manifest, version) {
     }));
 }
 
-// The manifest is the only record of what photos exist — a Worker cannot list a
-// directory. Read through the ASSETS binding so a new photo needs no code change.
+// Every photo that exists, committed or uploaded — see gallery.js. This was a
+// near-duplicate of the reader in admin.js; both now share one implementation,
+// so an R2 photo appears as a synthesised card and gets its ?v= hash without
+// either file needing to know R2 is involved.
+//
 // Any failure yields no synthesised cards, which degrades to today's behaviour
 // rather than breaking the shop.
-async function readImageManifest(env) {
-  if (!env.ASSETS?.fetch) return null;
-  try {
-    const res = await env.ASSETS.fetch(new Request("https://assets.local/assets/images.json"));
-    if (!res.ok) return null;
-    const data = await res.json();
-    return Array.isArray(data?.images) ? data : null;
-  } catch (e) {
-    console.error("image manifest unreadable", e?.message || e);
-    return null;
-  }
-}
+const readImageManifest = (env) => galleryImages(env);
 
 // `images` is stored comma-separated; the API hands back an array so the
 // frontend never has to know that.
