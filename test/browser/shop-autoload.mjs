@@ -59,6 +59,17 @@ async function run(engine, name) {
   await p.route('**/api/products', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) }));
   await p.route('**/api/me', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"signedIn":false}' }));
   await p.route(/\/(cdn-cgi\/image|assets\/images)\//, (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: PIXEL }));
+  // Capture every IntersectionObserver the page makes, so the grid's own
+  // callback can be fired by hand below with the records WebKit delivered in
+  // CI — a second record for a sentinel that had already loaded. That is the one
+  // misbehaviour a real scroll cannot reproduce on demand.
+  await p.addInitScript(() => {
+    const O = window.IntersectionObserver;
+    window.__io = [];
+    window.IntersectionObserver = class extends O {
+      constructor(cb, opts) { super(cb, opts); window.__io.push({ cb, self: this, opts }); }
+    };
+  });
   await p.goto(BASE + '/index.html', { waitUntil: 'load' });
   await p.waitForSelector('.product-card', { timeout: 15000 });
 
@@ -94,6 +105,35 @@ async function run(engine, name) {
   const quote = await p.evaluate(() => { const r = document.getElementById('quote')?.getBoundingClientRect(); return r ? { top: Math.round(r.top), bottom: Math.round(r.bottom) } : null; });
   ok(`[${name}] the quote form is still below the grid and reachable`,
      !!quote && quote.top < 844 && quote.bottom > 0, JSON.stringify(quote));
+
+  // THE WEBKIT CASE. The first CI run of this suite failed on webkit with
+  // "scrolling to the end loads the next page — 36": one scroll, two pages.
+  // WebKit delivered a second intersection record for the old sentinel after a
+  // frame-timed busy flag had released. The gate is now keyed on the element:
+  // only the CURRENT sentinel may load, and only once. Reproduced here by firing
+  // the grid's own callback with the records WebKit sent, in both engines.
+  await p.goto(BASE + '/index.html', { waitUntil: 'load' });
+  await p.waitForSelector('.shop-more-sentinel', { timeout: 15000 });
+  const dup = await p.evaluate(() => {
+    const count = () => document.querySelectorAll('#productGrid .product-card').length;
+    const io = window.__io.find((o) => /400px/.test(o.opts?.rootMargin || ''));
+    if (!io) return { error: 'grid observer not captured' };
+    const fire = (t) => io.cb([{ isIntersecting: true, target: t }], io.self);
+    const s0 = document.querySelector('.shop-more-sentinel');
+    const out = { start: count() };
+    fire(s0);            out.afterOne = count();
+    fire(s0); fire(s0);  out.afterDupes = count();            // WebKit's extra records
+    fire(document.createElement('div')); out.afterDetached = count();
+    const s1 = document.querySelector('.shop-more-sentinel');
+    out.freshSentinel = s1 !== s0;
+    fire(s1);            out.afterNext = count();
+    return out;
+  });
+  ok(`[${name}] one intersection record loads exactly one page`, dup.afterOne === dup.start + PAGE, JSON.stringify(dup));
+  ok(`[${name}] duplicate records for the same sentinel load nothing more`, dup.afterDupes === dup.afterOne, JSON.stringify(dup));
+  ok(`[${name}] a record for an element that is not the sentinel loads nothing`, dup.afterDetached === dup.afterOne, JSON.stringify(dup));
+  ok(`[${name}] each render puts a NEW sentinel in the DOM`, dup.freshSentinel === true, JSON.stringify(dup));
+  ok(`[${name}] the new sentinel loads the next page, exactly once`, dup.afterNext === dup.afterOne + PAGE, JSON.stringify(dup));
 
   // A filter starts back at the first page — the sentinel must not have broken
   // the reset that keyed on the filter state.

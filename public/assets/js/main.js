@@ -997,11 +997,20 @@ let lastShown = [];
 // Fallback: with no IntersectionObserver (very old WebViews) the sentinel is a
 // real button again, so nothing is unreachable — it just takes a tap.
 let moreObserver = null;
-let moreBusy = false;
+// The sentinel currently in the DOM, and the one whose intersection last caused
+// a load. A load is allowed only for the CURRENT sentinel, and only once per
+// sentinel. This replaces a busy flag released on the next animation frame,
+// which WebKit defeated: it delivered a second intersection record for the old
+// sentinel after the frame had released the flag, and the grid jumped 24 cards
+// at once (CI caught it: "scrolling to the end loads the next page — 36").
+// Keying on the element instead of on time cannot race — a stale record names a
+// sentinel that is no longer current, and a sentinel that has already loaded
+// cannot load again. Each render creates a new sentinel below the new cards, so
+// a second load needs a second, genuine intersection.
+let moreSentinel = null;
+let moreLoadedFor = null;
 
 function loadNextPage(firstNew) {
-  if (moreBusy) return;
-  moreBusy = true;
   shopLimit += SHOP_PAGE;
   renderProducts();
   // Hand focus to the first new card only when a keyboard user is driving —
@@ -1013,7 +1022,6 @@ function loadNextPage(firstNew) {
   }
   // Released on the next frame so one intersection cannot fire twice before
   // the re-render has moved the sentinel.
-  requestAnimationFrame(() => { moreBusy = false; });
 }
 
 function renderShowMore(total, showing) {
@@ -1023,6 +1031,7 @@ function renderShowMore(total, showing) {
   if (left <= 0) {
     box.hidden = true; box.innerHTML = '';
     moreObserver?.disconnect();
+    moreSentinel = null;
     return;
   }
 
@@ -1043,10 +1052,15 @@ function renderShowMore(total, showing) {
 
     if (!moreObserver) {
       moreObserver = new IntersectionObserver((entries) => {
-        if (entries.some((e) => e.isIntersecting)) loadNextPage();
+        // Only the current sentinel, and only once. See moreSentinel above.
+        const hit = entries.some((e) => e.isIntersecting && e.target === moreSentinel);
+        if (!hit || moreLoadedFor === moreSentinel) return;
+        moreLoadedFor = moreSentinel;
+        loadNextPage();
       }, { rootMargin: '400px 0px' });      // start loading a screen before the end
     }
     moreObserver.disconnect();
+    moreSentinel = sentinel;
     moreObserver.observe(sentinel);
     return;
   }
