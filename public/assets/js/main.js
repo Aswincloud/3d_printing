@@ -977,32 +977,143 @@ let shopLimit = SHOP_PAGE;
 let shopFilterKey = null;
 let lastShown = [];
 
+// The grid grows as you scroll. A sentinel sits under the last row; when it
+// comes into view the next page is appended. The button is gone as a thing to
+// click, but the SHAPE it protected stays: SHOP_PAGE cards per step, so the
+// quote form, How It Works and the footer are still a short scroll away on a
+// fresh load rather than 30,000px down (measured: 109 cards is a 30,347px page
+// on a 390px phone, quote form at 27,867px). What changes is only that the step
+// is taken by scrolling instead of tapping.
+//
+// One observer for the life of the page, re-pointed at the sentinel after every
+// render. The grid is wiped and rebuilt on each renderProducts(), so an observer
+// made per render would leak one closure per keystroke of the search box.
+//
+// aria-live: the "Showing 24 of 109" line is what a screen-reader user hears
+// instead of the click they no longer make. It sits OUTSIDE the grid on
+// purpose — the grid is aria-live too, and announcing every appended card AND
+// a count would read the same news twice.
+//
+// Fallback: with no IntersectionObserver (very old WebViews) the sentinel is a
+// real button again, so nothing is unreachable — it just takes a tap.
+let moreObserver = null;
+// The sentinel currently in the DOM, and the one whose intersection last caused
+// a load. A load is allowed only for the CURRENT sentinel, and only once per
+// sentinel. This replaces a busy flag released on the next animation frame,
+// which WebKit defeated: it delivered a second intersection record for the old
+// sentinel after the frame had released the flag, and the grid jumped 24 cards
+// at once (CI caught it: "scrolling to the end loads the next page — 36").
+// Keying on the element instead of on time cannot race — a stale record names a
+// sentinel that is no longer current, and a sentinel that has already loaded
+// cannot load again. Each render creates a new sentinel below the new cards, so
+// a second load needs a second, genuine intersection.
+let moreSentinel = null;
+let moreLoadedFor = null;
+// Has the USER scrolled since the last load? This is the gate that stops a
+// cascade. With scroll anchoring, appending twelve cards below the viewport
+// moves scrollY down by exactly their height, so the NEW sentinel lands where
+// the old one was — at the fold, intersecting, a genuine record for a genuine
+// element — and loads again, and again, until the catalogue is exhausted.
+// Traced in chromium: scrollY 3942 → 6172 → 8403 with no user input, 12 → 40
+// cards from one scrollIntoView. The element gate above cannot see this; only
+// "did a person move the page since we last added to it" can.
+//
+// style.css also sets overflow-anchor: none on the grid, which removes the
+// cause in engines that support it. WebKit does not — which is exactly why CI
+// failed on webkit while chromium passed here — so this gate is not optional.
+let scrolledSinceLoad = true;
+// Armed two frames after a load. Scroll anchoring's compensating scroll — the
+// one that moves scrollY by exactly the appended height, with no person
+// touching the page — lands in the layout that follows the append, BEFORE the
+// next paint. So a scroll event that arrives inside this window is anchoring,
+// and must not flip the gate. A human scroll can only arrive after paint.
+// Traced on the webkit-shaped layout (no overflow-anchor): scroll 6172 →
+// intersect → scroll 8403 → intersect, one event pair per append, no gap.
+let gateArmed = true;
+window.addEventListener('scroll', () => {
+  if (!gateArmed) return;
+  scrolledSinceLoad = true;
+  // The observer reports TRANSITIONS. If the current sentinel is already in view
+  // when the user scrolls — it arrived under the fold from our own append and
+  // was refused by the gate — no new record will ever come. Re-observe it so the
+  // observer issues a fresh record now, and the callback decides under the
+  // normal rules. One decision point, not two.
+  if (moreObserver && moreSentinel && moreLoadedFor !== moreSentinel) {
+    moreObserver.unobserve(moreSentinel);
+    moreObserver.observe(moreSentinel);
+  }
+}, { passive: true });
+
+function loadNextPage(firstNew) {
+  scrolledSinceLoad = false;
+  gateArmed = false;
+  shopLimit += SHOP_PAGE;
+  renderProducts();
+  // Two frames: the first is the paint that commits the append (and any
+  // anchoring compensation with it), the second is the first frame in which a
+  // scroll event can only be a person's.
+  requestAnimationFrame(() => requestAnimationFrame(() => { gateArmed = true; }));
+  // Hand focus to the first new card only when a keyboard user is driving —
+  // on a scroll-triggered load a focus jump would yank the page. A button
+  // press (the fallback) passes focusFirst=true.
+  if (firstNew !== undefined) {
+    const card = productGrid?.querySelectorAll('.product-card')[firstNew];
+    card?.querySelector('.product-name')?.focus?.({ preventScroll: true });
+  }
+  // Released on the next frame so one intersection cannot fire twice before
+  // the re-render has moved the sentinel.
+}
+
 function renderShowMore(total, showing) {
   const box = document.getElementById('shopMore');
   if (!box) return;
   const left = total - showing;
-  if (left <= 0) { box.hidden = true; box.innerHTML = ''; return; }
+  if (left <= 0) {
+    box.hidden = true; box.innerHTML = '';
+    moreObserver?.disconnect();
+    moreSentinel = null;
+    return;
+  }
 
   box.innerHTML = '';
+  const count = document.createElement('p');
+  count.className = 'shop-more-count';
+  count.setAttribute('aria-live', 'polite');
+  count.textContent = `Showing ${showing} of ${total}`;
+
+  if (typeof IntersectionObserver === 'function') {
+    // The sentinel. Visually it is the count line plus a little padding so the
+    // observer fires a row early rather than when the viewport hits bare footer.
+    const sentinel = document.createElement('div');
+    sentinel.className = 'shop-more-sentinel';
+    sentinel.setAttribute('aria-hidden', 'true');
+    box.append(count, sentinel);
+    box.hidden = false;
+
+    if (!moreObserver) {
+      moreObserver = new IntersectionObserver((entries) => {
+        // Only the current sentinel, and only once. See moreSentinel above.
+        const hit = entries.some((e) => e.isIntersecting && e.target === moreSentinel);
+        if (!hit || moreLoadedFor === moreSentinel) return;
+        // A sentinel that arrived under the fold because of OUR append, not the
+        // user's scroll, waits for the user. See scrolledSinceLoad above.
+        if (!scrolledSinceLoad) return;
+        moreLoadedFor = moreSentinel;
+        loadNextPage();
+      }, { rootMargin: '400px 0px' });      // start loading a screen before the end
+    }
+    moreObserver.disconnect();
+    moreSentinel = sentinel;
+    moreObserver.observe(sentinel);
+    return;
+  }
+
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn-secondary';
   btn.id = 'shopMoreBtn';
   btn.textContent = `Show ${Math.min(SHOP_PAGE, left)} more`;
-  btn.addEventListener('click', () => {
-    const firstNew = showing;
-    shopLimit += SHOP_PAGE;
-    renderProducts();
-    // Put focus on the first card that just appeared, so a keyboard or
-    // screen-reader user continues from where the button was rather than
-    // being dropped at the top of the page.
-    const card = productGrid?.querySelectorAll('.product-card')[firstNew];
-    card?.querySelector('.product-name')?.focus?.({ preventScroll: true });
-    card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  });
-  const count = document.createElement('p');
-  count.className = 'shop-more-count';
-  count.textContent = `Showing ${showing} of ${total}`;
+  btn.addEventListener('click', () => loadNextPage(showing));
   box.append(btn, count);
   box.hidden = false;
 }

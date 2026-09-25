@@ -26,6 +26,7 @@
 // needs no D1, no secrets and no wrangler.
 
 import { chromium, webkit } from 'playwright';
+import { offline } from './_offline.mjs';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4173';
 const WIDTHS = [360, 390, 480, 768];
@@ -80,9 +81,15 @@ async function measure(engine, width, name) {
   const b = await launch(engine, name);
   if (!b) return null;
   const p = await b.newPage({ viewport: { width, height: 844 }, deviceScaleFactor: 2 });
+  await offline(p);
   await p.goto(BASE + '/index.html', { waitUntil: 'load' });
-  // Static markup, so the images are the only thing to wait for.
-  await p.waitForTimeout(500);
+  // The measurement below reads img.naturalWidth, so wait for the hero photos
+  // themselves to have decoded — not a fixed sleep, which is either too long on
+  // a fast machine or too short on a loaded runner.
+  await p.waitForFunction(() => {
+    const imgs = [...document.querySelectorAll('.hero-shot img')];
+    return imgs.length > 0 && imgs.every((i) => i.complete && i.naturalWidth > 0);
+  }, null, { timeout: 15000 });
   const out = await p.evaluate(() => {
     const cards = [...document.querySelectorAll('.hero-shot')].map((a) => {
       const img = a.querySelector('img');

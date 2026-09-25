@@ -15,6 +15,7 @@
 // being prevented is advertising a discount and then declining it at checkout.
 
 import { chromium, webkit } from 'playwright';
+import { offline } from './_offline.mjs';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4173';
 
@@ -75,6 +76,7 @@ async function run(engine, engineName, label, opts, expect) {
   const b = await launch(engine, engineName);
   if (!b) return;
   const page = await b.newPage();
+  await offline(page);
   // A flag the page itself sets, so settle() waits on the real response rather
   // than on a fixed sleep.
   await page.addInitScript(() => {

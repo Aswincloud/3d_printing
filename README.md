@@ -445,6 +445,20 @@ properties that keep it that way rather than the absence of the feature:
 any of this; it is display, and it is the owner's own claim about his own past
 prices, which is what the guidance asks for.
 
+### The grid grows as you scroll
+
+The catalogue shows twelve cards, then appends twelve more each time a sentinel
+under the last row scrolls into view — no button. The page-at-a-time shape is
+kept on purpose: all 109 cards at once is a 30,000px page on a phone with the
+quote form 27,000px down (measured), and the sentinel only changes *how* the
+next page is asked for. One `IntersectionObserver` for the life of the page,
+re-pointed after every render; the "Showing 24 of 109" line is `aria-live` so a
+screen-reader user still hears progress; with no `IntersectionObserver` the
+sentinel is a real button again. A filter or search still resets to the first
+page. `test/browser/shop-autoload.mjs` proves the load, the reset, and that the
+quote form stays reachable — with a decor filter of 20 products, because a
+10-product filter fits one page and cannot tell a broken reset from a working one.
+
 ### Pinning, and the order of the catalogue
 
 Products come out in this order, set by one clause in `listProducts()`

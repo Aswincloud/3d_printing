@@ -1,0 +1,203 @@
+// The grid grows as you scroll.
+//
+// WHY THIS EXISTS. The catalogue used to end in a "Show 12 more" button. It now
+// ends in a sentinel: scroll to it and the next twelve cards append themselves.
+// The button existed for a reason that still holds — 109 cards at once is a
+// 30,000px page with the quote form 27,000px down — so the page-at-a-time SHAPE
+// is what these checks pin, with the click removed.
+//
+// IntersectionObserver timing differs between engines, so this runs in both.
+// Auth and the catalogue are stubbed; 40 products, well past one page.
+
+import { chromium, webkit } from 'playwright';
+import { offline } from './_offline.mjs';
+
+const BASE = process.env.BASE_URL || 'http://localhost:4173';
+let fail = 0;
+const ok = (name, cond, detail = '') => {
+  if (cond) console.log(`  ok   ${name}`);
+  else { fail++; console.log(`  FAIL ${name}${detail ? ' — ' + detail : ''}`); }
+};
+const REQUIRE_ALL = process.env.CI === 'true';
+const skipped = new Set();
+async function launch(engine, name) {
+  try { return await engine.launch(); } catch (e) {
+    const msg = String(e.message).split('\n')[0];
+    if (REQUIRE_ALL) { console.error(`\n  ${name} could not start, and CI requires it: ${msg}`); process.exit(1); }
+    if (!skipped.has(name)) { skipped.add(name); console.warn(`  !!   skipping ${name}: ${msg}`); }
+    return null;
+  }
+}
+
+const N = 40, PAGE = 12;
+// A 1x1 transparent GIF, served for every product image so the check measures
+// DOM and layout rather than bandwidth. Its base64 happens to contain an
+// "EAA…" run that looks like a Meta access token to a naive scanner — it is
+// 43 bytes of GIF89a header, nothing more.
+const PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+// Category split is deliberate: 'decor' gets HALF the catalogue (20 of 40), so
+// filtering to it still overflows one page. With an even split (10 each) the
+// filter-reset check could not fail — 10 fits in one page whether or not the
+// limit was reset, and the first version of this file proved exactly that.
+const cats = ['decor', 'figurine', 'decor', 'set'];
+const PRODUCTS = {
+  products: Array.from({ length: N }, (_, i) => ({
+    id: 'p' + i, slug: 's' + i, name: 'Product ' + String(i).padStart(2, '0'), description: '',
+    price_paise: 49900 + i * 100, quote_only: false, image: 'assets/images/placeholder.jpg', images: [],
+    category: cats[i % 4], personalise_label: '', personalise_required: false, pinned: false, compare_at_paise: null,
+  })),
+  shipping: { flat_paise: 9900, free_threshold_paise: 200000 }, promo: null,
+};
+
+async function run(engine, name) {
+  const b = await launch(engine, name);
+  if (!b) return;
+  const p = await b.newPage();
+  await offline(p);
+  await p.setViewportSize({ width: 390, height: 844 });
+  await p.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  await p.route('**/api/products', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) }));
+  await p.route('**/api/me', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"signedIn":false}' }));
+  await p.route(/\/(cdn-cgi\/image|assets\/images)\//, (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: PIXEL }));
+  // Capture every IntersectionObserver the page makes, so the grid's own
+  // callback can be fired by hand below with the records WebKit delivered in
+  // CI — a second record for a sentinel that had already loaded. That is the one
+  // misbehaviour a real scroll cannot reproduce on demand.
+  await p.addInitScript(() => {
+    const O = window.IntersectionObserver;
+    window.__io = [];
+    window.IntersectionObserver = class extends O {
+      constructor(cb, opts) { super(cb, opts); window.__io.push({ cb, self: this, opts }); }
+    };
+  });
+  await p.goto(BASE + '/index.html', { waitUntil: 'load' });
+  await p.waitForSelector('.product-card', { timeout: 15000 });
+
+  const cards = () => p.evaluate(() => document.querySelectorAll('#productGrid .product-card').length);
+  const countText = () => p.evaluate(() => document.querySelector('.shop-more-count')?.textContent ?? '');
+
+  ok(`[${name}] first paint is one page, not the whole catalogue`, (await cards()) === PAGE, String(await cards()));
+  ok(`[${name}] there is no button to click`, (await p.$('#shopMoreBtn')) === null);
+  ok(`[${name}] the count line says where you are`, /Showing 12 of 40/.test(await countText()), await countText());
+
+  // Scroll the sentinel into view: the next page must appear with no click.
+  await p.evaluate(() => document.querySelector('.shop-more-sentinel')?.scrollIntoView());
+  await p.waitForFunction((n) => document.querySelectorAll('#productGrid .product-card').length > n, PAGE, { timeout: 5000 }).catch(() => {});
+  const after1 = await cards();
+  ok(`[${name}] scrolling to the end loads the next page`, after1 === PAGE * 2, String(after1));
+  ok(`[${name}] exactly one page at a time, not everything`, after1 < N, String(after1));
+
+  // Keep scrolling to the end: every card arrives, then the sentinel goes away.
+  for (let i = 0; i < 8; i++) {
+    const before = await cards();
+    if (before >= N) break;
+    await p.evaluate(() => document.querySelector('.shop-more-sentinel')?.scrollIntoView());
+    await p.waitForFunction((n) => document.querySelectorAll('#productGrid .product-card').length > n, before, { timeout: 5000 }).catch(() => {});
+  }
+  ok(`[${name}] every product is reachable by scrolling alone`, (await cards()) === N, String(await cards()));
+  ok(`[${name}] the sentinel is gone once everything is shown`, (await p.$('.shop-more-sentinel')) === null);
+  // Below the grid, and reachable by scrolling — the whole reason the grid is
+  // paged. `behavior: 'instant'`: the document has scroll-behavior: smooth, so a
+  // plain scrollIntoView() animates for ~400ms and a rect read before it lands
+  // reports a position mid-flight. That is how this check first failed.
+  await p.evaluate(() => document.getElementById('quote')?.scrollIntoView({ behavior: 'instant', block: 'start' }));
+  await p.waitForTimeout(100);
+  const quote = await p.evaluate(() => { const r = document.getElementById('quote')?.getBoundingClientRect(); return r ? { top: Math.round(r.top), bottom: Math.round(r.bottom) } : null; });
+  ok(`[${name}] the quote form is still below the grid and reachable`,
+     !!quote && quote.top < 844 && quote.bottom > 0, JSON.stringify(quote));
+
+  // THE WEBKIT CASE. The first CI run of this suite failed on webkit with
+  // "scrolling to the end loads the next page — 36": one scroll, two pages.
+  // WebKit delivered a second intersection record for the old sentinel after a
+  // frame-timed busy flag had released. The gate is now keyed on the element:
+  // only the CURRENT sentinel may load, and only once. Reproduced here by firing
+  // the grid's own callback with the records WebKit sent, in both engines.
+  await p.goto(BASE + '/index.html', { waitUntil: 'load' });
+  await p.waitForSelector('.shop-more-sentinel', { timeout: 15000 });
+  const dup = await p.evaluate(() => {
+    const count = () => document.querySelectorAll('#productGrid .product-card').length;
+    const io = window.__io.find((o) => /400px/.test(o.opts?.rootMargin || ''));
+    if (!io) return { error: 'grid observer not captured' };
+    const fire = (t) => io.cb([{ isIntersecting: true, target: t }], io.self);
+    const s0 = document.querySelector('.shop-more-sentinel');
+    const out = { start: count() };
+    fire(s0);            out.afterOne = count();
+    fire(s0); fire(s0);  out.afterDupes = count();            // WebKit's extra records
+    fire(document.createElement('div')); out.afterDetached = count();
+    const s1 = document.querySelector('.shop-more-sentinel');
+    out.freshSentinel = s1 !== s0;
+    // Without a scroll in between, the gate refuses the new sentinel — that IS
+    // the cascade fix. So: fire it before any scroll (must load nothing), then
+    // scroll as a person would, then fire it (must load exactly one page).
+    fire(s1);            out.beforeUserScroll = count();
+    return out;
+  });
+  // A person's scroll can only arrive AFTER the append has painted — the gate
+  // arms two frames after a load precisely so that scroll anchoring's own
+  // compensating scroll, which lands before paint, cannot open it. So wait two
+  // frames, then scroll as a person, then fire the new sentinel's record.
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const afterNext = await p.evaluate(() => {
+    const count = () => document.querySelectorAll('#productGrid .product-card').length;
+    const io = window.__io.find((o) => /400px/.test(o.opts?.rootMargin || ''));
+    window.dispatchEvent(new Event('scroll'));
+    const s1 = document.querySelector('.shop-more-sentinel');
+    io.cb([{ isIntersecting: true, target: s1 }], io.self);
+    return count();
+  });
+  dup.afterNext = afterNext;
+  ok(`[${name}] one intersection record loads exactly one page`, dup.afterOne === dup.start + PAGE, JSON.stringify(dup));
+  ok(`[${name}] duplicate records for the same sentinel load nothing more`, dup.afterDupes === dup.afterOne, JSON.stringify(dup));
+  ok(`[${name}] a record for an element that is not the sentinel loads nothing`, dup.afterDetached === dup.afterOne, JSON.stringify(dup));
+  ok(`[${name}] each render puts a NEW sentinel in the DOM`, dup.freshSentinel === true, JSON.stringify(dup));
+  ok(`[${name}] the new sentinel does NOT load before the user scrolls (the cascade gate)`, dup.beforeUserScroll === dup.afterOne, JSON.stringify(dup));
+  ok(`[${name}] after the user scrolls, the new sentinel loads the next page, exactly once`, dup.afterNext === dup.afterOne + PAGE, JSON.stringify(dup));
+
+  // THE CASCADE. The failure CI actually saw was not a stale record: with scroll
+  // anchoring, appending twelve cards moves scrollY down by their height, so the
+  // NEW sentinel lands at the fold and intersects for real — again and again,
+  // 12 → 40 from one flick. A page must load only after the USER scrolls. Count
+  // the grid's observer fires across one scroll gesture: it must be exactly one.
+  await p.goto(BASE + '/index.html', { waitUntil: 'load' });
+  await p.waitForSelector('.shop-more-sentinel', { timeout: 15000 });
+  // Scroll the way a person does — past the sentinel, firing real scroll
+  // events — not scrollIntoView, which is a synthetic jump that parks the
+  // sentinel exactly at the fold and fires no scroll a gate could see.
+  // scrollIntoView parks the sentinel exactly at the fold — the position from
+  // which scroll anchoring cascades (traced: scrollY 3942 → 6172 → 8403 with no
+  // user input). It is the probe that reproduces CI's failure; a scrollBy that
+  // overshoots the sentinel cannot, and a first draft of this check used one and
+  // passed with BOTH fixes removed. Keep the probe that bites.
+  const scrollPast = () => p.evaluate(() => {
+    const s = document.querySelector('.shop-more-sentinel'); if (!s) return;
+    window.scrollBy({ top: s.getBoundingClientRect().top - innerHeight + 300, behavior: 'instant' });
+  });
+  await p.evaluate(() => document.querySelector('.shop-more-sentinel').scrollIntoView({ behavior: 'instant' }));
+  await p.waitForTimeout(1500);                           // long enough for a cascade to have run
+  const cascade = await p.evaluate(() => document.querySelectorAll('#productGrid .product-card').length);
+  ok(`[${name}] one scroll gesture loads ONE page, never a cascade`, cascade === PAGE * 2, `${cascade} cards after one scroll`);
+  // And a real second scroll still loads the next one.
+  await scrollPast();
+  await p.waitForTimeout(800);
+  const second = await p.evaluate(() => document.querySelectorAll('#productGrid .product-card').length);
+  ok(`[${name}] a second scroll loads the next page`, second === PAGE * 3, `${second} cards after two scrolls`);
+
+  // A filter starts back at the first page — the sentinel must not have broken
+  // the reset that keyed on the filter state.
+  await p.evaluate(() => document.querySelector('.filter-btn[data-category="decor"]')?.click());
+  await p.waitForTimeout(300);
+  const filtered = await cards();
+  const decorTotal = PRODUCTS.products.filter((x) => x.category === 'decor').length;
+  ok(`[${name}] the filter has more than one page to show (${decorTotal} decor)`, decorTotal > PAGE, String(decorTotal));
+  ok(`[${name}] a filter resets to the first page`, filtered === PAGE, `${filtered} shown, wanted exactly ${PAGE}`);
+
+  await b.close();
+}
+
+for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
+  console.log(`\n${name}`);
+  await run(engine, name);
+}
+if (skipped.size) console.warn(`\n  skipped: ${[...skipped].join(', ')}`);
+console.log(fail ? `\n${fail} failed` : '\nall shop-autoload checks passed');
+process.exit(fail ? 1 : 0);

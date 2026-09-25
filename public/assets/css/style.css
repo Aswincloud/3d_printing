@@ -1301,6 +1301,15 @@ footer {
   color: var(--text-muted);
   margin: 0;
 }
+/* The scroll sentinel that replaces the Show-more button. Real height, or an
+   IntersectionObserver on a zero-height element never fires in some engines;
+   invisible, because it is a trigger and not content. */
+.shop-more-sentinel { width: 100%; height: 1px; margin-top: 1rem; }
+/* The grid appends below the fold. Without this, scroll anchoring keeps the
+   sentinel pinned at the viewport edge by moving scrollY down with each append,
+   which re-intersects the new sentinel and cascades through the whole catalogue
+   from one flick. The scroll gate in main.js is the belt; this is the braces. */
+.product-grid, .shop-more { overflow-anchor: none; }
 /* Server-rendered cards past the first page. main.js re-renders the grid
    from /api/products, so this only shapes the first paint — and keeps every
    product link in the HTML for a crawler. */
