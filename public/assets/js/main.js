@@ -977,32 +977,86 @@ let shopLimit = SHOP_PAGE;
 let shopFilterKey = null;
 let lastShown = [];
 
+// The grid grows as you scroll. A sentinel sits under the last row; when it
+// comes into view the next page is appended. The button is gone as a thing to
+// click, but the SHAPE it protected stays: SHOP_PAGE cards per step, so the
+// quote form, How It Works and the footer are still a short scroll away on a
+// fresh load rather than 30,000px down (measured: 109 cards is a 30,347px page
+// on a 390px phone, quote form at 27,867px). What changes is only that the step
+// is taken by scrolling instead of tapping.
+//
+// One observer for the life of the page, re-pointed at the sentinel after every
+// render. The grid is wiped and rebuilt on each renderProducts(), so an observer
+// made per render would leak one closure per keystroke of the search box.
+//
+// aria-live: the "Showing 24 of 109" line is what a screen-reader user hears
+// instead of the click they no longer make. It sits OUTSIDE the grid on
+// purpose — the grid is aria-live too, and announcing every appended card AND
+// a count would read the same news twice.
+//
+// Fallback: with no IntersectionObserver (very old WebViews) the sentinel is a
+// real button again, so nothing is unreachable — it just takes a tap.
+let moreObserver = null;
+let moreBusy = false;
+
+function loadNextPage(firstNew) {
+  if (moreBusy) return;
+  moreBusy = true;
+  shopLimit += SHOP_PAGE;
+  renderProducts();
+  // Hand focus to the first new card only when a keyboard user is driving —
+  // on a scroll-triggered load a focus jump would yank the page. A button
+  // press (the fallback) passes focusFirst=true.
+  if (firstNew !== undefined) {
+    const card = productGrid?.querySelectorAll('.product-card')[firstNew];
+    card?.querySelector('.product-name')?.focus?.({ preventScroll: true });
+  }
+  // Released on the next frame so one intersection cannot fire twice before
+  // the re-render has moved the sentinel.
+  requestAnimationFrame(() => { moreBusy = false; });
+}
+
 function renderShowMore(total, showing) {
   const box = document.getElementById('shopMore');
   if (!box) return;
   const left = total - showing;
-  if (left <= 0) { box.hidden = true; box.innerHTML = ''; return; }
+  if (left <= 0) {
+    box.hidden = true; box.innerHTML = '';
+    moreObserver?.disconnect();
+    return;
+  }
 
   box.innerHTML = '';
+  const count = document.createElement('p');
+  count.className = 'shop-more-count';
+  count.setAttribute('aria-live', 'polite');
+  count.textContent = `Showing ${showing} of ${total}`;
+
+  if (typeof IntersectionObserver === 'function') {
+    // The sentinel. Visually it is the count line plus a little padding so the
+    // observer fires a row early rather than when the viewport hits bare footer.
+    const sentinel = document.createElement('div');
+    sentinel.className = 'shop-more-sentinel';
+    sentinel.setAttribute('aria-hidden', 'true');
+    box.append(count, sentinel);
+    box.hidden = false;
+
+    if (!moreObserver) {
+      moreObserver = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadNextPage();
+      }, { rootMargin: '400px 0px' });      // start loading a screen before the end
+    }
+    moreObserver.disconnect();
+    moreObserver.observe(sentinel);
+    return;
+  }
+
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn-secondary';
   btn.id = 'shopMoreBtn';
   btn.textContent = `Show ${Math.min(SHOP_PAGE, left)} more`;
-  btn.addEventListener('click', () => {
-    const firstNew = showing;
-    shopLimit += SHOP_PAGE;
-    renderProducts();
-    // Put focus on the first card that just appeared, so a keyboard or
-    // screen-reader user continues from where the button was rather than
-    // being dropped at the top of the page.
-    const card = productGrid?.querySelectorAll('.product-card')[firstNew];
-    card?.querySelector('.product-name')?.focus?.({ preventScroll: true });
-    card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  });
-  const count = document.createElement('p');
-  count.className = 'shop-more-count';
-  count.textContent = `Showing ${showing} of ${total}`;
+  btn.addEventListener('click', () => loadNextPage(showing));
   box.append(btn, count);
   box.hidden = false;
 }

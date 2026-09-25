@@ -109,3 +109,6 @@ jobs:
           # The dashboard's courier picker — the first browser coverage shop.html has
           # had. Auth and the orders API are stubbed; no Worker needed.
           npm run test:dashboard
+          # The grid grows on scroll. IntersectionObserver timing differs by engine,
+          # so this is one place the webkit run earns its keep.
+          npm run test:autoload
