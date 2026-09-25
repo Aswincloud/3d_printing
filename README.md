@@ -662,7 +662,7 @@ and what the token cannot do.
 
 Photos are pushed to this repo by a separate AI agent, and pricing and describing them
 used to mean holding the owner session — which grants every product edit, every order,
-refunds and coupons. `AGENT_TOKEN` is a second credential authorising exactly three
+refunds and coupons. `AGENT_TOKEN` is a second credential authorising exactly five
 routes and nothing else:
 
 | Route | What it does |
@@ -670,6 +670,8 @@ routes and nothing else:
 | `GET /api/admin/products/unlisted` | which pushed photos have no product row yet |
 | `POST /api/admin/products/batch` | create listings — file, `price_paise`, `category`, `description` |
 | `POST /api/admin/products/describe` | fill in a description that is **missing** |
+| `POST /api/admin/products/former-price` | record a former price that is **missing** — see below |
+| `POST /api/admin/gallery/upload` | add a gallery photo to R2 (never overwrites, never deletes) |
 
 Everything else under `/api/admin/` returns 403, including `PATCH /api/admin/products`
 — the bulk price editor over existing rows, which is the power being withheld.
@@ -678,6 +680,14 @@ The safety is not the allowlist. `writeProductRows()` is a single `INSERT`, and 
 describe route's `UPDATE` carries `AND (description IS NULL OR TRIM(description) = '')`
 — so **an existing price, name or description cannot be changed through this token at
 all**, whatever reaches the handler. `price_paise` is not even in that statement.
+
+The former-price route is the same shape. Its `UPDATE` carries `AND compare_at_paise
+IS NULL AND price_paise > 0 AND price_paise < ?`, so it can fill a blank "Was ₹" and
+nothing else: never overwrite one, never touch the selling price, never record a
+"former" price at or below today's. What no clause can check is whether the product
+ever actually sold at the figure — the card prints it as a fact to the customer, so
+only a price it really sold at belongs there. Aswin is emailed every figure the agent
+records.
 
 Products can be edited **in bulk**: change any number of prices, visibility
 toggles or descriptions, then "Save all changes" sends one

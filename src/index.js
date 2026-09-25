@@ -41,7 +41,7 @@ import {
   listProducts as adminListProducts, createProduct as adminCreateProduct,
   unlistedImages as adminUnlistedImages,
   batchCreateProducts as adminBatchCreate, hideImages as adminHideImages,
-  describeProducts as adminDescribe,
+  describeProducts as adminDescribe, setFormerPrices as adminSetFormerPrices,
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
   listOrders as adminListOrders, updateOrder as adminUpdateOrder,
   refundOrder as adminRefundOrder, stats as adminStats,
@@ -524,6 +524,9 @@ async function api(request, env, url, ctx) {
     // Sibling of batch: same actor, same ctx, and the only agent route that writes
     // to a row it did not create. Its WHERE clause is what makes that safe.
     if (p === "/api/admin/products/describe" && m === "POST") return adminDescribe(env, body, actor, ctx);
+    // Same shape again: fills a former price that is BLANK. Its WHERE clause is what
+    // stops it overwriting one, or touching the selling price.
+    if (p === "/api/admin/products/former-price" && m === "POST") return adminSetFormerPrices(env, body, actor, ctx);
     if (p === "/api/admin/products/hide" && m === "POST") return adminHideImages(env, body);
 
     const prod = p.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/);

@@ -6,7 +6,7 @@
 // the owner session can, and "we only call it from two places" is not a control.
 //
 //   node test/agent.mjs
-import { agentVerdict, checkAgentEntries, checkDescribeEntries, AGENT_ROUTES,
+import { agentVerdict, checkAgentEntries, checkDescribeEntries, checkFormerPriceEntries, AGENT_ROUTES,
          AGENT_LIMITS, MIN_TOKEN_LENGTH, CATEGORIES } from "../src/agent.js";
 import { readFileSync } from "node:fs";
 
@@ -272,6 +272,27 @@ ok("the slug is named in the message",
 ok(`more than ${AGENT_LIMITS.maxItems} is refused`,
    /at most/.test(checkDescribeEntries(Array.from({ length: AGENT_LIMITS.maxItems + 1 }, () => d())) || ""));
 
+console.log("\nthe former-price route: fill a blank, never overwrite, never the selling price");
+ok("POST /api/admin/products/former-price → agent",
+   await verdict("/api/admin/products/former-price") === "agent");
+ok("GET on it → forbidden",
+   await verdict("/api/admin/products/former-price", { method: "GET" }) === "forbidden");
+ok("PATCH on it → forbidden",
+   await verdict("/api/admin/products/former-price", { method: "PATCH" }) === "forbidden");
+
+const f = (o = {}) => ({ slug: "blank-one", compare_at_paise: 89900, ...o });
+ok("a normal figure passes", checkFormerPriceEntries([f()]) === null);
+ok("above the catalogue window is refused as a unit slip",
+   /outside/.test(checkFormerPriceEntries([f({ compare_at_paise: AGENT_LIMITS.maxPaise + 100 })]) || ""));
+ok("exactly the ceiling is allowed",
+   checkFormerPriceEntries([f({ compare_at_paise: AGENT_LIMITS.maxPaise })]) === null);
+ok("below the floor is refused",
+   /outside/.test(checkFormerPriceEntries([f({ compare_at_paise: AGENT_LIMITS.minPaise - 100 })]) || ""));
+ok("the slug is named in the message",
+   (checkFormerPriceEntries([f({ slug: "radha-krishna", compare_at_paise: 1 })]) || "").includes("radha-krishna"));
+ok(`more than ${AGENT_LIMITS.maxItems} is refused`,
+   /at most/.test(checkFormerPriceEntries(Array.from({ length: AGENT_LIMITS.maxItems + 1 }, () => f())) || ""));
+
 console.log("\ncreating a listing now requires a real category too");
 // Without this the agent could create a row with category "", which
 // verify-catalogue.sh reports as unknown and the shop sidebar cannot file.
@@ -306,6 +327,34 @@ ok("the guard is not weakened to a JS-only check",
    "both layers should be present");
 ok("it reports what the DATABASE changed, not what was asked",
    /meta\?\.changes/.test(desc), "a race would be reported as success");
+
+console.log("\nthe former-price guards are in the SQL, not just the validation");
+// Same principle as the describe assertions above: checkFormerPriceEntries only runs
+// for actor === "agent" and the pass-one checks can be raced; the WHERE clause cannot.
+const fp = adm.slice(adm.indexOf("export async function setFormerPrices"),
+                     adm.indexOf("export function agentFormerPriceEmail"));
+ok("the handler exists and ends at its email builder", fp.length > 0);
+const fpStart = fp.indexOf("UPDATE products");
+const fpStmt = fp.slice(fpStart, fp.indexOf("`)", fpStart));
+ok("blank-only: AND compare_at_paise IS NULL", /AND compare_at_paise IS NULL/.test(fpStmt),
+   "the only thing making an overwrite impossible is gone");
+ok("priced rows only: AND price_paise > 0", /AND price_paise > 0/.test(fpStmt));
+ok("strictly above the selling price, checked AT WRITE TIME: AND price_paise < ?",
+   /AND price_paise < \?/.test(fpStmt));
+ok("it SETs the former price and the stamp, nothing else",
+   /SET compare_at_paise = \?, updated_at = \?\s+WHERE/.test(fpStmt));
+const fpSet = fpStmt.slice(fpStmt.indexOf("SET"), fpStmt.indexOf("WHERE"));
+for (const col of ["price_paise", "visible", "slug", "name", "description"]) {
+  ok(`${col} is not assignable through this route`, !fpSet.includes(col), `${col} appears in the SET`);
+}
+ok("the guard is not weakened to a JS-only check",
+   fp.indexOf("already has a former price") > 0 && fp.indexOf("must be higher than") > 0,
+   "both layers should be present");
+ok("it reports what the DATABASE changed, not what was asked", /meta\?\.changes/.test(fp));
+ok("Aswin is emailed what the agent recorded",
+   /actor === "agent"[\s\S]{0,400}agentFormerPriceEmail/.test(fp));
+ok("the describe slice still ends before this handler (its assertions are unaffected)",
+   adm.indexOf("async function notifyAgentDescriptions") < adm.indexOf("export async function setFormerPrices"));
 
 console.log(`\n  agent: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
