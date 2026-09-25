@@ -29,6 +29,11 @@ async function launch(engine, name) {
 }
 
 const N = 40, PAGE = 12;
+// A 1x1 transparent GIF, served for every product image so the check measures
+// DOM and layout rather than bandwidth. Its base64 happens to contain an
+// "EAA…" run that looks like a Meta access token to a naive scanner — it is
+// 43 bytes of GIF89a header, nothing more.
+const PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 // Category split is deliberate: 'decor' gets HALF the catalogue (20 of 40), so
 // filtering to it still overflows one page. With an even split (10 each) the
 // filter-reset check could not fail — 10 fits in one page whether or not the
@@ -51,8 +56,7 @@ async function run(engine, name) {
   await p.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   await p.route('**/api/products', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) }));
   await p.route('**/api/me', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"signedIn":false}' }));
-  await p.route(/\/(cdn-cgi\/image|assets\/images)\//, (r) => r.fulfill({ status: 200, contentType: 'image/gif',
-    body: Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64') }));
+  await p.route(/\/(cdn-cgi\/image|assets\/images)\//, (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: PIXEL }));
   await p.goto(BASE + '/index.html', { waitUntil: 'load' });
   await p.waitForSelector('.product-card', { timeout: 15000 });
 
