@@ -24,6 +24,7 @@
 // it survives a redesign and only fails when the layout genuinely breaks again.
 
 import { chromium, webkit } from 'playwright';
+import { offline } from './_offline.mjs';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4173';
 const PHONES = [360, 390, 430];
@@ -57,6 +58,7 @@ const PRODUCTS = {
 
 async function page(b, width) {
   const p = await b.newPage();
+  await offline(p);
   await p.setViewportSize({ width, height: 900 });
   await p.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   await p.route('**/api/products', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) }));
@@ -182,6 +184,7 @@ async function badgeMatchesDrawer(engine, name) {
 
   for (const [label, cart, wantBadge, wantRows] of cases) {
     const p = await b.newPage();
+    await offline(p);
     await p.setViewportSize({ width: 390, height: 900 });
     await p.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
     await p.route('**/api/products', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) }));

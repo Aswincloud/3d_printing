@@ -16,6 +16,7 @@
 // /api/* is stubbed, so this runs against the static files with no Worker.
 
 import { chromium, webkit } from 'playwright';
+import { offline } from './_offline.mjs';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4173';
 const WIDTHS = [360, 768];
@@ -116,6 +117,7 @@ async function run(engine, engineName, width) {
   const b = await launch(engine, engineName);
   if (!b) return;
   const page = await b.newPage();
+  await offline(page);
   await page.setViewportSize({ width, height: 900 });
   await stub(page);
   await page.goto(BASE + '/index.html', { waitUntil: 'load' });

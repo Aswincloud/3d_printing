@@ -20,6 +20,7 @@
 // Auth and the orders API are stubbed; this runs against the static files.
 
 import { chromium, webkit } from 'playwright';
+import { offline } from './_offline.mjs';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4173';
 let fail = 0;
@@ -59,6 +60,7 @@ async function run(engine, name) {
   const b = await launch(engine, name);
   if (!b) return;
   const p = await b.newPage();
+  await offline(p);
   await p.setViewportSize({ width: 1100, height: 900 });
   const patched = [];
   await p.route('**/api/**', (r) => {

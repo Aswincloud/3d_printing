@@ -10,6 +10,7 @@
 // Auth and the catalogue are stubbed; 40 products, well past one page.
 
 import { chromium, webkit } from 'playwright';
+import { offline } from './_offline.mjs';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4173';
 let fail = 0;
@@ -52,6 +53,7 @@ async function run(engine, name) {
   const b = await launch(engine, name);
   if (!b) return;
   const p = await b.newPage();
+  await offline(p);
   await p.setViewportSize({ width: 390, height: 844 });
   await p.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   await p.route('**/api/products', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PRODUCTS) }));

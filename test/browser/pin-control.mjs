@@ -21,6 +21,7 @@
 // test/shop.mjs, the latter against real SQLite.
 
 import { chromium, webkit } from 'playwright';
+import { offline } from './_offline.mjs';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4173';
 
@@ -112,6 +113,7 @@ async function customerView(engine, engineName) {
   const b = await launch(engine, engineName);
   if (!b) return;
   const page = await b.newPage();
+  await offline(page);
   await stub(page, { admin: false });
   await page.goto(BASE + '/index.html', { waitUntil: 'load' });
   await page.waitForSelector('.product-card', { timeout: 15000 });
@@ -152,6 +154,7 @@ async function adminView(engine, engineName) {
   const b = await launch(engine, engineName);
   if (!b) return;
   const page = await b.newPage();
+  await offline(page);
   const patched = await stub(page, { admin: true });
   await page.goto(BASE + '/index.html', { waitUntil: 'load' });
 
