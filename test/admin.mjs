@@ -2046,7 +2046,7 @@ section("single update — the personalisation prompt");
     const jobs = [], sent = [];
     const prevFetch = globalThis.fetch;
     globalThis.fetch = async (url, init) => {
-      if (String(url).includes("api.resend.com")) {
+      if (new URL(String(url)).hostname === "api.resend.com") {
         sent.push(JSON.parse(init.body)); return new Response('{"id":"m"}', { status: 200 });
       }
       return new Response("", { status: 500 });
@@ -2071,7 +2071,7 @@ section("single update — the personalisation prompt");
     const e = agentFormerPriceEmail([{ slug: "x-y", compare_at_paise: 89900, price_paise: 59900 }], "https://shop.test");
     ok("email: no NaN", !/NaN/.test(e.text + e.html));
     ok("email: was, now, percent", e.text.includes("was ₹899") && e.text.includes("₹599") && e.text.includes("33% off"), e.text);
-    ok("email: links to the product page", e.text.includes("https://shop.test/p/x-y"));
+    ok("email: links to the product page", /^https:\/\/shop\.test\/p\/x-y$/m.test(e.text), e.text);
     ok("email: singular subject", e.subject.startsWith("1 former price recorded"));
     ok("email: says how to undo a wrong one", /clear it from the dashboard/.test(e.text));
     const w = agentFormerPriceEmail([{ slug: "x", price_paise: 59900 }], "https://x");
