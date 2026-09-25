@@ -11,7 +11,7 @@ import {
   listProducts, createProduct, updateProduct, deleteProduct, unlistedImages,
   batchCreateProducts, hideImages,
   listOrders, updateOrder, refundOrder, stats, bulkUpdateProducts,
-  describeProducts, agentListingEmail,
+  describeProducts, agentListingEmail, setFormerPrices, agentFormerPriceEmail,
 } from "../src/admin.js";
 import { signToken } from "@aswincloud/auth";
 
@@ -311,6 +311,29 @@ function makeDB(seed = {}) {
       // assertion, which proves the clause is PRESENT and not that it WORKS.
       const rows = db.products.map((p) => project(p, ["slug", "description"]));
       if (db._raceDescriptions) for (const r of rows) r.description = "";
+      return { results: rows };
+    }
+    // setFormerPrices: records a former price that is MISSING. Above the generic
+    // handler for the same reason as describe (its last bind is not a row id). Each
+    // guard is honoured ONLY when the SQL carries it, so deleting one from admin.js
+    // shows up as a failing assertion rather than being masked by the fake.
+    if (s.startsWith("UPDATE products SET compare_at_paise = ?, updated_at = ? WHERE slug = ?")) {
+      const [value, updated_at, slug, floor] = a;
+      const row = db.products.find((x) => x.slug === slug);
+      if (!row) return { meta: { changes: 0 } };
+      if (s.includes("AND compare_at_paise IS NULL") && row.compare_at_paise != null) return { meta: { changes: 0 } };
+      if (s.includes("AND price_paise > 0") && !(row.price_paise > 0)) return { meta: { changes: 0 } };
+      if (s.includes("AND price_paise < ?") && !(row.price_paise < floor)) return { meta: { changes: 0 } };
+      row.compare_at_paise = value;
+      row.updated_at = updated_at;
+      return { meta: { changes: 1 } };
+    }
+    if (s.startsWith("SELECT slug, price_paise, compare_at_paise FROM products")) {
+      const rows = db.products.map((p) => project(p, ["slug", "price_paise", "compare_at_paise"]));
+      // Two races, each fooling pass one in a different way: the row gains a former
+      // price after the read, or is repriced above the figure after the read.
+      if (db._raceFormerPrices) for (const r of rows) r.compare_at_paise = null;
+      if (db._raceRepriced) for (const r of rows) r.price_paise = 100;
       return { results: rows };
     }
     if (s.startsWith("UPDATE products SET")) {
@@ -1943,6 +1966,159 @@ section("single update — the personalisation prompt");
      env.DB._db.products[0].description === "Copy Aswin wrote himself.");
   ok("and the response says so rather than claiming success",
      typeof body.note === "string" && body.requested === 1);
+}
+
+
+// ── setFormerPrices: record a MISSING former price ─────────────────
+//
+// The second agent route onto rows it did not create. Same concern as describe —
+// never overwrite — plus one of its own: the figure is printed to customers as
+// "Was ₹X", so the statement must also refuse anything at or below the selling
+// price, and must never be able to touch the selling price itself.
+{
+  section("setFormerPrices — fills blanks, never overwrites, never the selling price");
+  const seed = () => ({ products: [
+    { id: "p1", slug: "no-former", name: "No Former", description: "d",
+      price_paise: 44900, compare_at_paise: null, image: "assets/images/a.jpg", images: "",
+      category: "figurine", visible: 1, sort: 1, created_at: 1, updated_at: 1 },
+    { id: "p2", slug: "has-former", name: "Has Former", description: "d",
+      price_paise: 59900, compare_at_paise: 89900, image: "assets/images/b.jpg", images: "",
+      category: "decor", visible: 1, sort: 2, created_at: 1, updated_at: 1 },
+    { id: "p3", slug: "unpriced", name: "Quote Only", description: "d",
+      price_paise: 0, compare_at_paise: null, image: "assets/images/c.jpg", images: "",
+      category: "set", visible: 1, sort: 3, created_at: 1, updated_at: 1 },
+  ] });
+  const call = async (env, items, actor = "agent", ctx = null) =>
+    read(await setFormerPrices(env, { items }, actor, ctx));
+
+  {
+    const env = envDB(seed());
+    const [status, body] = await call(env, [{ slug: "no-former", compare_at_paise: 59900 }]);
+    ok("records a former price on a blank row", status === 200 && body.set === 1, JSON.stringify(body));
+    ok("stored as paise", env.DB._db.products[0].compare_at_paise === 59900);
+    ok("selling price untouched", env.DB._db.products[0].price_paise === 44900);
+    ok("updated_at bumped", env.DB._db.products[0].updated_at > 1);
+    ok("response names the slug", body.slugs?.[0] === "no-former" && body.requested === 1 && !body.note);
+  }
+  {
+    const env = envDB(seed());
+    const [status, body] = await call(env, [{ slug: "has-former", compare_at_paise: 99900 }]);
+    ok("refuses to overwrite an existing former price (409)", status === 409, `status ${status}`);
+    ok("names the slug and the remedy", /has-former/.test(body.error) && /dashboard/.test(body.error), body.error);
+    ok("the existing figure survived", env.DB._db.products[1].compare_at_paise === 89900);
+  }
+  for (const [label, v] of [["equal to", 44900], ["below", 39900]]) {
+    const env = envDB(seed());
+    const [status, body] = await call(env, [{ slug: "no-former", compare_at_paise: v }]);
+    ok(`a figure ${label} the selling price is refused`, status === 400 && /higher than/.test(body.error), `status ${status}`);
+    ok("and nothing was written", env.DB._db.products[0].compare_at_paise === null);
+  }
+  {
+    const env = envDB(seed());
+    const [status, body] = await call(env, [{ slug: "unpriced", compare_at_paise: 9900 }]);
+    ok("an unpriced (quote-only) row is refused", status === 400 && /selling price/.test(body.error), body.error);
+    ok("and nothing was written", env.DB._db.products[2].compare_at_paise === null);
+  }
+  {
+    const env = envDB(seed());
+    ok("unknown slug → 404", (await call(env, [{ slug: "nope", compare_at_paise: 9900 }]))[0] === 404);
+    ok("duplicate slug → 400", (await call(env, [
+      { slug: "no-former", compare_at_paise: 59900 }, { slug: "no-former", compare_at_paise: 69900 }]))[0] === 400);
+    ok("not whole paise → 400", (await call(env, [{ slug: "no-former", compare_at_paise: 599.5 }]))[0] === 400);
+    ok("zero → 400: this route has no off switch", (await call(env, [{ slug: "no-former", compare_at_paise: 0 }]))[0] === 400);
+    ok("blank → 400", (await call(env, [{ slug: "no-former", compare_at_paise: "" }]))[0] === 400);
+    ok("missing slug → 400", (await call(env, [{ compare_at_paise: 59900 }]))[0] === 400);
+    ok("no items → 400", (await read(await setFormerPrices(env, { items: [] }, "agent")))[0] === 400);
+    ok("nothing was written by any of those", env.DB._db.products[0].compare_at_paise === null);
+  }
+  {
+    // Agent limits bind the agent only; the owner's dashboard has no ceiling.
+    const env = envDB(seed());
+    const [st, body] = await call(env, [{ slug: "no-former", compare_at_paise: 20000 * 100 }], "agent");
+    ok("agent: a former price outside the catalogue window is refused", st === 400 && /outside/.test(body.error), body.error);
+    ok("and nothing was written", env.DB._db.products[0].compare_at_paise === null);
+    const [st2] = await call(env, [{ slug: "no-former", compare_at_paise: 20000 * 100 }], "owner");
+    ok("owner: the same figure is accepted", st2 === 200 && env.DB._db.products[0].compare_at_paise === 2000000);
+  }
+  {
+    // The mail Aswin gets: which rows, was/now, and the percentage done right.
+    const env = envDB(seed());
+    const jobs = [], sent = [];
+    const prevFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes("api.resend.com")) {
+        sent.push(JSON.parse(init.body)); return new Response('{"id":"m"}', { status: 200 });
+      }
+      return new Response("", { status: 500 });
+    };
+    try {
+      const [st] = await call({ ...env, RESEND_API_KEY: "re_fake_for_tests", OWNER_EMAIL: OWNER },
+        [{ slug: "no-former", compare_at_paise: 59900 }], "agent", { waitUntil: (p) => jobs.push(p) });
+      await Promise.all(jobs);
+      ok("write succeeded", st === 200);
+      ok("Aswin is emailed", sent.length === 1 && /former price/.test(sent[0].subject),
+         JSON.stringify(sent.map((m) => m.subject)));
+      ok("the mail carries was, now and the percentage",
+         sent.length === 1 && /₹599/.test(sent[0].text) && /₹449/.test(sent[0].text) && /25% off/.test(sent[0].text),
+         sent[0]?.text);
+    } finally { globalThis.fetch = prevFetch; }
+    // No mail when the owner does it from the dashboard — it is their own action.
+    const jobs2 = [];
+    await call(envDB(seed()), [{ slug: "no-former", compare_at_paise: 59900 }], "owner", { waitUntil: (p) => jobs2.push(p) });
+    ok("the owner's own write sends no mail", jobs2.length === 0);
+  }
+  {
+    const e = agentFormerPriceEmail([{ slug: "x-y", compare_at_paise: 89900, price_paise: 59900 }], "https://shop.test");
+    ok("email: no NaN", !/NaN/.test(e.text + e.html));
+    ok("email: was, now, percent", e.text.includes("was ₹899") && e.text.includes("₹599") && e.text.includes("33% off"), e.text);
+    ok("email: links to the product page", e.text.includes("https://shop.test/p/x-y"));
+    ok("email: singular subject", e.subject.startsWith("1 former price recorded"));
+    ok("email: says how to undo a wrong one", /clear it from the dashboard/.test(e.text));
+    const w = agentFormerPriceEmail([{ slug: "x", price_paise: 59900 }], "https://x");
+    ok("a row missing the figure says so instead of NaN", w.text.includes("price missing") && !/NaN/.test(w.text));
+  }
+}
+
+// The SQL guards, exercised rather than merely asserted — two races.
+{
+  section("setFormerPrices — the WHERE clause catches what the check cannot");
+  const row = () => ({ id: "p2", slug: "has-former", name: "Has Former", description: "d",
+    price_paise: 59900, compare_at_paise: 89900, image: "assets/images/b.jpg", images: "",
+    category: "decor", visible: 1, sort: 1, created_at: 1, updated_at: 1 });
+  {
+    // Pass one sees no former price; the row has one. Only the WHERE clause stands
+    // between that and an overwrite.
+    const env = envDB({ products: [row()] });
+    env.DB._db._raceFormerPrices = true;
+    const [status, body] = await read(await setFormerPrices(env,
+      { items: [{ slug: "has-former", compare_at_paise: 99900 }] }, "agent"));
+    ok("the request is accepted (the check was fooled)", status === 200, `status ${status}`);
+    ok("but the DATABASE refused the write", body.set === 0);
+    ok("the existing figure survived", env.DB._db.products[0].compare_at_paise === 89900);
+    ok("and the response says so rather than claiming success", typeof body.note === "string" && body.requested === 1);
+  }
+  {
+    // Pass one sees ₹1; the row actually sells at ₹599. A "former" ₹499 would be a
+    // discount that is not one, and the floor bound into the UPDATE refuses it.
+    const env = envDB({ products: [{ ...row(), compare_at_paise: null }] });
+    env.DB._db._raceRepriced = true;
+    const [status, body] = await read(await setFormerPrices(env,
+      { items: [{ slug: "has-former", compare_at_paise: 49900 }] }, "agent"));
+    ok("repriced between check and write: accepted by the check", status === 200, `status ${status}`);
+    ok("but the DATABASE refused a former price below the real selling price", body.set === 0);
+    ok("nothing was written", env.DB._db.products[0].compare_at_paise === null);
+  }
+  {
+    // Pass one sees ₹1; the row is actually unpriced (quote-only, ₹0). `price_paise < ?`
+    // alone would let this through (0 < anything), so `price_paise > 0` has to be there.
+    const env = envDB({ products: [{ ...row(), price_paise: 0, compare_at_paise: null }] });
+    env.DB._db._raceRepriced = true;
+    const [status, body] = await read(await setFormerPrices(env,
+      { items: [{ slug: "has-former", compare_at_paise: 49900 }] }, "agent"));
+    ok("unpriced at write time: accepted by the check", status === 200, `status ${status}`);
+    ok("but the DATABASE refused a former price on a quote-only row", body.set === 0);
+    ok("nothing was written", env.DB._db.products[0].compare_at_paise === null);
+  }
 }
 
 

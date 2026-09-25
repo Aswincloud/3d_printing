@@ -50,6 +50,18 @@ export const AGENT_ROUTES = new Set([
   // UPDATE statement itself carries `AND (description IS NULL OR TRIM(description) =
   // '')`, so overwriting is not a thing the SQL can do. See describeProducts().
   "POST /api/admin/products/describe",
+  // Record a former price that is MISSING. Same shape as describe, and suspicious
+  // for the same reason: the row already exists. The one thing the route can do is
+  // fill a blank — setFormerPrices()' UPDATE carries
+  //   AND compare_at_paise IS NULL AND price_paise > 0 AND price_paise < ?
+  // so it cannot overwrite a former price once one is recorded, cannot touch the
+  // selling price, and cannot record a "former" price at or below today's.
+  //
+  // What no clause can check is whether the product ever sold at the figure. The
+  // shop prints it as "Was ₹X" next to the selling price, which is a statement to
+  // the customer about the product's history, and the code has no record to test
+  // it against. Only a price the product actually sold at belongs in this field.
+  "POST /api/admin/products/former-price",
   // Add a gallery photo. The route that removes the reason this agent needed a
   // git push at all: photos used to reach the site as a pull request, because
   // the [assets] binding cannot list a directory and the manifest therefore had
@@ -234,6 +246,34 @@ export function checkDescribeEntries(entries) {
     if (e.category != null && e.category !== "" && !CATEGORIES.has(String(e.category))) {
       return `"${slug}" has category "${e.category}", which is not one of ` +
              `${[...CATEGORIES].join(", ")}.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Validation for recording a MISSING former price on a product that already exists.
+ *
+ * As with describe, the guards that matter — blank only, priced row only, strictly
+ * above the selling price — are in the UPDATE's WHERE clause, not here. This is the
+ * sanity rail from AGENT_LIMITS applied to the former price too: a figure outside
+ * the window the catalogue actually spans is a unit slip, not a price, and it should
+ * be refused with a readable message before anything is attempted.
+ *
+ * Entries arrive with compare_at_paise already parsed to an integer by the handler.
+ */
+export function checkFormerPriceEntries(entries) {
+  if (entries.length > AGENT_LIMITS.maxItems) {
+    return `This token may record at most ${AGENT_LIMITS.maxItems} former prices per ` +
+           `request (got ${entries.length}).`;
+  }
+  for (const e of entries) {
+    const slug = String(e.slug || "a product");
+    const v = e.compare_at_paise;
+    if (v < AGENT_LIMITS.minPaise || v > AGENT_LIMITS.maxPaise) {
+      return `Former price for "${slug}" is Rs${(v / 100).toFixed(0)}, outside the ` +
+             `Rs${AGENT_LIMITS.minPaise / 100}–Rs${AGENT_LIMITS.maxPaise / 100} this ` +
+             `token may set. Record it from the dashboard if that is deliberate.`;
     }
   }
   return null;

@@ -2,11 +2,11 @@
 // authenticated by the positional gate in index.js — these functions never
 // check auth themselves, so the gate must stay above them in the router.
 
-import { json, bad, uid, now, sendEmail, statusLabel } from "./lib.js";
+import { json, bad, uid, now, sendEmail, statusLabel, percentOff } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
 import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail } from "./emails.js";
 import { sendOrderShipment } from "./invoicing.js";
-import { checkAgentEntries, checkDescribeEntries } from "./agent.js";
+import { checkAgentEntries, checkDescribeEntries, checkFormerPriceEntries } from "./agent.js";
 import { galleryImages } from "./gallery.js";
 
 const MAXLEN = { name: 120, slug: 80, desc: 2000, image: 300, images: 2000, category: 40, note: 500,
@@ -513,6 +513,140 @@ async function notifyAgentDescriptions(env, entries) {
   });
 }
 
+// POST /api/admin/products/former-price — record a former price that is MISSING.
+//
+// The second route the listing agent has that writes to a row it did not create,
+// built on the describe route's pattern and kept honest the same way, in the same
+// order:
+//
+//   1. The UPDATE carries
+//        AND compare_at_paise IS NULL AND price_paise > 0 AND price_paise < ?
+//      That is the guarantee. Once a former price is recorded this statement cannot
+//      change it; it cannot write onto an unpriced row; and it cannot record a
+//      "former" price at or below the selling price, which the shop would otherwise
+//      have to print as a discount that is not one. The selling price is absent from
+//      the SET entirely — money is not editable through this route at any level.
+//
+//   2. A validate-then-write pass so the caller gets a readable 409 or 400 naming
+//      the slug, not a silent "ok, 0 changed".
+//
+// What neither layer can check is whether the product ever sold at the figure. The
+// value is printed as "Was ₹X" beside the selling price, which is a statement to the
+// customer about the product's history, and the database has no record to test it
+// against (the 22 recorded on 2026-09-25 came from the launch prices in
+// migrations/0002). Whoever calls this is asserting that the product actually sold
+// at that price. Aswin is emailed every figure the agent records, so a wrong one is
+// seen the same day rather than found on a card months later.
+export async function setFormerPrices(env, body, actor = "owner", ctx = null) {
+  const items = body?.items;
+  if (!Array.isArray(items) || items.length === 0) return bad("No products given.");
+
+  const entries = [];
+  for (const it of items) {
+    const slug = clip(it?.slug, MAXLEN.slug);
+    if (!slug) return bad("An entry has no slug.");
+    const v = parsePaise(it?.compare_at_paise);
+    // No off switch here, unlike updateProduct(): a route that only fills blanks has
+    // nothing to clear, and a 0 arriving by mistake must not read as success.
+    if (v === null || v <= 0) {
+      return bad(`"${slug}": the former price must be a whole number of paise above zero.`);
+    }
+    entries.push({ slug, compare_at_paise: v });
+  }
+
+  if (actor === "agent") {
+    const problem = checkFormerPriceEntries(entries);
+    if (problem) return bad(problem, 400);
+  }
+
+  // Pass one: read, decide, write nothing.
+  const { results } = await env.DB.prepare(
+    `SELECT slug, price_paise, compare_at_paise FROM products`).all();
+  const bySlug = new Map((results || []).map((r) => [r.slug, r]));
+  const seen = new Set();
+  for (const e of entries) {
+    if (seen.has(e.slug)) return bad(`"${e.slug}" appears twice in this request.`);
+    seen.add(e.slug);
+    const row = bySlug.get(e.slug);
+    if (!row) return bad(`"${e.slug}" is not a product.`, 404);
+    if (row.compare_at_paise != null) {
+      return bad(
+        `"${e.slug}" already has a former price. This route only fills in blank ones — ` +
+        `change it from the dashboard instead.`, 409);
+    }
+    if (!(row.price_paise > 0)) {
+      return bad(`"${e.slug}" has no selling price. Set one before a former price.`);
+    }
+    if (e.compare_at_paise <= row.price_paise) {
+      return bad(
+        `"${e.slug}": the former price (₹${e.compare_at_paise / 100}) must be higher than ` +
+        `the selling price (₹${row.price_paise / 100}).`);
+    }
+    e.price_paise = row.price_paise;
+  }
+
+  // Pass two: one transaction. The figure is bound a second time as the floor, so
+  // "strictly above the selling price" holds against the row AS IT IS AT WRITE TIME,
+  // not as pass one saw it.
+  const stmt = env.DB.prepare(
+    `UPDATE products
+        SET compare_at_paise = ?, updated_at = ?
+      WHERE slug = ?
+        AND compare_at_paise IS NULL
+        AND price_paise > 0
+        AND price_paise < ?`);
+  const ts = now();
+  const res = await env.DB.batch(
+    entries.map((e) => stmt.bind(e.compare_at_paise, ts, e.slug, e.compare_at_paise)));
+
+  // Report what the DATABASE did, not what was asked for.
+  const written = entries.filter((_, i) => (res[i]?.meta?.changes || 0) > 0);
+  const changed = written.length;
+  console.log(`${actor} recorded former prices ${changed}/${entries.length}: ` +
+    entries.map((e) => `${e.slug}=${e.compare_at_paise}`).join(" "));
+
+  if (actor === "agent" && ctx?.waitUntil && changed) {
+    const site = env.SITE_URL || "https://3d-prints.aswincloud.com";
+    const to = String(env.OWNER_EMAIL || "").split(",")[0].trim();
+    if (to) {
+      ctx.waitUntil(sendEmail(env, { to, ...agentFormerPriceEmail(written, site) })
+        .catch((e) => console.error("former-price notification failed", e?.message || e)));
+    }
+  }
+
+  return json({
+    ok: true,
+    set: changed,
+    requested: entries.length,
+    slugs: entries.map((e) => e.slug),
+    ...(changed < entries.length
+      ? { note: "Some rows were not changed — they gained a former price, lost their selling price, or were repriced between the check and the write." }
+      : {}),
+  });
+}
+
+// Pure, like agentListingEmail(), so the arithmetic in the mail is testable. Rows are
+// the entries setFormerPrices() built: slug, compare_at_paise, price_paise.
+export function agentFormerPriceEmail(rows, site) {
+  const n = rows.length;
+  const line = (r) => {
+    const was = r.compare_at_paise, sells = r.price_paise;
+    if (!Number.isFinite(was) || !Number.isFinite(sells)) return `${r.slug} — price missing`;
+    return `${r.slug} — was ₹${was / 100}, sells at ₹${sells / 100} (${percentOff(was, sells)}% off)`;
+  };
+  const intro = `The agent recorded a former price on ${n} product${n === 1 ? "" : "s"}. ` +
+    `Each now shows "Was ₹…" struck through beside its selling price. Selling prices are ` +
+    `unchanged — this route cannot touch them. If any of these is NOT a price the ` +
+    `product actually sold at, clear it from the dashboard's "Was ₹" box.`;
+  return {
+    subject: `${n} former price${n === 1 ? "" : "s"} recorded by the agent`,
+    text: `${intro}\n\n` + rows.map((r) => `${line(r)}\n${site}/p/${r.slug}\n`).join("\n"),
+    html: `<p>${escapeHtml(intro)}</p><ul>` +
+      rows.map((r) => `<li><a href="${site}/p/${r.slug}">${escapeHtml(line(r))}</a></li>`).join("") +
+      `</ul>`,
+  };
+}
+
 // POST /api/admin/products/hide — take photos out of the shop without deleting
 // the files.
 //
@@ -733,7 +867,9 @@ export async function updateProduct(env, id, body) {
 // This does NOT widen the listing agent. AGENT_ROUTES in agent.js is an
 // exact-match allowlist that omits `PATCH /api/admin/products` precisely because
 // it reaches every existing row; a field added here is a field the agent still
-// cannot reach. test/admin.mjs asserts that rather than trusting this comment.
+// cannot reach through THIS route. (The agent's own describe and former-price
+// routes each fill ONE blank column and nothing else — see their WHERE clauses.)
+// test/admin.mjs asserts that rather than trusting this comment.
 //
 // ALL-OR-NOTHING on purpose: every row is validated before anything is written.
 // A partial write is the worst outcome here — you'd have no idea which of 26

@@ -105,13 +105,34 @@ This route exists because the agent used to have no way to express it and wrote 
 migration instead — which it has no credentials to apply. Migration `0017` sat unapplied
 for exactly that reason.
 
+**4. Record a former price that is missing.**
+
+For a product that sold at a higher price before and shows none yet. The card then
+prints "Was ₹X" struck through, the selling price, and the percentage off:
+
+    curl -sS -X POST https://3d-prints.aswincloud.com/api/admin/products/former-price \
+      -H "Authorization: Bearer $AGENT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"items":[{"slug":"articulated-dinosaur-skeleton","compare_at_paise":89900}]}'
+
+`compare_at_paise` is in paise and must be **above the selling price**; a product that
+already has a former price answers `409` (change it from the dashboard), an unpriced
+one `400`. Response is `200` with `set` (what the database changed) and `requested`.
+
+**This figure is a statement to the customer about the product's history.** The route
+checks that it is a whole number above the selling price and inside the catalogue's
+price window. It cannot check that the product ever sold at it — nothing in the
+database can. Send only a price the product actually sold at; the owner is emailed
+every figure this route records.
+
 ## What the token cannot do
 
 Not by convention — by construction, in two independent layers.
 
-**Layer 1: only three routes.** The token authorises exactly
-`GET /api/admin/products/unlisted`, `POST /api/admin/products/batch` and
-`POST /api/admin/products/describe`, matched on method *and* full path. Everything
+**Layer 1: only five routes.** The token authorises exactly
+`GET /api/admin/products/unlisted`, `POST /api/admin/products/batch`,
+`POST /api/admin/products/describe`, `POST /api/admin/products/former-price` and
+`POST /api/admin/gallery/upload`, matched on method *and* full path. Everything
 else under `/api/admin/` returns **403**, including `PATCH /api/admin/products` — the
 bulk price editor over existing rows, which is precisely the power being withheld. A
 prefix rule would have let that through, so the match is exact.
@@ -128,6 +149,19 @@ in front of it — validation only runs if it is reached. It is the statement it
 Overwriting is not a thing that statement can do. `price_paise`, `name`, `slug` and
 `visible` are absent from it entirely, so money and shelf presence are not editable
 through this route at any privilege level — **not even by the owner**.
+
+The former-price route is guarded the same way, with one more clause because its
+value is shown to customers as a discount:
+
+    UPDATE products
+       SET compare_at_paise = ?, updated_at = ?
+     WHERE slug = ?
+       AND compare_at_paise IS NULL
+       AND price_paise > 0
+       AND price_paise < ?
+
+Blank only, priced rows only, strictly above the selling price as it is *at write
+time*. The selling price is not in the `SET`.
 
 That guard is tested by simulating the race it exists for: the fake database reports
 every description as empty while the stored rows keep theirs, so the check waves the
