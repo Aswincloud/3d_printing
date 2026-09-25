@@ -126,14 +126,61 @@ async function run(engine, name) {
     fire(document.createElement('div')); out.afterDetached = count();
     const s1 = document.querySelector('.shop-more-sentinel');
     out.freshSentinel = s1 !== s0;
-    fire(s1);            out.afterNext = count();
+    // Without a scroll in between, the gate refuses the new sentinel — that IS
+    // the cascade fix. So: fire it before any scroll (must load nothing), then
+    // scroll as a person would, then fire it (must load exactly one page).
+    fire(s1);            out.beforeUserScroll = count();
     return out;
   });
+  // A person's scroll can only arrive AFTER the append has painted — the gate
+  // arms two frames after a load precisely so that scroll anchoring's own
+  // compensating scroll, which lands before paint, cannot open it. So wait two
+  // frames, then scroll as a person, then fire the new sentinel's record.
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const afterNext = await p.evaluate(() => {
+    const count = () => document.querySelectorAll('#productGrid .product-card').length;
+    const io = window.__io.find((o) => /400px/.test(o.opts?.rootMargin || ''));
+    window.dispatchEvent(new Event('scroll'));
+    const s1 = document.querySelector('.shop-more-sentinel');
+    io.cb([{ isIntersecting: true, target: s1 }], io.self);
+    return count();
+  });
+  dup.afterNext = afterNext;
   ok(`[${name}] one intersection record loads exactly one page`, dup.afterOne === dup.start + PAGE, JSON.stringify(dup));
   ok(`[${name}] duplicate records for the same sentinel load nothing more`, dup.afterDupes === dup.afterOne, JSON.stringify(dup));
   ok(`[${name}] a record for an element that is not the sentinel loads nothing`, dup.afterDetached === dup.afterOne, JSON.stringify(dup));
   ok(`[${name}] each render puts a NEW sentinel in the DOM`, dup.freshSentinel === true, JSON.stringify(dup));
-  ok(`[${name}] the new sentinel loads the next page, exactly once`, dup.afterNext === dup.afterOne + PAGE, JSON.stringify(dup));
+  ok(`[${name}] the new sentinel does NOT load before the user scrolls (the cascade gate)`, dup.beforeUserScroll === dup.afterOne, JSON.stringify(dup));
+  ok(`[${name}] after the user scrolls, the new sentinel loads the next page, exactly once`, dup.afterNext === dup.afterOne + PAGE, JSON.stringify(dup));
+
+  // THE CASCADE. The failure CI actually saw was not a stale record: with scroll
+  // anchoring, appending twelve cards moves scrollY down by their height, so the
+  // NEW sentinel lands at the fold and intersects for real — again and again,
+  // 12 → 40 from one flick. A page must load only after the USER scrolls. Count
+  // the grid's observer fires across one scroll gesture: it must be exactly one.
+  await p.goto(BASE + '/index.html', { waitUntil: 'load' });
+  await p.waitForSelector('.shop-more-sentinel', { timeout: 15000 });
+  // Scroll the way a person does — past the sentinel, firing real scroll
+  // events — not scrollIntoView, which is a synthetic jump that parks the
+  // sentinel exactly at the fold and fires no scroll a gate could see.
+  // scrollIntoView parks the sentinel exactly at the fold — the position from
+  // which scroll anchoring cascades (traced: scrollY 3942 → 6172 → 8403 with no
+  // user input). It is the probe that reproduces CI's failure; a scrollBy that
+  // overshoots the sentinel cannot, and a first draft of this check used one and
+  // passed with BOTH fixes removed. Keep the probe that bites.
+  const scrollPast = () => p.evaluate(() => {
+    const s = document.querySelector('.shop-more-sentinel'); if (!s) return;
+    window.scrollBy({ top: s.getBoundingClientRect().top - innerHeight + 300, behavior: 'instant' });
+  });
+  await p.evaluate(() => document.querySelector('.shop-more-sentinel').scrollIntoView({ behavior: 'instant' }));
+  await p.waitForTimeout(1500);                           // long enough for a cascade to have run
+  const cascade = await p.evaluate(() => document.querySelectorAll('#productGrid .product-card').length);
+  ok(`[${name}] one scroll gesture loads ONE page, never a cascade`, cascade === PAGE * 2, `${cascade} cards after one scroll`);
+  // And a real second scroll still loads the next one.
+  await scrollPast();
+  await p.waitForTimeout(800);
+  const second = await p.evaluate(() => document.querySelectorAll('#productGrid .product-card').length);
+  ok(`[${name}] a second scroll loads the next page`, second === PAGE * 3, `${second} cards after two scrolls`);
 
   // A filter starts back at the first page — the sentinel must not have broken
   // the reset that keyed on the filter state.
