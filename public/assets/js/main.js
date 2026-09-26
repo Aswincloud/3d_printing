@@ -2632,7 +2632,7 @@ const siError = document.getElementById('siError');
 async function loadSession() {
   try {
     const me = await (await fetch('/api/me')).json();
-    if (!me.signedIn) return applyGuestState();
+    if (!me.signedIn) { dropAccountMirror(); return applyGuestState(); }
     currentUser = me;
     applySignedInState(me);
     await adoptServerCart();
@@ -2731,7 +2731,7 @@ document.addEventListener('click', (e) => {
 document.getElementById('menuSignOut')?.addEventListener('click', async () => {
   try { await fetch('/api/me/logout', { method: 'POST' }); } catch { /* ignore */ }
   // Clear the mirrored cart so the next visitor on this browser starts clean.
-  try { localStorage.removeItem(CART_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(CART_KEY); localStorage.removeItem(CART_OWNER_KEY); } catch { /* ignore */ }
   location.reload();
 });
 
@@ -3192,16 +3192,36 @@ function orderTracker(stages) {
 }
 
 /* ── server cart for a signed-in customer ──────────────────────── */
+// Whose cart the localStorage copy is. Set once adoptServerCart() has handed a
+// guest cart to an account; cleared on sign-out or when the session is gone.
+//
+// Without it, every page load re-posted the mirror to /api/me/cart/merge — and
+// merge SUMS by design (two on the phone + one on the laptop = three). So the
+// account cart was added to itself on each refresh: 1, 2, 4, 8. Reported from
+// Aswin's own account on 2026-09-26; guests never saw it because only a signed-in
+// session reaches this code. test/browser/cart-adopt.mjs pins the whole cycle.
+const CART_OWNER_KEY = 'ap_cart_owner';
+const cartOwner = () => { try { return localStorage.getItem(CART_OWNER_KEY); } catch { return null; } };
+
 async function adoptServerCart() {
   try {
+    const me = String(currentUser?.email || '').toLowerCase();
     const local = readCart();
-    if (local.length) {
-      await fetch('/api/me/cart/merge', {
+    // Merge ONLY a cart that is not already this account's mirror: a guest's, or
+    // one left behind by a different account on this browser. After that the
+    // account is the source of truth — syncCartUp() PUTs every edit as it happens,
+    // so on the next load there is nothing to merge, only something to fetch.
+    if (local.length && cartOwner() !== me) {
+      const merged = await fetch('/api/me/cart/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: local.map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
       });
+      // Not adopted yet: leave the stamp unset so the next load tries again,
+      // rather than stamping a cart the account never received.
+      if (!merged.ok) return;
     }
+    try { localStorage.setItem(CART_OWNER_KEY, me); } catch { /* ignore */ }
     const res = await fetch('/api/me/cart');
     if (!res.ok) return;
     const { items } = await res.json();
@@ -3212,6 +3232,17 @@ async function adoptServerCart() {
     }))));
     renderCart();
   } catch { /* keep the local cart */ }
+}
+
+// The session is gone (expired, or signed out from another tab) but the browser
+// still holds an account's mirror. Drop it: the cart is safe on the server, and
+// leaving it would make the next sign-in merge it into the account a second time.
+// A plain guest cart carries no stamp and is left alone. Only called when the
+// server has SAID signedIn:false — never on a network error, which is transient.
+function dropAccountMirror() {
+  if (cartOwner() === null) return;
+  try { localStorage.removeItem(CART_KEY); localStorage.removeItem(CART_OWNER_KEY); } catch { /* ignore */ }
+  renderCart();
 }
 
 // Called from writeCart on every cart mutation. Fire-and-forget: a failed sync
