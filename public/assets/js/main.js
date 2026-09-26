@@ -2060,7 +2060,11 @@ async function applyPromo() {
       const saved = data.discount_paise > 0
         ? rupees(data.discount_paise) + ' off'
         : 'free shipping';
-      okSlot.textContent = `${data.code} applied — ${saved}.`;
+      // A code limited to certain products says so, so a smaller-than-expected
+      // discount on a mixed cart is explained where it appears.
+      const scope = Array.isArray(data.applies_to) && data.applies_to.length
+        ? ' on ' + data.applies_to.join(', ') : '';
+      okSlot.textContent = `${data.code} applied — ${saved}${scope}.`;
       okSlot.hidden = false;
     }
   } catch (err) {

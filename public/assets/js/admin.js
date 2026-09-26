@@ -961,6 +961,9 @@ async function loadProducts() {
   }
 
   allProducts = data.products;
+  // The coupon form's product picker draws from this list.
+  mountCouponCreatePicker();
+  couponCreatePicker?.render();
   renderProducts();
 }
 
@@ -1458,6 +1461,61 @@ function couponBlockedReason(c) {
   return null;
 }
 
+// The product-scope picker: a filter box over a checklist of the catalogue,
+// rendered from `allProducts` so it costs no request. Used twice — the create
+// form (its elements are in shop.html) and the inline editor (built here) — so
+// it takes its elements rather than owning them.
+//
+// Renders every product (110-odd rows is fine in a scrolling box) and filters
+// by hiding, so a tick survives the filter being changed or cleared.
+function mountProductPicker({ filterEl, listEl, countEl, selected = [] }) {
+  const picked = new Set(selected);
+  const renderCount = () => {
+    if (!countEl) return;
+    countEl.textContent = picked.size
+      ? `Applies to ${picked.size} product${picked.size === 1 ? '' : 's'} only.`
+      : 'Applies to the whole cart.';
+  };
+  const render = () => {
+    listEl.innerHTML = '';
+    const rows = [...allProducts]
+      .filter((p) => p.price_paise > 0 || picked.has(p.id))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    for (const p of rows) {
+      const lab = el('label', 'cp-product');
+      lab.dataset.name = String(p.name).toLowerCase();
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = p.id; cb.checked = picked.has(p.id);
+      cb.addEventListener('change', () => { if (cb.checked) picked.add(p.id); else picked.delete(p.id); renderCount(); });
+      lab.append(cb, el('span', null, p.name), el('span', 'cp-price', p.price_paise > 0 ? rupees(p.price_paise) : 'quote only'));
+      listEl.appendChild(lab);
+    }
+    applyFilter();
+    renderCount();
+  };
+  const applyFilter = () => {
+    const q = (filterEl?.value || '').trim().toLowerCase();
+    for (const row of listEl.children) row.hidden = q !== '' && !row.dataset.name.includes(q);
+  };
+  filterEl?.addEventListener('input', applyFilter);
+  render();
+  return {
+    render,
+    ids: () => [...picked],
+    reset: () => { picked.clear(); if (filterEl) filterEl.value = ''; render(); },
+  };
+}
+
+// The create form's picker. Mounted once; re-rendered when the catalogue loads
+// (loadProducts) since init() runs the loaders concurrently and the coupons
+// panel may be drawn before the products arrive.
+let couponCreatePicker = null;
+function mountCouponCreatePicker() {
+  const listEl = $('cpProducts');
+  if (!listEl || couponCreatePicker) return;
+  couponCreatePicker = mountProductPicker({ filterEl: $('cpProductFilter'), listEl, countEl: $('cpProductsCount') });
+}
+
 async function loadCoupons() {
   const box = $('couponsList');
   if (!box) return;
@@ -1615,6 +1673,17 @@ function openCouponEditor(c, row) {
   const onceRow = el('div', 'cr-edit-once');
   onceRow.appendChild(onceWrap);
 
+  // Which products the code is limited to. Same picker as the create form,
+  // pre-ticked from the row; on save the whole list is sent if it changed.
+  const scopeRow = el('div', 'cr-edit-scope');
+  const scopeLabel = el('span', 'ul-label', 'Only for these products');
+  const scopeFilter = input('', { type: 'search', placeholder: 'Type to filter products…' });
+  const scopeList = el('div', 'cp-products');
+  const scopeCount = el('span', 'cr-hint');
+  scopeRow.append(scopeLabel, scopeFilter, scopeList, scopeCount);
+  const currentScope = (c.products || []).map((p) => p.id);
+  const scopePicker = mountProductPicker({ filterEl: scopeFilter, listEl: scopeList, countEl: scopeCount, selected: currentScope });
+
   const err = el('p', 'ul-error');
   err.hidden = true;
 
@@ -1665,6 +1734,11 @@ function openCouponEditor(c, row) {
 
     if (once.checked !== Boolean(c.once_per_customer)) patch.once_per_customer = once.checked;
 
+    // Compared as sets: order in the picker is alphabetical, order in the row is
+    // whatever the server returned, and neither is a change.
+    const wantScope = scopePicker.ids().sort();
+    if (wantScope.join() !== [...currentScope].sort().join()) patch.product_ids = wantScope;
+
     if (!Object.keys(patch).length) {
       box.remove();
       return;
@@ -1685,7 +1759,7 @@ function openCouponEditor(c, row) {
 
   box.append(
     el('p', 'cr-edit-note', `Editing ${c.code}. The code itself can't be changed — anyone already holding it would find it invalid.`),
-    grid, onceRow, err, bar,
+    grid, onceRow, scopeRow, err, bar,
   );
   row.appendChild(box);
   (isShipping ? min : value).focus();
@@ -1712,6 +1786,8 @@ function couponRow(c) {
     ['Expires', expiryLabel(c.expires_at)],
     ['Uses', c.max_uses !== null ? `${c.uses} of ${c.max_uses}` : `${c.uses} (unlimited)`],
     ['Per customer', c.once_per_customer ? 'once only' : 'unlimited'],
+    // Stated either way, like the rest: "whole cart" is an answer, a blank is not.
+    ['Products', c.products?.length ? c.products.map((p) => p.name).join(', ') : 'whole cart'],
   ];
   if (c.kind === 'percent') {
     facts.splice(1, 0, ['Max discount', c.max_discount_paise ? rupees(c.max_discount_paise) : 'uncapped']);
@@ -1864,6 +1940,9 @@ $('couponForm')?.addEventListener('submit', async (e) => {
     expires_at: $('cpExpires').value || null,
     max_uses: $('cpMaxUses').value.trim() ? Number($('cpMaxUses').value.trim()) : null,
     once_per_customer: $('cpOnce').checked,
+    // Empty = whole cart. The server treats a missing key the same way, but
+    // sending it keeps "what did the dashboard ask for" explicit in the request.
+    product_ids: couponCreatePicker ? couponCreatePicker.ids() : [],
   };
 
   btn.disabled = true;
@@ -1873,6 +1952,7 @@ $('couponForm')?.addEventListener('submit', async (e) => {
     const out = await api('/api/admin/coupons', { method: 'POST', body: JSON.stringify(body) });
     flash(`${out.coupon.code} created — ${couponSummary(out.coupon)}.`);
     $('couponForm').reset();
+    couponCreatePicker?.reset();
     syncCouponForm();
     await loadCoupons();
   } catch (err) {

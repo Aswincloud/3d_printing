@@ -1166,3 +1166,26 @@
 .quote-link { font-size: 0.78rem; color: var(--orange); word-break: break-all; }
 
 .quote-actions { display: flex; gap: 0.4rem; }
+
+/* ── coupon product scope picker ─────────────────────────────────── */
+.cf-field.cf-wide { grid-column: 1 / -1; }
+.cf-optional { font-weight: 400; text-transform: none; letter-spacing: 0; font-style: normal; margin-left: 0.4rem; }
+.cf-field > span.cf-hint { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.78rem; }
+.cp-products {
+  max-height: 190px; overflow: auto;
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+  background: var(--dark-4); padding: 0.3rem 0.55rem;
+  display: grid; gap: 0.1rem;
+}
+.cp-products:empty::before { content: "Loading products…"; color: var(--text-muted); font-size: 0.84rem; }
+.cp-product { display: flex; align-items: center; gap: 0.5rem; font-size: 0.86rem; padding: 0.22rem 0; cursor: pointer; }
+/* Undo the form-wide `input { width: 100% }`: a full-width checkbox leaves the
+   name and price no room and they collapse to nothing. */
+.cf-field .cp-product input,
+.cr-editor .cp-product input,
+.cp-product input { width: auto; padding: 0; margin: 0; accent-color: var(--orange); flex: 0 0 auto; }
+.cp-product .cp-price { margin-left: auto; color: var(--text-muted); font-size: 0.78rem; }
+.cp-product[hidden] { display: none; }
+.cr-edit-scope { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.cr-edit-scope .ul-input { width: 100%; }
+.cr-edit-scope .cp-products { max-height: 150px; }

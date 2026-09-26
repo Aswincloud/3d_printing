@@ -528,6 +528,23 @@ in either order, which is most of what `test/browser/promo-banner.mjs` exists to
 pin down. A guest who used the code while signed out still sees the banner — there
 is no identity to check it against, and inventing one is not worth it.
 
+### Codes limited to certain products
+
+A coupon can be limited to some products (`coupon_products`, migration 0024; the
+dashboard's "Only for these products" picker on the create form and the editor).
+No rows means the whole cart, which is what every code did before.
+
+For a limited code, `applyCoupon()` computes on the **eligible lines only**: a
+percentage of those lines, a fixed amount clamped to their subtotal, free shipping
+when at least one of them is in the cart. A cart holding none of them is refused
+with the product names, never given ₹0 off. The **minimum order** is still checked
+against the whole order — that is what the words mean. A limited code is not
+offered as the homepage banner, which has no room to say which products.
+
+The lines are passed in by `priceCart()`; a caller that only knows the subtotal
+gets a limited code refused rather than applied to everything. `test/coupons.mjs`
+covers the arithmetic, the refusals and the admin round trip.
+
 ### Order stages
 
 **The courier picker.** "Mark shipped" and "Edit tracking" offer ShipTrack's five

@@ -69,6 +69,8 @@ function makeDB({ coupons = [] } = {}) {
       return { meta: { changes: 1 } };
     }
 
+    // applyCoupon's product-scope read. Chat codes are never scoped.
+    if (s.startsWith("SELECT cp.product_id, p.name FROM coupon_products")) return { results: [] };
     // applyCoupon's read, for the redemption-path tests below.
     if (s.startsWith("SELECT id, code, kind, value")) {
       const c = db.coupons.find((x) => x.code.toUpperCase() === String(a[0]).toUpperCase());

@@ -5,7 +5,7 @@
 // thing standing between a tampered cart and a wrong charge.
 
 import { json, now } from "./lib.js";
-import { applyCoupon } from "./coupons.js";
+import { applyCoupon, couponScope } from "./coupons.js";
 // Shared with the dashboard's unlisted-photos panel, so a synthesised card and
 // the admin form suggest the same name for the same file.
 import { suggestName } from "./admin.js";
@@ -100,7 +100,7 @@ export async function featuredPromo(env) {
   if (!code) return null;
 
   const row = await env.DB.prepare(
-    `SELECT code, kind, value, min_order_paise, max_discount_paise, expires_at,
+    `SELECT id, code, kind, value, min_order_paise, max_discount_paise, expires_at,
             max_uses, uses, active, once_per_customer
        FROM coupons WHERE code = ?`
   ).bind(code).first();
@@ -113,6 +113,10 @@ export async function featuredPromo(env) {
   // Only percentage and fixed codes have terms worth putting on a banner; a
   // shipping code's value is already covered by the free-shipping note.
   if (row.kind !== "percent" && row.kind !== "fixed") return null;
+
+  // A code limited to certain products is not a storewide promise, and the
+  // banner has no room to say which products. It simply does not run for one.
+  if ((await couponScope(env, row.id)).length) return null;
 
   return {
     code: row.code,
@@ -402,9 +406,12 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
   let discount = 0;
   let couponRow = null;
   let freeShipping = false;
+  let appliesTo = null;
 
   if (couponCode) {
-    const r = await applyCoupon(env, couponCode, subtotal, email);
+    // The priced lines go along so a code limited to certain products is
+    // computed on those lines only — see the scope block in applyCoupon().
+    const r = await applyCoupon(env, couponCode, subtotal, email, items);
     // Refuse the order rather than dropping an invalid code silently: the
     // customer was shown a discounted total, and charging them the full amount
     // instead is the same class of bug as charging for a different basket.
@@ -412,6 +419,7 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
     discount = r.discount_paise;
     couponRow = r.coupon;
     freeShipping = r.free_shipping;
+    appliesTo = r.applies_to || null;
   }
 
   const discounted = subtotal - discount;
@@ -422,6 +430,9 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
     subtotal_paise: subtotal,
     discount_paise: discount,
     coupon_code: couponRow?.code ?? null,
+    // Product names when the code is limited to some, so the checkout can say
+    // what the discount was on. null for a whole-cart code.
+    applies_to: appliesTo,
     shipping_paise: shipping,
     total_paise: discounted + shipping,
   };
