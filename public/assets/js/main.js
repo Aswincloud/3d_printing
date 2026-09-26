@@ -2736,6 +2736,7 @@ document.getElementById('menuSignOut')?.addEventListener('click', async () => {
   try { await fetch('/api/me/logout', { method: 'POST' }); } catch { /* ignore */ }
   // Clear the mirrored cart so the next visitor on this browser starts clean.
   try { localStorage.removeItem(CART_KEY); localStorage.removeItem(CART_OWNER_KEY); } catch { /* ignore */ }
+  clearCartDirty();
   location.reload();
 });
 
@@ -3206,6 +3207,13 @@ function orderTracker(stages) {
 // session reaches this code. test/browser/cart-adopt.mjs pins the whole cycle.
 const CART_OWNER_KEY = 'ap_cart_owner';
 const cartOwner = () => { try { return localStorage.getItem(CART_OWNER_KEY); } catch { return null; } };
+// Set before every PUT of the mirror to the account and cleared only when one
+// succeeds — so "the account has everything this browser did" is a fact that is
+// checked, not assumed. product.js sets it too. A dirty mirror on load is pushed
+// UP (local is the newer intent), never replaced by the account's older copy.
+const CART_DIRTY_KEY = 'ap_cart_dirty';
+const cartDirty = () => { try { return localStorage.getItem(CART_DIRTY_KEY) === '1'; } catch { return false; } };
+const clearCartDirty = () => { try { localStorage.removeItem(CART_DIRTY_KEY); } catch { /* ignore */ } };
 
 async function adoptServerCart() {
   try {
@@ -3224,6 +3232,17 @@ async function adoptServerCart() {
       // Not adopted yet: leave the stamp unset so the next load tries again,
       // rather than stamping a cart the account never received.
       if (!merged.ok) return;
+      clearCartDirty();                    // the merge delivered whatever was pending
+    } else if (cartOwner() === me && cartDirty()) {
+      // An edit the account has not received: the product page's add, or a PUT
+      // that failed. Push the local copy up rather than fetch the older one down.
+      const put = await fetch('/api/me/cart', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: local.map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
+      });
+      if (!put.ok) return;                 // keep the local copy and the flag; try again next load
+      clearCartDirty();
     }
     try { localStorage.setItem(CART_OWNER_KEY, me); } catch { /* ignore */ }
     const res = await fetch('/api/me/cart');
@@ -3246,6 +3265,7 @@ async function adoptServerCart() {
 function dropAccountMirror() {
   if (cartOwner() === null) return;
   try { localStorage.removeItem(CART_KEY); localStorage.removeItem(CART_OWNER_KEY); } catch { /* ignore */ }
+  clearCartDirty();
   renderCart();
 }
 
@@ -3253,11 +3273,12 @@ function dropAccountMirror() {
 // must never block adding to a cart.
 function syncCartUp() {
   if (!currentUser) return;
+  try { localStorage.setItem(CART_DIRTY_KEY, '1'); } catch { /* ignore */ }
   fetch('/api/me/cart', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ items: readCart().map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
-  }).catch(() => {});
+  }).then((res) => { if (res.ok) clearCartDirty(); }).catch(() => {});
 }
 
 // Prefill checkout for a signed-in customer. The server still validates

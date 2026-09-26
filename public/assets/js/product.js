@@ -84,6 +84,47 @@ function writeCart(cart) {
   } catch { /* private mode, quota — the add just does not persist */ }
 }
 
+// ── the account's copy ────────────────────────────────────────────
+// main.js stamps localStorage with the account the cart belongs to once a
+// sign-in has adopted it (ap_cart_owner), and from then on treats the ACCOUNT
+// as the source of truth: on every homepage load it fetches the account cart
+// and replaces the local copy. So an add made here, written only to
+// localStorage, would be wiped the moment the customer opened the cart —
+// Murugan in the cart, Spiderman added on its page, badge says 2, cart drawer
+// shows Murugan only. Reported 2026-09-26. (Before the refresh-doubling fix the
+// homepage re-merged the local copy on every load, which carried the add over
+// by accident while doubling everything else.)
+//
+// So: PUT the whole cart to the account after every edit here, exactly as
+// main.js does. The dirty flag goes on BEFORE the request and comes off only on
+// success; if the page is left mid-flight or the PUT fails, the homepage sees
+// the flag and pushes the local copy up instead of replacing it.
+const CART_OWNER_KEY = 'ap_cart_owner';
+const CART_DIRTY_KEY = 'ap_cart_dirty';
+let pendingSync = null;
+
+function syncCartUp(cart) {
+  let owner = null;
+  try { owner = localStorage.getItem(CART_OWNER_KEY); } catch { return null; }
+  if (!owner) return null;                 // a guest's cart stays local until sign-in merges it
+  try { localStorage.setItem(CART_DIRTY_KEY, '1'); } catch { /* ignore */ }
+  const p = fetch('/api/me/cart', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: cart.map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
+  })
+    .then((res) => { if (res.ok) { try { localStorage.removeItem(CART_DIRTY_KEY); } catch { /* ignore */ } } })
+    .catch(() => { /* the flag stays; the homepage retries */ })
+    .finally(() => { if (pendingSync === p) pendingSync = null; });
+  pendingSync = p;
+  return p;
+}
+
+// Give an in-flight sync a moment to land before handing off to the homepage,
+// which will otherwise read the account cart before this edit reached it.
+// Bounded: a slow network must not trap the customer on this page.
+const settled = () => Promise.race([pendingSync || Promise.resolve(), new Promise((r) => setTimeout(r, 1500))]);
+
 // ── page state ────────────────────────────────────────────────────
 const el = (id) => document.getElementById(id);
 
@@ -199,6 +240,7 @@ async function addToCart(qty) {
   else cart.push({ id, qty });
   writeCart(cart);
   syncCartBadge();
+  syncCartUp(cart);
   return true;
 }
 
@@ -252,9 +294,21 @@ function handOffToCheckout(items) {
       return false;
     }
   }
-  location.href = '/#checkout';
+  // The contract stays synchronous for the callers (they branch on the boolean);
+  // only the navigation waits for a sync still in flight.
+  settled().then(() => { location.href = '/#checkout'; });
   return true;
 }
+
+// The cart link is a plain anchor to the homepage drawer. If an add is still on
+// its way to the account, hold the click for it — the drawer is going to show
+// the account's cart.
+el('pdpCartLink')?.addEventListener('click', (e) => {
+  if (!pendingSync) return;
+  e.preventDefault();
+  const href = e.currentTarget?.getAttribute('href') || '/#cart';
+  settled().then(() => { location.href = href; });
+});
 
 const buyBtn = el('pdpBuy');
 const choiceBox = el('pdpBuyChoice');
