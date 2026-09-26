@@ -227,7 +227,7 @@ const settle = async (c) => { await Promise.all(c._p); };
 function stubResend() {
   const sent = [];
   globalThis.fetch = async (url, init) => {
-    if (String(url).includes("api.resend.com")) {
+    if (new URL(String(url)).hostname === "api.resend.com") {
       sent.push(JSON.parse(init.body || "{}"));
       return new Response(JSON.stringify({ id: "email_stub" }), { status: 200 });
     }

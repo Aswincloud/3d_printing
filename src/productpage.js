@@ -14,7 +14,7 @@
 // copy-paste and truncation better, and slugs are already unique and readable
 // (articulated-dino-skeleton, ganesha-veena).
 
-import { esc } from "./lib.js";
+import { esc, trimSlashes } from "./lib.js";
 import { productJsonLd, jsonLdScript } from "./seo.js";
 import { renderProductPage, breadcrumbJsonLd } from "./pdp.js";
 
@@ -29,7 +29,7 @@ export function isProductPath(pathname) {
 }
 
 export function slugFromPath(pathname) {
-  const raw = decodeURIComponent(pathname.slice(3)).replace(/\/+$/, "");
+  const raw = trimSlashes(decodeURIComponent(pathname.slice(3)));
   return raw.length && raw.length <= MAX_SLUG && SLUG_RE.test(raw) ? raw : null;
 }
 
@@ -37,7 +37,7 @@ export function slugFromPath(pathname) {
 // crawlers do not resolve them against the page. index.html shipped a relative
 // og:image for this reason and previewed no image at all.
 function absolute(env, path, url) {
-  const base = (env.APP_BASE_URL || url.origin).replace(/\/+$/, "");
+  const base = trimSlashes(env.APP_BASE_URL || url.origin);
   if (!path) return "";
   if (/^https?:\/\//i.test(path)) return path;
   return base + "/" + String(path).replace(/^\/+/, "");
