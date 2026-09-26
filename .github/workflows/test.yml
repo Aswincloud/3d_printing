@@ -112,3 +112,7 @@ jobs:
           # The grid grows on scroll. IntersectionObserver timing differs by engine,
           # so this is one place the webkit run earns its keep.
           npm run test:autoload
+          # The signed-in cart is adopted once, not re-merged on every load. The
+          # merge endpoint sums by design, so this is the check that a refresh does
+          # not double the cart. Fake account cart with the server's semantics.
+          npm run test:cart
