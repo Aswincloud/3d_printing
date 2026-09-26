@@ -50,7 +50,7 @@ function stubResend() {
   calls.invoicerStatus = 200;
   globalThis.fetch = async (url, init) => {
     const u = String(url);
-    if (u.includes("api.resend.com")) {
+    if (new URL(u).hostname === "api.resend.com") {
       calls.push(JSON.parse(init.body || "{}"));
       return new Response(JSON.stringify({ id: "email_stub" }), { status: 200 });
     }
@@ -1401,7 +1401,7 @@ section("marking shipped emails the customer");
   ok("courier stored", env.DB._db.orders[0].courier === "Blue Dart");
   ok("tracking stored", env.DB._db.orders[0].tracking_id === "BD123456789");
   // A recognised courier gets a direct tracking link.
-  ok("links to the courier's tracking page", (calls[0]?.html || "").includes("bluedart.com"));
+  ok("links to the courier's tracking page", /href="https:\/\/(www\.)?bluedart\.com\//.test(calls[0]?.html || ""), (calls[0]?.html || "").slice(0, 200));
 }
 {
   // The three ShipTrack carriers with no clean public tracking page of their own
@@ -2149,7 +2149,7 @@ section("single update — the personalisation prompt");
   ok("subject counts the rows", e.subject.startsWith("2 new products"), e.subject);
   ok("singular subject for one row",
      agentListingEmail([rows[0]], "https://x").subject.startsWith("1 new product listed"));
-  ok("links to the product page", e.text.includes("https://shop.test/p/marvel-wall-art"));
+  ok("links to the product page", /(^|\s)https:\/\/shop\.test\/p\/marvel-wall-art(\s|$)/.test(e.text), e.text);
   ok("names are html-escaped in the html body",
      e.html.includes("Cheap &lt;Thing&gt; &amp; Co"), e.html);
 

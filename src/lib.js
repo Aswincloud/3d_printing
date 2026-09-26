@@ -244,3 +244,12 @@ export const percentOff = (wasPaise, nowPaise) => {
   if (!Number.isFinite(was) || !Number.isFinite(now) || now <= 0 || was <= now) return 0;
   return Math.floor(((was - now) / was) * 100);
 };
+
+// Strip trailing slashes with a loop, not /\/+$/. CodeQL flags that regex as
+// polynomial on a string of many slashes (js/polynomial-redos); the inputs here
+// are a config URL and a request path, so a loop is a handful of steps.
+export function trimSlashes(value) {
+  let out = String(value ?? "");
+  while (out.endsWith("/")) out = out.slice(0, -1);
+  return out;
+}

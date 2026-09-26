@@ -86,14 +86,15 @@ section("sitemap.xml");
   ok("every URL is absolute https", locs.every((l) => l.startsWith("https://")),
      locs.find((l) => !l.startsWith("https://")) || "");
   ok("no duplicate URLs", new Set(locs).size === locs.length);
-  ok("the homepage is listed", locs.includes("https://3d-prints.aswincloud.com/"));
-  ok("policy pages are listed", locs.includes("https://3d-prints.aswincloud.com/contact"));
+  const listed = (u) => locs.some((l) => l === u);
+  ok("the homepage is listed", listed("https://3d-prints.aswincloud.com/"));
+  ok("policy pages are listed", listed("https://3d-prints.aswincloud.com/contact"));
 
   // The local landing page. In the sitemap, so a 404 here is a dead URL handed
   // straight to Google — and it 404'd on production once already, because the
   // path was missing from run_worker_first.
   ok("the Pondicherry landing page is listed",
-     locs.includes("https://3d-prints.aswincloud.com/3d-printing-in-pondicherry"));
+     listed("https://3d-prints.aswincloud.com/3d-printing-in-pondicherry"));
   ok("it outranks the policy pages", (() => {
     const prio = xml.match(/<loc>[^<]*3d-printing-in-pondicherry<\/loc>[\s\S]*?<priority>([\d.]+)<\/priority>/);
     return prio && Number(prio[1]) >= 0.9;
@@ -104,7 +105,7 @@ section("sitemap.xml");
   // Each of these, if wrong, puts a URL in the sitemap that returns a 404 or a
   // redirect. Google counts those against the site.
   ok("a PRICED, VISIBLE product is listed",
-     locs.includes("https://3d-prints.aswincloud.com/p/dragon"));
+     listed("https://3d-prints.aswincloud.com/p/dragon"));
   ok("a HIDDEN product is NOT listed",
      !locs.some((l) => l.includes("hidden-thing")),
      "productPage() redirects a hidden slug — Google would record a redirect chain");
@@ -134,7 +135,7 @@ section("sitemap.xml");
   };
   const xml = await text(await sitemap(env));
   ok("survives a D1 failure", xml.includes("<urlset"));
-  ok("and still lists the static pages", xml.includes("https://3d-prints.aswincloud.com/"));
+  ok("and still lists the static pages", /<loc>https:\/\/3d-prints\.aswincloud\.com\/<\/loc>/.test(xml));
   ok("with no product URLs", !xml.includes("/p/"));
 }
 {
@@ -263,7 +264,7 @@ section("script serialisation");
   ok("< is escaped in the JSON", evil.includes("\\u003c"));
   ok("the block still closes properly", evil.trim().endsWith("</script>"));
   ok("and it is still valid JSON", (() => {
-    const inner = evil.replace(/^<script[^>]*>/, "").replace(/<\/script>$/, "");
+    const inner = evil.replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "");
     try { JSON.parse(inner); return true; } catch { return false; }
   })());
 }

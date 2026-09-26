@@ -224,7 +224,7 @@ function stubFetch({ invoicerStatus = 200, invoicerBody = null } = {}) {
         JSON.stringify(invoicerBody ?? { ok: true, id: "inv-1", number: "AP-2026-STUB", emailed: true }),
         { status: invoicerStatus, headers: { "content-type": "application/json" } });
     }
-    if (u.includes("api.razorpay.com")) {
+    if (new URL(u).hostname === "api.razorpay.com") {
       const body = JSON.parse(init.body || "{}");
       calls.razorpay.push({ url: u, body, headers: init.headers });
       return new Response(JSON.stringify({
@@ -237,7 +237,7 @@ function stubFetch({ invoicerStatus = 200, invoicerBody = null } = {}) {
       return new Response(JSON.stringify({ ok: true, whatsapp: "sent" }),
         { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (u.includes("api.resend.com")) {
+    if (new URL(u).hostname === "api.resend.com") {
       calls.resend.push(JSON.parse(init.body || "{}"));
       return new Response(JSON.stringify({ id: "email_stub" }), { status: 200 });
     }
@@ -641,7 +641,7 @@ section("webhook — invoicing");
   const { env, order } = await seedPaidOrder();
   globalThis.fetch = async (url, init) => {
     if (String(url).includes("/api/ingest/order")) throw new Error("ECONNREFUSED");
-    if (String(url).includes("api.resend.com")) return new Response("{}", { status: 200 });
+    if (new URL(String(url)).hostname === "api.resend.com") return new Response("{}", { status: 200 });
     throw new Error("unexpected fetch: " + url);
   };
   const ctx = makeCtx();

@@ -231,7 +231,7 @@ section("the quotation email");
     plink_expires: 1787000000000, reply_note: "Two <days> & counting",
   });
   ok("carries the amount", html.includes("1,234.5"), html.slice(0, 0) || "amount missing");
-  ok("carries the pay link", html.includes("https://rzp.io/i/abc"));
+  ok("carries the pay link", /href="https:\/\/rzp\.io\/i\/abc"/.test(html), html.slice(0, 200));
   ok("names the receipt", html.includes("QT-ABCD1234"));
   // Customer-typed text and owner-typed notes both land in HTML here.
   ok("the note is escaped", html.includes("&lt;days&gt;") && !html.includes("<days>"));
