@@ -7,8 +7,8 @@
 // The tampering block is the point of the whole file. Everything else is
 // arithmetic.
 
-import { applyCoupon, recordRedemption, normaliseCode, listCoupons, updateCoupon } from "../src/coupons.js";
-import { priceCart } from "../src/shop.js";
+import { applyCoupon, recordRedemption, normaliseCode, listCoupons, updateCoupon, createCoupon } from "../src/coupons.js";
+import { priceCart, featuredPromo } from "../src/shop.js";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -34,12 +34,16 @@ const COUPON = {
 // ── fake D1 ───────────────────────────────────────────────────────
 // Dispatches on the statements coupons.js and shop.js actually issue, and throws
 // on anything else — a changed query must not quietly turn a test green.
-function makeDB({ coupons = [], redemptions = [], products = CATALOGUE } = {}) {
+// `scope` is [[coupon_id, product_id], ...] — the coupon_products rows.
+function makeDB({ coupons = [], redemptions = [], products = CATALOGUE, scope = [] } = {}) {
   const db = {
     coupons: coupons.map((c) => ({ ...c })),
     coupon_redemptions: redemptions.map((r) => ({ ...r })),
     products: products.map((p) => ({ ...p })),
+    coupon_products: scope.map(([coupon_id, product_id]) => ({ coupon_id, product_id })),
   };
+  const nameOf = (id) => db.products.find((p) => p.id === id)?.name;
+  const byName = (x, y) => String(x.name).localeCompare(String(y.name));
 
   const run = (sql, a) => {
     const s = sql.replace(/\s+/g, " ").trim();
@@ -47,6 +51,53 @@ function makeDB({ coupons = [], redemptions = [], products = CATALOGUE } = {}) {
     if (s.startsWith("SELECT id, name, price_paise, personalise_label, personalise_required FROM products")) {
       const want = new Set(a);
       return { results: db.products.filter((p) => p.visible === 1 && want.has(p.id)) };
+    }
+    // ── product scope (0024) ──
+    if (s.startsWith("SELECT cp.product_id, p.name FROM coupon_products")) {
+      // Joined: a product that no longer exists drops out, as it would in SQL.
+      return { results: db.coupon_products.filter((r) => r.coupon_id === a[0] && nameOf(r.product_id))
+        .map((r) => ({ product_id: r.product_id, name: nameOf(r.product_id) })).sort(byName) };
+    }
+    if (s.startsWith("SELECT cp.coupon_id, cp.product_id, p.name FROM coupon_products")) {
+      return { results: db.coupon_products.filter((r) => nameOf(r.product_id))
+        .map((r) => ({ coupon_id: r.coupon_id, product_id: r.product_id, name: nameOf(r.product_id) })).sort(byName) };
+    }
+    if (s.startsWith("SELECT id FROM products WHERE id IN")) {
+      const want = new Set(a);
+      return { results: db.products.filter((p) => want.has(p.id)).map((p) => ({ id: p.id })) };
+    }
+    if (s.startsWith("DELETE FROM coupon_products WHERE coupon_id = ?")) {
+      const n = db.coupon_products.length;
+      db.coupon_products = db.coupon_products.filter((r) => r.coupon_id !== a[0]);
+      return { meta: { changes: n - db.coupon_products.length } };
+    }
+    if (s.startsWith("INSERT INTO coupon_products")) {
+      db.coupon_products.push({ coupon_id: a[0], product_id: a[1] });
+      return { meta: { changes: 1 } };
+    }
+    // ── admin CRUD, enough for the scope tests ──
+    if (s.startsWith("SELECT * FROM coupons WHERE id = ?")) {
+      return { first: db.coupons.find((c) => c.id === a[0]) || null };
+    }
+    if (s.startsWith("SELECT id, code, kind, value") && s.includes("WHERE id = ?")) {
+      return { first: db.coupons.find((c) => c.id === a[0]) || null };
+    }
+    if (s.startsWith("SELECT id, code, kind, value") && s.includes("ORDER BY active DESC")) {
+      return { results: db.coupons };
+    }
+    if (s.startsWith("SELECT coupon_code, COUNT(*)")) return { results: [] };
+    if (s.startsWith("INSERT INTO coupons (")) {
+      const cols = s.slice(s.indexOf("(") + 1, s.indexOf(")")).split(",").map((c) => c.trim());
+      const vals = s.slice(s.indexOf("VALUES (") + 8).split(")")[0].split(",").map((v) => v.trim());
+      const row = {}; let i = 0;
+      cols.forEach((c, k) => { row[c] = vals[k] === "?" ? a[i++] : Number(vals[k]); });
+      db.coupons.push(row);
+      return { meta: { changes: 1 } };
+    }
+    if (s.startsWith("UPDATE coupons SET") && s.endsWith("WHERE id = ?") && !s.includes("uses = uses + 1")) {
+      const c = db.coupons.find((x) => x.id === a[a.length - 1]);
+      if (c) s.slice("UPDATE coupons SET ".length, s.indexOf(" WHERE")).split(",").forEach((part, k) => { c[part.trim().split(" ")[0]] = a[k]; });
+      return { meta: { changes: c ? 1 : 0 } };
     }
     // The full-column read used by applyCoupon. Must be matched BEFORE the
     // id-only form below, which is a prefix of nothing but reads similarly.
@@ -95,6 +146,8 @@ function makeDB({ coupons = [], redemptions = [], products = CATALOGUE } = {}) {
         async run() { return run(sql, this._a || []); },
       };
     },
+    // D1's batch: each statement in order. writeScope() relies on it.
+    async batch(stmts) { const out = []; for (const st of stmts) out.push(await st.run()); return out; },
   };
 }
 const envWith = (opts) => ({ ...ENV, DB: makeDB(opts) });
@@ -350,6 +403,7 @@ section("listCoupons() — money aggregation");
     return { bind() { return this; }, async all() {
       if (s.startsWith("SELECT id, code, kind, value")) return { results: coupons };
       if (s.startsWith("SELECT coupon_code,")) return { results: totals };
+      if (s.startsWith("SELECT cp.coupon_id")) return { results: [] };
       throw new Error("unhandled SQL: " + s.slice(0, 60));
     } };
   } } };
@@ -370,7 +424,7 @@ section("listCoupons() — money aggregation");
       if (s.startsWith("SELECT id, code, kind, value")) {
         return { results: [{ id: "e2", code: "UNUSED", kind: "fixed", value: 10000, uses: 0 }] };
       }
-      return { results: [] };
+      return { results: [] };   // totals and the product scope alike
     } };
   } } };
   const c = (await (await listCoupons(env)).json()).coupons[0];
@@ -388,6 +442,7 @@ section("listCoupons() — money aggregation");
       if (s.startsWith("SELECT id, code, kind, value")) {
         return { results: [{ id: "e3", code: "SAVE10", kind: "percent", value: 10, uses: 1 }] };
       }
+      if (s.startsWith("SELECT cp.coupon_id")) return { results: [] };
       return { results: [{ coupon_code: "save10", orders: 1, discount_paise: 5000,
                            revenue_paise: 50000, last_used: 1 }] };
     } };
@@ -494,6 +549,131 @@ section("admin — editing a coupon");
     ok("a missing coupon is a 404", status === 404, String(status));
     ok("and says so", /not found/i.test(out.error || ""), out.error);
   }
+}
+
+// ── product-scoped codes (0024) ──────────────────────────────────
+//
+// A code limited to certain products is computed on THOSE lines only, refused
+// by name when none is in the cart, and never widened to the whole cart by a
+// caller that forgot to pass the lines. The scope rows live in coupon_products.
+section("scoped coupons — computed on the eligible items only");
+{
+  // BIRD10 is 10% off, limited to the Kingfisher. Cart: 2 Kingfisher + 1 Elephant.
+  const scoped = { ...COUPON, id: "c-s", code: "BIRD10" };
+  const env = envWith({ coupons: [scoped], scope: [["c-s", "p-small"]] });
+  const r = await priceCart(env, [{ product_id: "p-small", qty: 2 }, { product_id: "p-large", qty: 1 }], "ship", "BIRD10");
+  ok("percent is taken on the eligible lines only (10% of ₹698 → ₹70)", r.discount_paise === 7000, String(r.discount_paise));
+  ok("the Elephant is untouched: total = 698 + 899 − 70 + 99 shipping", r.total_paise === 69800 + 89900 - 7000 + 9900, String(r.total_paise));
+  ok("says what it applied to", Array.isArray(r.applies_to) && r.applies_to.join() === "Kingfisher", JSON.stringify(r.applies_to));
+}
+{
+  const fixed = { ...COUPON, id: "c-f", code: "BIRD500", kind: "fixed", value: 50000 };
+  const env = envWith({ coupons: [fixed], scope: [["c-f", "p-small"]] });
+  const r = await priceCart(env, [{ product_id: "p-small", qty: 1 }, { product_id: "p-large", qty: 1 }], "ship", "BIRD500");
+  ok("a fixed discount is clamped to the eligible item, never the rest of the cart", r.discount_paise === 34900, String(r.discount_paise));
+}
+{
+  const ship = { ...COUPON, id: "c-sh", code: "BIRDSHIP", kind: "shipping", value: 0 };
+  const env = envWith({ coupons: [ship], scope: [["c-sh", "p-small"]] });
+  const yes = await priceCart(env, [{ product_id: "p-small", qty: 1 }], "ship", "BIRDSHIP");
+  ok("free shipping when an eligible item is in the cart", yes.shipping_paise === 0 && yes.discount_paise === 0, JSON.stringify(yes));
+  const no = await priceCart(env, [{ product_id: "p-large", qty: 1 }], "ship", "BIRDSHIP");
+  ok("refused when none is", no.error === "That code only applies to Kingfisher.", no.error);
+}
+{
+  const scoped = { ...COUPON, id: "c-s", code: "BIRD10" };
+  const env = envWith({ coupons: [scoped], scope: [["c-s", "p-small"]] });
+  const r = await priceCart(env, [{ product_id: "p-large", qty: 1 }], "ship", "BIRD10");
+  ok("a cart with none of the products is refused BY NAME", r.error === "That code only applies to Kingfisher.", r.error);
+  ok("and nothing is priced", r.discount_paise === undefined && r.total_paise === undefined);
+}
+{
+  // Minimum order is a property of the ORDER, not of the eligible lines.
+  const scoped = { ...COUPON, id: "c-s", code: "BIRD10", min_order_paise: 100000 };
+  const env = envWith({ coupons: [scoped], scope: [["c-s", "p-small"]] });
+  const both = await priceCart(env, [{ product_id: "p-small", qty: 1 }, { product_id: "p-large", qty: 1 }], "ship", "BIRD10");
+  ok("a ₹1,000 minimum is met by the whole ₹1,248 cart", !both.error && both.discount_paise === 3500, JSON.stringify(both));
+  const one = await priceCart(env, [{ product_id: "p-small", qty: 1 }], "ship", "BIRD10");
+  ok("and enforced against the whole cart", /minimum/.test(one.error || ""), one.error);
+}
+{
+  // The refusal that keeps the scope honest: called without lines, a scoped code
+  // is refused rather than quietly applied to the whole subtotal.
+  const scoped = { ...COUPON, id: "c-s", code: "BIRD10" };
+  const env = envWith({ coupons: [scoped], scope: [["c-s", "p-small"]] });
+  const r = await applyCoupon(env, "BIRD10", 100000, null);
+  ok("a scoped code with no lines to check is refused, not widened", /only applies to Kingfisher/.test(r.error || ""), JSON.stringify(r));
+  const plain = await applyCoupon(envWith({ coupons: [COUPON] }), "SAVE10", 100000, null);
+  ok("an unscoped code is exactly as before", plain.discount_paise === 10000 && plain.applies_to === null, JSON.stringify(plain));
+}
+{
+  const products = [...CATALOGUE,
+    { id: "p-3", name: "Charizard", price_paise: 10000, visible: 1 },
+    { id: "p-4", name: "Dragon", price_paise: 10000, visible: 1 },
+    { id: "p-5", name: "Zebra", price_paise: 10000, visible: 1 }];
+  const scoped = { ...COUPON, id: "c-s", code: "MANY" };
+  const env = envWith({ coupons: [scoped], products, scope: [["c-s", "p-small"], ["c-s", "p-3"], ["c-s", "p-4"], ["c-s", "p-5"]] });
+  const r = await priceCart(env, [{ product_id: "p-large", qty: 1 }], "ship", "MANY");
+  ok("the message names three and counts the rest", r.error === "That code only applies to Charizard, Dragon, Kingfisher and 1 more.", r.error);
+  const two = envWith({ coupons: [scoped], products, scope: [["c-s", "p-small"], ["c-s", "p-3"]] });
+  const r2 = await priceCart(two, [{ product_id: "p-large", qty: 1 }], "ship", "MANY");
+  ok("two names read as a pair", r2.error === "That code only applies to Charizard and Kingfisher.", r2.error);
+}
+
+section("featuredPromo() — a scoped code is not banner material");
+{
+  const row = { ...COUPON, id: "c-s", code: "BIRD10" };
+  const scopedEnv = { ...ENV, PROMO_CODE: "BIRD10", DB: makeDB({ coupons: [row], scope: [["c-s", "p-small"]] }) };
+  ok("a code limited to products does not become the homepage banner", await featuredPromo(scopedEnv) === null);
+  const plainEnv = { ...ENV, PROMO_CODE: "BIRD10", DB: makeDB({ coupons: [row] }) };
+  const promo = await featuredPromo(plainEnv);
+  ok("the same code unscoped still does", promo && promo.code === "BIRD10", JSON.stringify(promo));
+}
+
+section("admin — a code limited to products");
+{
+  const read = async (r) => [r.status, await r.json()];
+  const env = envWith({ coupons: [] });
+  const [st, out] = await read(await createCoupon(env, { code: "BIRD10", kind: "percent", value: 10, product_ids: ["p-small", "p-small"] }));
+  ok("created with a product scope", st === 201 && out.coupon?.products?.length === 1, `${st} ${JSON.stringify(out)}`);
+  ok("duplicates in the list collapse to one row", env.DB._db.coupon_products.length === 1);
+  ok("the read-back names the product", out.coupon.products[0].id === "p-small" && out.coupon.products[0].name === "Kingfisher");
+  const [st2, out2] = await read(await createCoupon(env, { code: "GHOST", kind: "percent", value: 10, product_ids: ["nope"] }));
+  ok("an unknown product id is refused", st2 === 400 && /Unknown product id: nope/.test(out2.error || ""), `${st2} ${out2.error}`);
+  ok("and no half-made code is left behind", !env.DB._db.coupons.some((c) => c.code === "GHOST"));
+  const [st3] = await read(await createCoupon(env, { code: "TOOMANY", kind: "percent", value: 10, product_ids: Array.from({ length: 51 }, (_, i) => "p" + i) }));
+  ok("more than 50 products is refused", st3 === 400);
+  const [st4, out4] = await read(await createCoupon(env, { code: "BADLIST", kind: "percent", value: 10, product_ids: "p-small" }));
+  ok("a non-list is refused", st4 === 400 && /list/.test(out4.error || ""), out4.error);
+  const [st5, out5] = await read(await createCoupon(env, { code: "PLAIN", kind: "percent", value: 10 }));
+  ok("no product_ids = a whole-cart code, exactly as before", st5 === 201 && out5.coupon.products.length === 0);
+}
+{
+  const read = async (r) => [r.status, await r.json()];
+  const env = envWith({ coupons: [{ ...COUPON, id: "c-1", created_at: 1, updated_at: 1 }] });
+  let [st, out] = await read(await updateCoupon(env, "c-1", { product_ids: ["p-large"] }));
+  ok("a patch with ONLY product_ids is a real edit", st === 200, `${st} ${out.error || ""}`);
+  ok("and writes the scope", env.DB._db.coupon_products.map((r) => r.product_id).join() === "p-large", JSON.stringify(env.DB._db.coupon_products));
+  ok("the response carries the products", out.coupon?.products?.[0]?.name === "Elephant", JSON.stringify(out.coupon?.products));
+  ok("and bumps updated_at", env.DB._db.coupons[0].updated_at > 1);
+  [st] = await read(await updateCoupon(env, "c-1", { product_ids: ["p-small", "p-large"] }));
+  ok("replacing the scope replaces it wholesale", st === 200 && env.DB._db.coupon_products.length === 2);
+  [st, out] = await read(await updateCoupon(env, "c-1", { product_ids: [] }));
+  ok("an empty list clears it — back to the whole cart", st === 200 && env.DB._db.coupon_products.length === 0 && out.coupon.products.length === 0);
+  [st] = await read(await updateCoupon(env, "c-1", { product_ids: ["nope"] }));
+  ok("an unknown id is refused on update too", st === 400);
+  [st] = await read(await updateCoupon(env, "c-1", {}));
+  ok("an empty patch is still 'nothing to update'", st === 400);
+}
+{
+  const env = envWith({
+    coupons: [{ ...COUPON, id: "c-1", created_at: 1, updated_at: 1 }, { ...COUPON, id: "c-2", code: "OTHER", created_at: 1, updated_at: 1 }],
+    scope: [["c-1", "p-small"]],
+  });
+  const body = await (await listCoupons(env)).json();
+  const byCode = Object.fromEntries(body.coupons.map((c) => [c.code, c]));
+  ok("the list carries each code's products", byCode.SAVE10.products.length === 1 && byCode.SAVE10.products[0].name === "Kingfisher", JSON.stringify(byCode.SAVE10.products));
+  ok("an unscoped code lists none", Array.isArray(byCode.OTHER.products) && byCode.OTHER.products.length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

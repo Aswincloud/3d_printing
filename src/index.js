@@ -429,6 +429,7 @@ async function api(request, env, url, ctx) {
       code: priced.coupon_code,
       subtotal_paise: priced.subtotal_paise,
       discount_paise: priced.discount_paise,
+      applies_to: priced.applies_to ?? null,
       shipping_paise: priced.shipping_paise,
       total_paise: priced.total_paise,
     });

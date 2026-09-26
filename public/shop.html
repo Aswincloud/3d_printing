@@ -255,6 +255,15 @@
           <input type="checkbox" id="cpOnce" name="once" />
           <span>One use per customer</span>
         </label>
+        <!-- Limit the code to certain products. Nothing ticked = the whole cart,
+             which is what every code did before this existed. The discount is
+             then computed on those items only — see applyCoupon() in coupons.js. -->
+        <div class="cf-field cf-wide">
+          <span>Only for these products <em class="cf-optional">optional · nothing ticked = whole cart</em></span>
+          <input type="search" id="cpProductFilter" placeholder="Type to filter products…" autocomplete="off" />
+          <div id="cpProducts" class="cp-products" role="group" aria-label="Products this code applies to"></div>
+          <span class="cf-hint" id="cpProductsCount">Applies to the whole cart.</span>
+        </div>
       </div>
       <button type="submit" class="admin-btn" id="cpCreate">Create code</button>
     </form>

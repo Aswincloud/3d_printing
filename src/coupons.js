@@ -43,7 +43,33 @@ const rupees = (paise) => "₹" + Math.round(paise / 100).toLocaleString("en-IN"
 // `error` is customer-facing, so it says what to do about it where that helps
 // ("Add ₹201 more") and stays vague where saying more would leak whether a code
 // exists at all.
-export async function applyCoupon(env, rawCode, subtotalPaise, email) {
+// Up to three product names, then "and N more". For the refusal a scoped code
+// gives a cart that holds none of its products — the message has to say WHICH.
+function listNames(names) {
+  const shown = names.slice(0, 3);
+  const rest = names.length - shown.length;
+  const head = shown.length > 1 ? shown.slice(0, -1).join(", ") + " and " + shown.at(-1) : shown[0];
+  return rest > 0 ? `${shown.join(", ")} and ${rest} more` : head;
+}
+
+// The products a code is limited to, with names for messages. Empty = the whole
+// cart. One query, joined, so a product that no longer exists simply drops out.
+export async function couponScope(env, couponId) {
+  const { results } = await env.DB.prepare(
+    `SELECT cp.product_id, p.name
+       FROM coupon_products cp
+       JOIN products p ON p.id = cp.product_id
+      WHERE cp.coupon_id = ?
+      ORDER BY p.name`
+  ).bind(couponId).all();
+  return results || [];
+}
+
+// `items` are priceCart()'s priced lines ({product_id, price_paise, qty}). They
+// decide what a SCOPED code applies to; an unscoped code never looks at them.
+// A scoped code with no items to look at is refused rather than widened to the
+// whole cart — that is the one way the scope could silently stop mattering.
+export async function applyCoupon(env, rawCode, subtotalPaise, email, items = null) {
   const code = normaliseCode(rawCode);
   if (!code) return { error: "Enter a promo code." };
 
@@ -69,6 +95,26 @@ export async function applyCoupon(env, rawCode, subtotalPaise, email) {
   if (subtotalPaise < c.min_order_paise) {
     const short = c.min_order_paise - subtotalPaise;
     return { error: `Add ${rupees(short)} more to use this code (minimum ${rupees(c.min_order_paise)}).` };
+  }
+
+  // ── product scope ──
+  // The discount is computed on the ELIGIBLE lines only. `base` is the whole
+  // subtotal for an unscoped code and the eligible items' subtotal for a scoped
+  // one; everything below this point works on `base`, so no arithmetic branch
+  // can accidentally reach for the whole cart.
+  const scope = await couponScope(env, c.id);
+  let base = subtotalPaise;
+  let appliesTo = null;
+  if (scope.length) {
+    appliesTo = scope.map((s) => s.name);
+    const eligible = new Set(scope.map((s) => s.product_id));
+    // No lines passed (a caller that only knows the subtotal) reads as no
+    // eligible lines, and is refused below — never widened to the whole cart.
+    base = (Array.isArray(items) ? items : []).reduce((sum, it) =>
+      sum + (eligible.has(it.product_id) ? Number(it.price_paise) * Number(it.qty) : 0), 0);
+    if (base <= 0) {
+      return { error: `That code only applies to ${listNames(appliesTo)}.` };
+    }
   }
 
   // Once-per-customer, keyed on email — see the note in 0007_coupons.sql on why
@@ -101,7 +147,7 @@ export async function applyCoupon(env, rawCode, subtotalPaise, email) {
     // Ceil rather than floor so the rounding favours the customer (₹90 off, not
     // ₹89): at most 99 paise per order, and a promo that rounds against the
     // person redeeming it is a bad look for the sake of a rupee.
-    const raw = (subtotalPaise * c.value) / 100;
+    const raw = (base * c.value) / 100;
     discount = Math.ceil(raw / 100) * 100;
     if (c.max_discount_paise !== null && discount > c.max_discount_paise) {
       discount = c.max_discount_paise;
@@ -123,10 +169,12 @@ export async function applyCoupon(env, rawCode, subtotalPaise, email) {
   // Clamp. A ₹500-off code on a ₹299 cart gives ₹299 off, never a negative
   // total — Razorpay rejects those, and the customer would see a broken
   // checkout rather than a discount.
-  if (discount > subtotalPaise) discount = subtotalPaise;
+  // For a scoped code the clamp is the ELIGIBLE subtotal: a ₹300-off code on one
+  // ₹250 product in a ₹1,000 cart gives ₹250 off, never ₹300 off the rest.
+  if (discount > base) discount = base;
   if (discount < 0) discount = 0;
 
-  return { coupon: c, discount_paise: discount, free_shipping: freeShipping };
+  return { coupon: c, discount_paise: discount, free_shipping: freeShipping, applies_to: appliesTo };
 }
 
 // Called from the order.paid webhook branch, never from order creation.
@@ -256,7 +304,55 @@ function validateCouponBody(body, { partial = false } = {}) {
   if (has("once_per_customer")) out.once_per_customer = body.once_per_customer ? 1 : 0;
   if (has("active")) out.active = body.active ? 1 : 0;
 
+  // Optional. Absent = leave the scope alone (update) or none (create). An empty
+  // list or null CLEARS it — back to the whole cart — and must be settable.
+  if (has("product_ids")) {
+    const raw = body.product_ids;
+    if (raw === null || raw === "") out.product_ids = [];
+    else if (!Array.isArray(raw)) errors.push("product_ids must be a list of product ids.");
+    else {
+      const ids = [...new Set(raw.map((v) => clip(v, 64)).filter(Boolean))];
+      if (ids.length > 50) errors.push("A code can be limited to at most 50 products.");
+      out.product_ids = ids;
+    }
+  }
+
   return { fields: out, errors };
+}
+
+// Every id must be a real product, or the code would silently apply to nothing.
+// Returns the error message, or null.
+async function checkProductIds(env, ids) {
+  if (!ids.length) return null;
+  const ph = ids.map(() => "?").join(",");
+  const { results } = await env.DB.prepare(
+    `SELECT id FROM products WHERE id IN (${ph})`).bind(...ids).all();
+  const known = new Set((results || []).map((r) => r.id));
+  const missing = ids.filter((id) => !known.has(id));
+  return missing.length ? `Unknown product id: ${missing[0]}` : null;
+}
+
+// Replace a code's scope wholesale, in one batch. Deleting first makes the
+// write idempotent and makes "clear it" the same operation as "set it".
+async function writeScope(env, couponId, ids) {
+  const stmts = [env.DB.prepare(`DELETE FROM coupon_products WHERE coupon_id = ?`).bind(couponId)];
+  for (const pid of ids) {
+    stmts.push(env.DB.prepare(
+      `INSERT INTO coupon_products (coupon_id, product_id) VALUES (?, ?)`).bind(couponId, pid));
+  }
+  await env.DB.batch(stmts);
+}
+
+// One coupon as the dashboard wants it: the row plus its products by name.
+async function readCoupon(env, id) {
+  const row = await env.DB.prepare(
+    `SELECT id, code, kind, value, min_order_paise, max_discount_paise, expires_at,
+            max_uses, uses, once_per_customer, active, created_at, updated_at
+       FROM coupons WHERE id = ?`
+  ).bind(id).first();
+  if (!row) return null;
+  const scope = await couponScope(env, id);
+  return { ...row, products: scope.map((s) => ({ id: s.product_id, name: s.name })) };
 }
 
 export async function listCoupons(env) {
@@ -286,10 +382,25 @@ export async function listCoupons(env) {
 
   const byCode = new Map((totals || []).map((t) => [String(t.coupon_code).toUpperCase(), t]));
 
+  // Which products each code is limited to. One query for the whole list, then
+  // grouped here; a code with no rows shows an empty list, meaning "everything".
+  const { results: scoped } = await env.DB.prepare(
+    `SELECT cp.coupon_id, cp.product_id, p.name
+       FROM coupon_products cp
+       JOIN products p ON p.id = cp.product_id
+      ORDER BY p.name`
+  ).all();
+  const productsOf = new Map();
+  for (const r of scoped || []) {
+    if (!productsOf.has(r.coupon_id)) productsOf.set(r.coupon_id, []);
+    productsOf.get(r.coupon_id).push({ id: r.product_id, name: r.name });
+  }
+
   const coupons = (results || []).map((c) => {
     const t = byCode.get(String(c.code).toUpperCase());
     return {
       ...c,
+      products: productsOf.get(c.id) || [],
       paid_orders: t?.orders || 0,
       given_away_paise: t?.discount_paise || 0,
       revenue_paise: t?.revenue_paise || 0,
@@ -329,6 +440,11 @@ export async function createCoupon(env, body) {
   const dup = await env.DB.prepare(`SELECT id FROM coupons WHERE code = ?`).bind(fields.code).first();
   if (dup) return bad("A coupon with that code already exists.", 409);
 
+  // Checked BEFORE the insert, so a typo in a product id leaves no half-made code.
+  const scopeIds = fields.product_ids || [];
+  const badId = await checkProductIds(env, scopeIds);
+  if (badId) return bad(badId);
+
   const id = uid();
   const ts = now();
   await env.DB.prepare(
@@ -341,13 +457,9 @@ export async function createCoupon(env, body) {
     fields.expires_at ?? null, fields.max_uses ?? null,
     fields.once_per_customer ?? 0, fields.active ?? 1, ts, ts,
   ).run();
+  if (scopeIds.length) await writeScope(env, id, scopeIds);
 
-  const row = await env.DB.prepare(
-    `SELECT id, code, kind, value, min_order_paise, max_discount_paise, expires_at,
-            max_uses, uses, once_per_customer, active, created_at, updated_at
-       FROM coupons WHERE id = ?`
-  ).bind(id).first();
-  return json({ ok: true, coupon: row }, 201);
+  return json({ ok: true, coupon: await readCoupon(env, id) }, 201);
 }
 
 // PATCH semantics, same as updateProduct: only the fields present in the body
@@ -388,7 +500,14 @@ export async function updateCoupon(env, id, body) {
     if (col in fields) put(col, fields[col]);
   }
 
-  if (!sets.length) return bad("Nothing to update.");
+  // A patch that only changes the products is a real edit, not "nothing".
+  const scopeChange = "product_ids" in fields;
+  if (!sets.length && !scopeChange) return bad("Nothing to update.");
+
+  if (scopeChange) {
+    const badId = await checkProductIds(env, fields.product_ids);
+    if (badId) return bad(badId);
+  }
 
   if ("code" in fields) {
     const dup = await env.DB.prepare(
@@ -400,13 +519,9 @@ export async function updateCoupon(env, id, body) {
   put("updated_at", now());
   args.push(id);
   await env.DB.prepare(`UPDATE coupons SET ${sets.join(", ")} WHERE id = ?`).bind(...args).run();
+  if (scopeChange) await writeScope(env, id, fields.product_ids);
 
-  const row = await env.DB.prepare(
-    `SELECT id, code, kind, value, min_order_paise, max_discount_paise, expires_at,
-            max_uses, uses, once_per_customer, active, created_at, updated_at
-       FROM coupons WHERE id = ?`
-  ).bind(id).first();
-  return json({ ok: true, coupon: row });
+  return json({ ok: true, coupon: await readCoupon(env, id) });
 }
 
 // Mirrors deleteProduct: a coupon that has been redeemed is DEACTIVATED rather
