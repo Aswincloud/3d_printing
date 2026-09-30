@@ -17,6 +17,7 @@ const STATIC_PAGES = [
   // ones a buyer only reads after arriving.
   { path: "/3d-printing-in-pondicherry", priority: "0.9", changefreq: "monthly" },
   { path: "/contact", priority: "0.5", changefreq: "monthly" },
+  { path: "/udyam", priority: "0.3", changefreq: "yearly" },
   { path: "/shipping", priority: "0.3", changefreq: "yearly" },
   { path: "/refunds", priority: "0.3", changefreq: "yearly" },
   { path: "/terms", priority: "0.2", changefreq: "yearly" },

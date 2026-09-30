@@ -5,7 +5,7 @@
 // only thing between a tampered cart and a wrong charge.
 
 import { priceCart, shippingFor, shippingConfig, MAX_QTY, listProducts } from "../src/shop.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -587,6 +587,29 @@ section("listProducts() — image versioning");
   ok("no manifest → still lists, just unversioned",
      out.products.length === 1 && out.products[0].image === "assets/images/x.jpg",
      JSON.stringify(out.products.map((p) => p.image)));
+}
+
+// ── every HTML page that runs script goes through the Worker ──────
+//
+// run_worker_first is how a page gets the CSP and the other security headers;
+// a page left off it is served straight by the asset server with none. The list
+// is maintained by hand ("extend this list when another HTML page is added"),
+// and /udyam was nearly shipped without its entry — caught in review, not here.
+// So the rule is checked against the files that exist.
+section("run_worker_first covers every HTML page that loads a script");
+{
+  const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const listed = new Set([...toml.slice(toml.indexOf("run_worker_first")).split("]")[0].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  const dir = new URL("../public/", import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".html"))) {
+    const html = readFileSync(new URL(f, dir), "utf8");
+    if (!/<script\b/i.test(html)) continue;
+    const bare = "/" + f.replace(/\.html$/, "");
+    // 404.html is served by the Worker's own not-found handling, not by path.
+    if (f === "404.html") continue;
+    const paths = f === "index.html" ? ["/", "/index.html"] : [bare, "/" + f];
+    for (const path of paths) ok(`${path} is in run_worker_first`, listed.has(path), `${f} loads a script but ${path} would skip the Worker's security headers`);
+  }
 }
 
 // ── the _headers file is what actually applies the cache policy ───
