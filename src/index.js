@@ -8,6 +8,7 @@ import { json, bad, isEmail, sendEmail, now, rupees } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
+import { googleFeed } from "./feed.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
 import { listProducts, priceCart, featuredPromo } from "./shop.js";
 // Aliased like the admin.js imports below: coupons.js exports its own CRUD names
@@ -78,6 +79,14 @@ export default {
         return withSecurityHeaders(await sitemap(env));
       } catch (e) {
         console.error("sitemap error", e?.stack || e);
+        return withSecurityHeaders(new Response("", { status: 500 }));
+      }
+    }
+    if (url.pathname === "/feed/google.xml" && (request.method === "GET" || request.method === "HEAD")) {
+      try {
+        return withSecurityHeaders(await googleFeed(env));
+      } catch (e) {
+        console.error("feed error", e?.stack || e);
         return withSecurityHeaders(new Response("", { status: 500 }));
       }
     }
