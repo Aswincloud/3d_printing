@@ -1169,7 +1169,15 @@ export async function applyStageFromInvoicer(env, { receipt, kind, courier, trac
   // Guarded on the status read above, so two racing calls cannot both send.
   const res = await env.DB.prepare(
     `UPDATE orders SET ${sets.join(", ")} WHERE id = ? AND status = ?`).bind(...args).run();
-  if (!res.meta?.changes) return json({ ok: true, already: true });
+  if (!res.meta?.changes) {
+    // The order moved between the read and the write. Say what it is now:
+    // "already" only if it reached the stage (another call got there first);
+    // otherwise it was cancelled or refunded meanwhile, and that is a refusal.
+    const now_ = await env.DB.prepare(`SELECT status FROM orders WHERE id = ?`).bind(order.id).first();
+    const st = now_?.status || "";
+    if ((rank[st] || 0) >= rank[kind]) return json({ ok: true, already: true, status: st });
+    return bad(`Order is now "${st || "missing"}"; not moved.`, 409);
+  }
 
   const merged = { ...order, status: kind, courier: courier || order.courier, tracking_id: tracking || order.tracking_id };
   const mail = STAGE_EMAIL[kind];

@@ -29,7 +29,14 @@ function envWith(order, over = {}) {
   const calls = { mail: [], other: [] };
   const run = (sql, a) => {
     const s = sql.replace(/\s+/g, " ").trim();
-    if (s.startsWith("SELECT * FROM orders WHERE receipt = ?")) { const o = db.orders.find((x) => x.receipt === a[0]); return { first: o ? { ...o } : null }; }
+    if (s.startsWith("SELECT * FROM orders WHERE receipt = ?")) {
+      const o = db.orders.find((x) => x.receipt === a[0]);
+      // raceTo: the order changes right after this read, before the UPDATE.
+      const copy = o ? { ...o } : null;
+      if (o && db.raceTo) { o.status = db.raceTo; db.raceTo = null; }
+      return { first: copy };
+    }
+    if (s.startsWith("SELECT status FROM orders WHERE id = ?")) { const o = db.orders.find((x) => x.id === a[0]); return { first: o ? { status: o.status } : null }; }
     if (s.startsWith("UPDATE orders SET status = ?")) {
       const [id, prev] = a.slice(-2); const o = db.orders.find((x) => x.id === id);
       if (!o || o.status !== prev) return { meta: { changes: 0 } };
@@ -112,6 +119,20 @@ for (const status of ["cancelled", "refunded", "pending", "failed"]) {
 }
 ok("disabled when INVOICE_ENABLED is off", (await call(envWith(ORDER(), { INVOICE_ENABLED: "false" }), SHIP()))[0] === 503);
 ok("disabled when the secret is unset", (await call(envWith(ORDER(), { SHOP_INGEST_SECRET: "" }), SHIP()))[0] === 503);
+section("the order changes between read and write");
+{
+  const env = envWith(ORDER()); env._db.raceTo = "cancelled";
+  const [st, b] = await call(env, SHIP());
+  ok("cancelled meanwhile: 409, not 'already'", st === 409 && !b.already, `${st} ${JSON.stringify(b)}`);
+  ok("and no email", env._c.mail.length === 0);
+}
+{
+  const env = envWith(ORDER()); env._db.raceTo = "shipped";
+  const [st, b] = await call(env, SHIP());
+  ok("shipped meanwhile by another call: 200 already", st === 200 && b.already === true, JSON.stringify(b));
+  ok("and no second email", env._c.mail.length === 0);
+}
+
 section("silent reconcile (email: false)");
 {
   const env = envWith(ORDER());
