@@ -1130,6 +1130,63 @@ const STAGE_EMAIL = {
   },
 };
 
+// The invoicer's half of the shipment sync (see src/shipsync.js). Moves one
+// order to "shipped" or "delivered" along the same ALLOWED_TRANSITIONS the
+// dashboard uses, records courier/tracking, and sends the shop's own email for
+// the stage — but NEVER calls the invoicer back: the invoicer sent the WhatsApp,
+// which is why it is calling. Idempotent: an order already at or past the
+// stage answers "already" and changes nothing, so a retried call is harmless.
+//
+// `email: false` updates silently. Used once, by hand, to reconcile an order
+// whose customer was already told (AP-f814ee35).
+export async function applyStageFromInvoicer(env, { receipt, kind, courier, tracking, email = true }, ctx = null) {
+  const found = await env.DB.prepare(`SELECT * FROM orders WHERE receipt = ?`).bind(receipt).first();
+  if (!found) return bad("Order not found.", 404);
+  // A copy: the row below is compared against what was read, and the update
+  // must not be able to change it underneath.
+  const order = { ...found };
+
+  const rank = { paid: 1, in_production: 2, ready: 3, shipped: 4, delivered: 5 };
+  if (order.status === kind || (rank[order.status] || 0) > rank[kind]) {
+    return json({ ok: true, already: true, status: order.status });
+  }
+  // Delivered without a recorded shipment goes through "shipped" first, so the
+  // shipped_at stamp is not left empty on a delivered order.
+  const steps = kind === "delivered" && order.status !== "shipped" ? ["shipped", "delivered"] : [kind];
+  let status = order.status;
+  for (const step of steps) {
+    if (!(ALLOWED_TRANSITIONS[status] || []).includes(step)) {
+      return bad(`Cannot go from "${status}" to "${step}".`, 409);
+    }
+    status = step;
+  }
+
+  const sets = ["status = ?"]; const args = [kind];
+  for (const step of steps) { sets.push(`${STAGE_STAMP[step]} = COALESCE(${STAGE_STAMP[step]}, ?)`); args.push(now()); }
+  if (courier) { sets.push("courier = ?"); args.push(clip(courier, MAXLEN.courier)); }
+  if (tracking) { sets.push("tracking_id = ?"); args.push(clip(tracking, MAXLEN.tracking)); }
+  args.push(order.id, order.status);
+  // Guarded on the status read above, so two racing calls cannot both send.
+  const res = await env.DB.prepare(
+    `UPDATE orders SET ${sets.join(", ")} WHERE id = ? AND status = ?`).bind(...args).run();
+  if (!res.meta?.changes) return json({ ok: true, already: true });
+
+  const merged = { ...order, status: kind, courier: courier || order.courier, tracking_id: tracking || order.tracking_id };
+  const mail = STAGE_EMAIL[kind];
+  let emailed = false;
+  if (email && mail && env.RESEND_API_KEY && merged.cust_email) {
+    emailed = true;
+    const send = sendEmail(env, {
+      to: merged.cust_email,
+      replyTo: env.OWNER_EMAIL || "aswin@aswincloud.com",
+      subject: mail.subject(merged), html: mail.html(env, merged), text: mail.text(merged),
+    }).then((r) => { if (!r.ok) console.error(`${kind} email (from invoicer) failed`, receipt, r.status, r.error); });
+    if (ctx?.waitUntil) ctx.waitUntil(send); else await send;
+  }
+  console.log("shipment sync from invoicer", receipt, order.status, "->", kind, emailed ? "emailed" : "silent");
+  return json({ ok: true, status: kind, emailed });
+}
+
 export async function updateOrder(env, id, body, ctx = null) {
   // SELECT * because the shipped email needs the customer's name, email and
   // address, and listing them here would mean editing this query every time the
