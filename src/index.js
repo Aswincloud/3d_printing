@@ -19,6 +19,7 @@ import {
   couponRedemptions as adminCouponRedemptions,
 } from "./coupons.js";
 import { chatCouponHandler } from "./chatcoupons.js";
+import { shipmentSyncHandler } from "./shipsync.js";
 import { chatOrdersHandler } from "./chatorders.js";
 import { listQuotes, replyToQuote, updateQuoteStatus } from "./quotes.js";
 import { uploadQuoteFile, downloadQuoteFile, validFileKey, quoteFileUrl } from "./uploads.js";
@@ -379,6 +380,9 @@ async function api(request, env, url, ctx) {
   // Beside the coupon route and above every cookie gate, for the same reason:
   // the bot has no session, it carries its own signature. See chatorders.js.
   if (p === "/api/chat/orders" && m === "POST") return chatOrdersHandler(request, env);
+  // The invoicer telling the shop an order shipped or was delivered from ITS
+  // dashboard. Signed, raw body, no session — see src/shipsync.js.
+  if (p === "/api/sync/shipment" && m === "POST") return shipmentSyncHandler(request, env, ctx);
 
   // The quote form's file, as raw bytes — so it too must be dispatched before
   // the JSON parse below. Anonymous, like the form; rate-limited with it.
