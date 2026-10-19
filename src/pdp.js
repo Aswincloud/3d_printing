@@ -94,7 +94,7 @@ export function breadcrumbJsonLd(env, product) {
 }
 
 // ── the page ──────────────────────────────────────────────────────
-export function renderProductPage(env, { product, related, headExtra = "" }) {
+export function renderProductPage(env, { product, related, reviews = null, headExtra = "" }) {
   const base = baseUrl(env);
   const trail = breadcrumbs(env, product);
 
@@ -184,6 +184,43 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
     ["Made", "To order, in Pondicherry"],
     ["Delivery", `India-wide · flat ${price(flatShip)}, free over ${price(freeOver)}`],
   ].filter(Boolean);
+
+  // Reviews: summary, the list, and the form. Between the specs and "More in…".
+  const rv = reviews || { reviews: [], count: 0, avg: 0 };
+  const starRow = (n) => `<span class="rv-stars" aria-label="${n} out of 5 stars">${"★".repeat(n)}<span class="rv-off">${"★".repeat(5 - n)}</span></span>`;
+  // In IST: the Worker runs in UTC, and a review posted at 2 am IST would otherwise show yesterday.
+  const when = (ms) => new Date(ms).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+  const reviewsHtml = `
+  <section class="pdp-reviews" id="reviews" aria-labelledby="rvTitle">
+    <h2 id="rvTitle">Customer reviews</h2>
+    ${rv.count
+      ? `<p class="rv-summary" id="rvSummary" data-count="${rv.count}" data-sum="${rv.reviews.reduce((s, r) => s + r.rating, 0)}">${starRow(Math.round(rv.avg))} <b>${rv.avg.toFixed(1)}</b> out of 5 · ${rv.count} review${rv.count === 1 ? "" : "s"}</p>`
+      : `<p class="rv-summary rv-empty" id="rvSummary" data-count="0" data-sum="0">No reviews yet. Bought this? Tell others what you think.</p>`}
+    <ul class="rv-list" id="rvList">
+      ${rv.reviews.map((r) => `
+      <li class="rv-item">
+        <div class="rv-head">${starRow(r.rating)} <b class="rv-name">${esc(r.name)}</b>
+          ${r.verified ? `<span class="rv-badge" title="Bought this product on AswinPrints">✓ Verified buyer</span>` : ""}
+          ${r.source === "owner" && r.source_note ? `<span class="rv-via">${esc(r.source_note)}</span>` : ""}
+          <span class="rv-date">${esc(when(r.created_at))}</span></div>
+        <p class="rv-body">${esc(r.body)}</p>
+      </li>`).join("")}
+    </ul>
+    <details class="rv-write">
+      <summary>Write a review</summary>
+      <form id="rvForm" class="rv-form" data-slug="${esc(product.slug)}" novalidate>
+        <fieldset class="rv-rating"><legend>Your rating</legend>
+          ${[5, 4, 3, 2, 1].map((n) => `<input type="radio" id="rv${n}" name="rating" value="${n}" aria-label="${n} star${n > 1 ? "s" : ""}"><label for="rv${n}" title="${n} star${n > 1 ? "s" : ""}"><span aria-hidden="true">★</span></label>`).join("")}
+        </fieldset>
+        <label>Your name<input name="name" maxlength="60" autocomplete="name" required></label>
+        <label>Your review<textarea name="body" rows="4" maxlength="1000" required placeholder="How was the print, the finish, the delivery?"></textarea></label>
+        <label class="rv-hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+        <p class="rv-hint">Signed in with the account you ordered from? Your review gets a <b>Verified buyer</b> badge.</p>
+        <button type="submit" class="pdp-btn pdp-btn-primary">Post review</button>
+        <p class="rv-msg" id="rvMsg" role="status" aria-live="polite"></p>
+      </form>
+    </details>
+  </section>`;
 
   const relatedHtml = related.length
     ? `<section class="pdp-related">
@@ -283,6 +320,7 @@ export function renderProductPage(env, { product, related, headExtra = "" }) {
     </div>
   </div>
 
+  ${reviewsHtml}
   ${relatedHtml}
 </main>
 

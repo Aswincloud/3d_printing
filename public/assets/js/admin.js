@@ -135,7 +135,7 @@ async function boot() {
   who.textContent = me.email;
   who.hidden = false;
 
-  await Promise.all([loadStats(), loadOrders(), loadProducts(), loadCoupons(), loadQuoteBadge()]);
+  await Promise.all([loadStats(), loadOrders(), loadProducts(), loadCoupons(), loadQuoteBadge(), loadReviews()]);
 }
 
 // New quote requests are the one thing on this page with a person waiting on
@@ -2186,3 +2186,58 @@ for (const tab of document.querySelectorAll('.admin-tab')) {
 }
 
 boot();
+
+/* ── reviews ───────────────────────────────────────────────────── */
+async function loadReviews() {
+  const box = $('reviewsList');
+  if (!box) return;
+  let data;
+  try { data = await api('/api/admin/reviews'); }
+  catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'admin-muted', 'Could not load reviews: ' + e.message)); return; }
+  box.innerHTML = '';
+  if (!data.reviews.length) { box.appendChild(el('p', 'admin-muted', 'No reviews yet.')); return; }
+  for (const r of data.reviews) {
+    const row = el('div', 'coupon-row');
+    const main = el('div', 'cr-main');
+    main.appendChild(el('div', 'cr-code', '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating) + '  ' + r.name));
+    const tags = [r.product_name, new Date(r.created_at).toLocaleDateString('en-IN')];
+    if (r.verified) tags.push('verified buyer');
+    if (r.source === 'owner') tags.push('added by you · ' + r.source_note);
+    main.appendChild(el('div', 'cr-what', tags.join(' · ')));
+    main.appendChild(el('p', 'admin-muted', r.body));
+    row.appendChild(main);
+    const actions = el('div', 'cr-state');
+    const del = el('button', 'admin-btn admin-btn-danger', 'Delete');
+    del.type = 'button';
+    del.onclick = async () => {
+      if (!confirm(`Delete ${r.name}'s review of ${r.product_name}? This can't be undone.`)) return;
+      try { await api('/api/admin/reviews/' + r.id, { method: 'DELETE' }); flash('Review deleted.'); await loadReviews(); }
+      catch (e) { flash(e.message, true); }
+    };
+    actions.appendChild(del);
+    row.appendChild(actions);
+    box.appendChild(row);
+  }
+}
+
+function fillReviewProducts() {
+  const sel = $('rvAddProduct');
+  if (!sel || sel.options.length) return;
+  for (const p of [...allProducts].filter((x) => x.slug).sort((a, b) => a.name.localeCompare(b.name))) {
+    const o = document.createElement('option'); o.value = p.slug; o.textContent = p.name; sel.appendChild(o);
+  }
+}
+$('tabReviews')?.addEventListener('click', fillReviewProducts);
+
+$('rvAddForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/admin/reviews', { method: 'POST', body: JSON.stringify({
+      slug: $('rvAddProduct').value, rating: Number($('rvAddRating').value),
+      name: $('rvAddName').value, body: $('rvAddBody').value, source_note: $('rvAddNote').value,
+    }) });
+    flash('Review added.');
+    $('rvAddForm').reset();
+    await loadReviews();
+  } catch (err) { flash(err.message, true); }
+});

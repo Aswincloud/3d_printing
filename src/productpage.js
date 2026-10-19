@@ -14,6 +14,7 @@
 // copy-paste and truncation better, and slugs are already unique and readable
 // (articulated-dino-skeleton, ganesha-veena).
 
+import { listForProduct } from "./reviews.js";
 import { esc, trimSlashes } from "./lib.js";
 import { productJsonLd, jsonLdScript } from "./seo.js";
 import { renderProductPage, breadcrumbJsonLd } from "./pdp.js";
@@ -64,7 +65,7 @@ async function loadProduct(env, slug) {
   // `images` is the gallery. Both were unnecessary when this route only rewrote
   // meta tags on the homepage, and both are required now that it renders a page.
   return env.DB.prepare(
-    `SELECT slug, name, description, price_paise, image, images, category,
+    `SELECT id, slug, name, description, price_paise, image, images, category,
               compare_at_paise
          FROM products WHERE slug = ? AND visible = 1`
   ).bind(slug).first();
@@ -107,9 +108,15 @@ export async function productPage(request, env, url) {
     product.description || `${product.name}, 3D printed to order and shipped across India.`
   );
 
+  // Reviews. Wrapped like the related row: a failure here must not take down
+  // the page — the section simply renders empty.
+  let reviews = { reviews: [], count: 0, avg: 0 };
+  try { reviews = await listForProduct(env, product.id); }
+  catch (e) { console.error("reviews failed", product.slug, e?.message || e); }
+
   const pageUrl = absolute(env, "/p/" + product.slug, url);
   const imageUrl = absolute(env, product.image, url);
-  const ld = productJsonLd(env, product, { pageUrl, imageUrl });
+  const ld = productJsonLd(env, product, { pageUrl, imageUrl, reviews });
 
   // Other products in the same category, for the "More in…" row.
   //
@@ -168,7 +175,7 @@ export async function productPage(request, env, url) {
     (ld ? jsonLdScript(ld) : "") +
     jsonLdScript(breadcrumbJsonLd(env, product));
 
-  const html = renderProductPage(env, { product, related, headExtra: head });
+  const html = renderProductPage(env, { product, related, reviews, headExtra: head });
 
   return new Response(html, {
     status: 200,

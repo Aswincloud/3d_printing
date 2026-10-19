@@ -7,6 +7,7 @@
 import { json, bad, isEmail, sendEmail, now, rupees } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
+import { submitReview, adminListReviews, adminDeleteReview, adminAddReview } from "./reviews.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
 import { googleFeed } from "./feed.js";
 import { quoteOwnerEmail, quoteCustomerEmail } from "./emails.js";
@@ -449,6 +450,8 @@ async function api(request, env, url, ctx) {
   }
 
   if (p === "/api/quote" && m === "POST") return quote(request, env, ctx, body);
+  // A product review. Public, like the quote form; spam limits in reviews.js.
+  if (p === "/api/reviews" && m === "POST") return submitReview(request, env, body, ctx);
   if (p === "/api/health" && m === "GET") return json({ ok: true, app: env.APP_NAME });
 
   // ── auth (public: these are how you sign in) ────────────────────
@@ -556,6 +559,11 @@ async function api(request, env, url, ctx) {
 
     const refund = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/refund$/);
     if (refund && m === "POST") return adminRefundOrder(env, refund[1], body);
+
+    if (p === "/api/admin/reviews" && m === "GET") return adminListReviews(env);
+    if (p === "/api/admin/reviews" && m === "POST") return adminAddReview(env, body);
+    const rev = p.match(/^\/api\/admin\/reviews\/([0-9a-f-]{36})$/);
+    if (rev && m === "DELETE") return adminDeleteReview(env, rev[1]);
 
     if (p === "/api/admin/coupons" && m === "GET") return adminListCoupons(env);
     if (p === "/api/admin/coupons" && m === "POST") return adminCreateCoupon(env, body);
