@@ -200,6 +200,7 @@ export function renderProductPage(env, { product, related, reviews = null, headE
       ${rv.reviews.map((r) => `
       <li class="rv-item">
         <div class="rv-head">${starRow(r.rating)} <b class="rv-name">${esc(r.name)}</b>
+          ${r.email_masked ? `<span class="rv-email">${esc(r.email_masked)}</span>` : ""}
           ${r.verified ? `<span class="rv-badge" title="Bought this product on AswinPrints">✓ Verified buyer</span>` : ""}
           ${r.source === "owner" && r.source_note ? `<span class="rv-via">${esc(r.source_note)}</span>` : ""}
           <span class="rv-date">${esc(when(r.created_at))}</span></div>
@@ -213,6 +214,7 @@ export function renderProductPage(env, { product, related, reviews = null, headE
           ${[5, 4, 3, 2, 1].map((n) => `<input type="radio" id="rv${n}" name="rating" value="${n}" aria-label="${n} star${n > 1 ? "s" : ""}"><label for="rv${n}" title="${n} star${n > 1 ? "s" : ""}"><span aria-hidden="true">★</span></label>`).join("")}
         </fieldset>
         <label>Your name<input name="name" maxlength="60" autocomplete="name" required></label>
+        <p class="rv-as" id="rvAs" hidden></p>
         <label>Your review<textarea name="body" rows="4" maxlength="1000" required placeholder="How was the print, the finish, the delivery?"></textarea></label>
         <label class="rv-hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
         <p class="rv-hint">Signed in with the account you ordered from? Your review gets a <b>Verified buyer</b> badge.</p>

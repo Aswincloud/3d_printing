@@ -28,6 +28,19 @@ import { currentCustomer } from "./customers.js";
 export const REVIEW_LIMITS = { name: 60, body: 1000, minBody: 10, perIpPerHour: 5, ownerNote: 40 };
 const PAID_STATUSES = ["paid", "in_production", "ready", "shipped", "delivered"];
 
+// "vr0820588@gmail.com" -> "vr*****8@gmail.com": the first two and last
+// character of the name part, the domain kept. Short names keep one character.
+// "" for anything that is not an email.
+export function maskEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  const at = e.lastIndexOf("@");
+  if (at < 1 || at === e.length - 1) return "";
+  const local = e.slice(0, at), domain = e.slice(at + 1);
+  if (local.length <= 2) return `${local[0]}*@${domain}`;
+  const stars = "*".repeat(Math.min(Math.max(local.length - 3, 1), 5));
+  return `${local.slice(0, 2)}${stars}${local.slice(-1)}@${domain}`;
+}
+
 async function sha256Hex(s) {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -52,7 +65,7 @@ export function cleanReview(b) {
 // The reviews shown on a product page, newest first, plus the summary.
 export async function listForProduct(env, productId) {
   const { results } = await env.DB.prepare(
-    `SELECT id, rating, name, body, verified, source, source_note, created_at
+    `SELECT id, rating, name, body, verified, source, source_note, email_masked, created_at
        FROM reviews WHERE product_id = ? ORDER BY created_at DESC LIMIT 50`
   ).bind(productId).all();
   const reviews = results || [];
@@ -101,15 +114,17 @@ export async function submitReview(request, env, body, ctx) {
 
   const id = uid();
   const t = now();
+  // From the session only, and only ever stored masked.
+  const emailMasked = user ? maskEmail(user.email) : "";
   await env.DB.prepare(
-    `INSERT INTO reviews (id, product_id, rating, name, body, verified, user_id, order_id, source, source_note, ip_hash, created_at)
-     VALUES (?,?,?,?,?,?,?,?, 'site', '', ?, ?)`
-  ).bind(id, product.id, c.rating, c.name, c.body, orderId ? 1 : 0, user?.id || null, orderId, ipHash, t).run();
+    `INSERT INTO reviews (id, product_id, rating, name, body, verified, user_id, order_id, source, source_note, ip_hash, email_masked, created_at)
+     VALUES (?,?,?,?,?,?,?,?, 'site', '', ?, ?, ?)`
+  ).bind(id, product.id, c.rating, c.name, c.body, orderId ? 1 : 0, user?.id || null, orderId, ipHash, emailMasked, t).run();
 
   const mail = notifyOwner(env, { product, review: { ...c, verified: Boolean(orderId) } });
   if (ctx?.waitUntil) ctx.waitUntil(mail); else await mail;
 
-  return json({ ok: true, review: { id, rating: c.rating, name: c.name, body: c.body, verified: Boolean(orderId), created_at: t } }, 201);
+  return json({ ok: true, review: { id, rating: c.rating, name: c.name, body: c.body, verified: Boolean(orderId), email_masked: emailMasked, created_at: t } }, 201);
 }
 
 async function notifyOwner(env, { product, review }) {
@@ -136,7 +151,7 @@ async function notifyOwner(env, { product, review }) {
 
 export async function adminListReviews(env) {
   const { results } = await env.DB.prepare(
-    `SELECT r.id, r.rating, r.name, r.body, r.verified, r.source, r.source_note, r.created_at,
+    `SELECT r.id, r.rating, r.name, r.body, r.verified, r.source, r.source_note, r.email_masked, r.created_at,
             p.name AS product_name, p.slug AS product_slug
        FROM reviews r JOIN products p ON p.id = r.product_id
       ORDER BY r.created_at DESC LIMIT 500`

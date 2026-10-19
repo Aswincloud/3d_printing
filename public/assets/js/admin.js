@@ -2201,6 +2201,7 @@ async function loadReviews() {
     const main = el('div', 'cr-main');
     main.appendChild(el('div', 'cr-code', '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating) + '  ' + r.name));
     const tags = [r.product_name, new Date(r.created_at).toLocaleDateString('en-IN')];
+    if (r.email_masked) tags.push(r.email_masked);
     if (r.verified) tags.push('verified buyer');
     if (r.source === 'owner') tags.push('added by you · ' + r.source_note);
     main.appendChild(el('div', 'cr-what', tags.join(' · ')));
