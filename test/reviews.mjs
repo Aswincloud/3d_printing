@@ -150,6 +150,12 @@ section("product page");
   ok("owner-added shows where it came from", html.includes("via WhatsApp"));
   ok("names and text are escaped", html.includes("Priya &lt;b&gt;") && !html.includes("<script>x</script>"));
   ok("the form posts the slug and has a honeypot", html.includes('data-slug="staircase-shelf"') && html.includes('name="website"'));
+  ok("each rating radio has its own accessible name", [1, 2, 3, 4, 5].every((n) => html.includes(`value="${n}" aria-label="${n} star`)));
+  ok("summary carries count and sum for the live update", html.includes('data-count="2" data-sum="9"'));
+  const late = renderProductPage({ APP_NAME: "A", APP_BASE_URL: "https://s", FLAT_SHIP_PAISE: "9900", FREE_SHIP_THRESHOLD_PAISE: "200000" },
+    { product: { slug: "s", name: "S", description: "", price_paise: 100, image: "x", images: "", category: "decor" }, related: [],
+      reviews: { count: 1, avg: 5, reviews: [{ id: "z", rating: 5, name: "N", body: "posted early morning IST", verified: 0, source: "site", source_note: "", created_at: Date.parse("2026-10-19T20:30:00Z") }] }, headExtra: "" });
+  ok("dates are shown in IST (20:30 UTC on the 19th is the 20th in India)", late.includes("20 Oct 2026"), (late.match(/rv-date">([^<]+)/) || [])[1]);
   const empty = renderProductPage({ APP_NAME: "A", APP_BASE_URL: "https://s", FLAT_SHIP_PAISE: "9900", FREE_SHIP_THRESHOLD_PAISE: "200000" },
     { product: { slug: "s", name: "S", description: "", price_paise: 100, image: "x", images: "", category: "decor" }, related: [], reviews: { reviews: [], count: 0, avg: 0 }, headExtra: "" });
   ok("no reviews: an invitation, no fake rating", empty.includes("No reviews yet") && !empty.includes("out of 5"));

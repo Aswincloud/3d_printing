@@ -22,7 +22,7 @@
 //     and a per-IP limit (5 an hour, keyed on a salted hash — the address itself
 //     is never stored). Every post emails the owner, who can delete any review.
 //     Reviews go live immediately, as asked; deletion is the moderation.
-import { json, bad, uid, now, esc, sendEmail } from "./lib.js";
+import { json, bad, uid, now, esc, sendEmail, trimSlashes } from "./lib.js";
 import { currentCustomer } from "./customers.js";
 
 export const REVIEW_LIMITS = { name: 60, body: 1000, minBody: 10, perIpPerHour: 5, ownerNote: 40 };
@@ -115,7 +115,7 @@ export async function submitReview(request, env, body, ctx) {
 async function notifyOwner(env, { product, review }) {
   const to = String(env.OWNER_EMAIL || "").split(",")[0].trim();
   if (!to || !env.RESEND_API_KEY) return;
-  const site = String(env.APP_BASE_URL || "https://3d-prints.aswincloud.com").replace(/\/+$/, "");
+  const site = trimSlashes(env.APP_BASE_URL || "https://3d-prints.aswincloud.com");
   const stars = "★".repeat(review.rating) + "☆".repeat(5 - review.rating);
   const r = await sendEmail(env, {
     to,

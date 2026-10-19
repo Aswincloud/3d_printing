@@ -460,6 +460,21 @@ window.addEventListener('storage', (e) => {
         const body = document.createElement('p'); body.className = 'rv-body'; body.textContent = r.body;
         li.append(head, body); list.prepend(li);
       }
+      // Keep the summary in step with the list: count, average, stars.
+      const sum = document.getElementById('rvSummary');
+      if (sum && r) {
+        const count = Number(sum.dataset.count || 0) + 1;
+        const total = Number(sum.dataset.sum || 0) + r.rating;
+        sum.dataset.count = String(count); sum.dataset.sum = String(total);
+        const avg = Math.round((total / count) * 10) / 10;
+        const full = Math.round(avg);
+        sum.classList.remove('rv-empty');
+        sum.textContent = '';
+        const st = document.createElement('span'); st.className = 'rv-stars'; st.textContent = '★'.repeat(full);
+        const off = document.createElement('span'); off.className = 'rv-off'; off.textContent = '★'.repeat(5 - full); st.appendChild(off);
+        const b = document.createElement('b'); b.textContent = avg.toFixed(1);
+        sum.append(st, ' ', b, ` out of 5 · ${count} review${count === 1 ? '' : 's'}`);
+      }
       form.reset(); say('Thanks — your review is posted.', 'ok');
     } catch (err) {
       say(err.message, 'err');
