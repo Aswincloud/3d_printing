@@ -429,3 +429,5 @@
 .rv-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
 .rv-msg { font-size: 0.88rem; min-height: 1.2em; margin: 0; }
 .rv-msg.ok { color: #34d399; } .rv-msg.err { color: #f87171; }
+.rv-email { color: var(--text-muted); font-size: 0.78rem; }
+.rv-as { font-size: 0.8rem; color: var(--text-muted); margin: -0.4rem 0 0; }

@@ -6,7 +6,7 @@
 // shapes and floods; every post emails the owner.
 //
 //   node test/reviews.mjs
-import { submitReview, cleanReview, listForProduct, adminListReviews, adminDeleteReview, adminAddReview } from "../src/reviews.js";
+import { submitReview, cleanReview, listForProduct, adminListReviews, adminDeleteReview, adminAddReview, maskEmail } from "../src/reviews.js";
 import { renderProductPage } from "../src/pdp.js";
 import { productJsonLd } from "../src/seo.js";
 import { signToken } from "@aswincloud/auth";
@@ -36,11 +36,11 @@ function envWith({ orders = [], reviews = [], session = null } = {}) {
     }
     if (s.startsWith("INSERT INTO reviews")) {
       const owner = s.includes("'owner'");
-      const r = owner ? { id: a[0], product_id: a[1], rating: a[2], name: a[3], body: a[4], verified: 0, user_id: null, order_id: null, source: "owner", source_note: a[5], ip_hash: "", created_at: a[6] }
-                      : { id: a[0], product_id: a[1], rating: a[2], name: a[3], body: a[4], verified: a[5], user_id: a[6], order_id: a[7], source: "site", source_note: "", ip_hash: a[8], created_at: a[9] };
+      const r = owner ? { id: a[0], product_id: a[1], rating: a[2], name: a[3], body: a[4], verified: 0, user_id: null, order_id: null, source: "owner", source_note: a[5], ip_hash: "", email_masked: "", created_at: a[6] }
+                      : { id: a[0], product_id: a[1], rating: a[2], name: a[3], body: a[4], verified: a[5], user_id: a[6], order_id: a[7], source: "site", source_note: "", ip_hash: a[8], email_masked: a[9], created_at: a[10] };
       db.reviews.push(r); return { meta: { changes: 1 } };
     }
-    if (s.startsWith("SELECT id, rating, name, body, verified, source, source_note, created_at FROM reviews WHERE product_id = ?")) return { results: db.reviews.filter((r) => r.product_id === a[0]).sort((x, y) => y.created_at - x.created_at) };
+    if (s.startsWith("SELECT id, rating, name, body, verified, source, source_note, email_masked, created_at FROM reviews WHERE product_id = ?")) return { results: db.reviews.filter((r) => r.product_id === a[0]).sort((x, y) => y.created_at - x.created_at) };
     if (s.startsWith("SELECT r.id, r.rating")) return { results: db.reviews.map((r) => ({ ...r, product_name: PRODUCT.name, product_slug: PRODUCT.slug })) };
     if (s.startsWith("DELETE FROM reviews WHERE id = ?")) { const n = db.reviews.length; db.reviews = db.reviews.filter((r) => r.id !== a[0]); return { meta: { changes: n - db.reviews.length } }; }
     if (s.startsWith("SELECT id, email, name, created_at")) return { first: session };
@@ -68,6 +68,13 @@ ok("a link refused", /Links/.test(cleanReview({ ...GOOD, body: "great, buy at ht
 ok("a bare domain refused", !!cleanReview({ ...GOOD, body: "visit cheapprints.com today" }).error);
 ok("whitespace collapsed in the name", cleanReview({ ...GOOD, name: "  Priya   S  " }).name === "Priya S");
 
+section("masked email");
+ok("vr0820588@gmail.com -> vr*****8@gmail.com", maskEmail("vr0820588@gmail.com") === "vr*****8@gmail.com", maskEmail("vr0820588@gmail.com"));
+ok("short name keeps one character", maskEmail("ab@x.in") === "a*@x.in" && maskEmail("a@x.in") === "a*@x.in", maskEmail("ab@x.in") + " " + maskEmail("a@x.in"));
+ok("4-letter name", maskEmail("abcd@x.in") === "ab*d@x.in", maskEmail("abcd@x.in"));
+ok("case folded, spaces trimmed", maskEmail("  Priya.S@Gmail.com ") === "pr****s@gmail.com", maskEmail("  Priya.S@Gmail.com "));
+ok("not an email -> empty", maskEmail("nope") === "" && maskEmail("@x.in") === "" && maskEmail("a@") === "" && maskEmail(null) === "");
+
 section("posting: anyone can, it is stored, the owner is emailed");
 {
   const env = envWith();
@@ -75,6 +82,7 @@ section("posting: anyone can, it is stored, the owner is emailed");
   ok("201", st === 201, JSON.stringify(b));
   ok("stored", env._db.reviews.length === 1 && env._db.reviews[0].body === GOOD.body);
   ok("a guest is NOT verified", b.review.verified === false && env._db.reviews[0].verified === 0);
+  ok("a guest has no email shown", env._db.reviews[0].email_masked === "" && b.review.email_masked === "");
   ok("the owner is emailed", env._mails.length === 1 && /New 5★ review on Wall-Mounted Staircase Shelf/.test(env._mails[0].subject), env._mails[0]?.subject);
   ok("the email has the text and a link to manage", env._mails[0].text.includes(GOOD.body) && env._mails[0].text.includes("/shop.html#reviews"));
   ok("the IP itself is not stored, only a hash", env._db.reviews[0].ip_hash.length === 32 && !env._db.reviews[0].ip_hash.includes("1.2.3.4"));
@@ -84,6 +92,8 @@ section("verified: only from a paid order on the reviewer's own session");
   const env = envWith({ session: { id: "u-1", email: "p@x" }, orders: [{ id: "o-1", user_id: "u-1", product_id: "p-1", status: "delivered" }] });
   const [, b] = await read(await submitReview(await signedIn("u-1"), env, GOOD, null));
   ok("signed in + paid order for this product: verified", b.review.verified === true && env._db.reviews[0].order_id === "o-1");
+  ok("a signed-in review stores ONLY the masked email, from the session", env._db.reviews[0].email_masked === "p*@x" && !JSON.stringify(env._db.reviews[0]).includes("p@x\""), env._db.reviews[0].email_masked);
+  ok("and returns it for the page", b.review.email_masked === "p*@x");
   ok("and the owner's email says so", /verified buyer/.test(env._mails[0].subject));
 }
 {
@@ -100,6 +110,7 @@ section("verified: only from a paid order on the reviewer's own session");
   const forged = req("1.2.3.4", `ap_user=${encodeURIComponent(await signToken("WRONG", "u-1", "customer_session", 3600))}`);
   const envF = envWith({ session: { id: "u-1", email: "p@x" }, orders: [{ id: "o-1", user_id: "u-1", product_id: "p-1", status: "paid" }] });
   ok("a forged session cookie is not verified", (await read(await submitReview(forged, envF, GOOD, null)))[1].review.verified === false);
+  ok("an email typed into the request is never stored", (await read(await submitReview(req(), envWith(), { ...GOOD, email: "victim@example.com", email_masked: "vi*****m@example.com" }, null)))[1].review.email_masked === "");
   ok("verified:true in the request is ignored", (await read(await submitReview(req(), env, { ...GOOD, verified: true, order_id: "o-1" }, null)))[1].review.verified === false);
   ok("and nothing verified is stored for it", env._db.reviews.every((r) => r.verified === 0));
 }
@@ -138,7 +149,7 @@ section("owner: list, delete, add a real review from elsewhere");
 section("product page");
 {
   const env = envWith({ reviews: [
-    { id: "a", product_id: "p-1", rating: 5, name: "Priya <b>", body: "Great <script>x</script>", verified: 1, source: "site", source_note: "", created_at: 2000 },
+    { id: "a", product_id: "p-1", rating: 5, name: "Priya <b>", body: "Great <script>x</script>", verified: 1, source: "site", source_note: "", email_masked: "pr*****a@gmail.com", created_at: 2000 },
     { id: "b", product_id: "p-1", rating: 4, name: "Karthik", body: "Good", verified: 0, source: "owner", source_note: "via WhatsApp", created_at: 1000 }] });
   const rv = await listForProduct(env, "p-1");
   ok("summary: 2 reviews, average 4.5", rv.count === 2 && rv.avg === 4.5, JSON.stringify(rv));
@@ -148,6 +159,8 @@ section("product page");
   ok("shows the average and count", html.includes("<b>4.5</b> out of 5 · 2 reviews"));
   ok("verified badge on the verified one", (html.match(/Verified buyer<\/span>/g) || []).length === 1);
   ok("owner-added shows where it came from", html.includes("via WhatsApp"));
+  ok("the masked email is shown on a signed-in review", html.includes('<span class="rv-email">pr*****a@gmail.com</span>'));
+  ok("no full address anywhere on the page", !/[a-z0-9]{3,}@gmail\.com/.test(html.replace(/pr\*+a@gmail\.com/g, "")));
   ok("names and text are escaped", html.includes("Priya &lt;b&gt;") && !html.includes("<script>x</script>"));
   ok("the form posts the slug and has a honeypot", html.includes('data-slug="staircase-shelf"') && html.includes('name="website"'));
   ok("each rating radio has its own accessible name", [1, 2, 3, 4, 5].every((n) => html.includes(`value="${n}" aria-label="${n} star`)));

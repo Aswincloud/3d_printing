@@ -434,6 +434,25 @@ window.addEventListener('storage', (e) => {
   const msg = document.getElementById('rvMsg');
   const list = document.getElementById('rvList');
   const say = (t, cls) => { msg.textContent = t; msg.className = 'rv-msg' + (cls ? ' ' + cls : ''); };
+
+  // Signed in: fill the name from the account and say how the review will be
+  // shown. The masked email on the review is added by the server from the
+  // session; this only previews it.
+  const mask = (e) => {
+    const s = String(e || '').trim().toLowerCase(); const at = s.lastIndexOf('@');
+    if (at < 1 || at === s.length - 1) return '';
+    const l = s.slice(0, at), d = s.slice(at + 1);
+    if (l.length <= 2) return `${l[0]}*@${d}`;
+    return `${l.slice(0, 2)}${'*'.repeat(Math.min(Math.max(l.length - 3, 1), 5))}${l.slice(-1)}@${d}`;
+  };
+  fetch('/api/me', { credentials: 'same-origin' }).then((r) => r.json()).then((me) => {
+    if (!me || !me.signedIn) return;
+    const nameIn = form.querySelector('input[name="name"]');
+    if (nameIn && !nameIn.value && me.name) nameIn.value = me.name;
+    const as = document.getElementById('rvAs');
+    const m = mask(me.email);
+    if (as && m) { as.textContent = `Posting as ${m} — shown on your review with the middle hidden.`; as.hidden = false; }
+  }).catch(() => {});
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -456,6 +475,7 @@ window.addEventListener('storage', (e) => {
         const off = document.createElement('span'); off.className = 'rv-off'; off.textContent = '★'.repeat(5 - r.rating); stars.appendChild(off);
         const name = document.createElement('b'); name.className = 'rv-name'; name.textContent = r.name;
         head.append(stars, ' ', name);
+        if (r.email_masked) { const em = document.createElement('span'); em.className = 'rv-email'; em.textContent = r.email_masked; head.append(' ', em); }
         if (r.verified) { const b = document.createElement('span'); b.className = 'rv-badge'; b.textContent = '✓ Verified buyer'; head.append(' ', b); }
         const body = document.createElement('p'); body.className = 'rv-body'; body.textContent = r.body;
         li.append(head, body); list.prepend(li);
