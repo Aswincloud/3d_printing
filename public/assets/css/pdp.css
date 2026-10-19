@@ -399,3 +399,33 @@
 }
 .pdp-zoom-close:hover { background: var(--dark-4); }
 .pdp-zoom-close:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+
+/* ── reviews ─────────────────────────────────────────────────────── */
+.pdp-reviews { max-width: 1100px; margin: 2.5rem auto 0; padding: 0 1rem; }
+.pdp-reviews h2 { font-size: 1.25rem; margin: 0 0 0.6rem; }
+.rv-summary { color: var(--text-muted); margin: 0 0 1rem; }
+.rv-summary b { color: var(--text); }
+.rv-stars { color: #f5a623; letter-spacing: 1px; }
+.rv-off { color: rgba(255,255,255,0.18); }
+.rv-list { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.75rem; }
+.rv-item { border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 0.85rem 1rem; background: var(--dark-3, #16161d); }
+.rv-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; font-size: 0.9rem; }
+.rv-name { color: var(--text); }
+.rv-badge { color: #34d399; background: rgba(52,211,153,0.12); border-radius: 999px; padding: 0.1rem 0.55rem; font-size: 0.76rem; font-weight: 600; }
+.rv-via { color: var(--text-muted); font-size: 0.78rem; font-style: italic; }
+.rv-date { color: var(--text-muted); font-size: 0.78rem; }
+.rv-body { margin: 0.45rem 0 0; white-space: pre-wrap; line-height: 1.55; }
+.rv-write summary { cursor: pointer; color: var(--orange); font-weight: 600; padding: 0.4rem 0; min-height: 44px; display: flex; align-items: center; }
+.rv-form { display: grid; gap: 0.75rem; max-width: 560px; margin-top: 0.6rem; }
+.rv-form label { display: grid; gap: 0.3rem; font-size: 0.88rem; color: var(--text-muted); }
+.rv-form input, .rv-form textarea { background: var(--dark-4, #1f1f29); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; color: var(--text); padding: 0.65rem 0.75rem; font: inherit; font-size: 16px; }
+.rv-rating { border: 0; padding: 0; margin: 0; display: flex; flex-direction: row-reverse; justify-content: flex-end; flex-wrap: wrap; gap: 0.15rem; }
+.rv-rating legend { font-size: 0.88rem; color: var(--text-muted); margin-bottom: 0.3rem; padding: 0; width: 100%; order: 99; }
+.rv-rating input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.rv-rating label { font-size: 1.9rem; color: rgba(255,255,255,0.22); cursor: pointer; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
+.rv-rating input:checked ~ label, .rv-rating label:hover, .rv-rating label:hover ~ label { color: #f5a623; }
+.rv-rating input:focus-visible + label { outline: 2px solid var(--orange); border-radius: 6px; }
+.rv-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.rv-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
+.rv-msg { font-size: 0.88rem; min-height: 1.2em; margin: 0; }
+.rv-msg.ok { color: #34d399; } .rv-msg.err { color: #f87171; }

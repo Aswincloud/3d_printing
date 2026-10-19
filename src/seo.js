@@ -184,11 +184,17 @@ const BUSINESS = (env) => {
 // Returns null for anything unpriced. An Offer with price 0 is not "free" to
 // Google, it is invalid — and a Product with no offer is a Search Console
 // warning. Quote-only items simply get no Product markup.
-export function productJsonLd(env, product, { pageUrl, imageUrl }) {
+export function productJsonLd(env, product, { pageUrl, imageUrl, reviews = null }) {
   if (!(product?.price_paise > 0)) return null;
   const base = baseUrl(env);
 
+  // Ratings in search results, only from reviews actually shown on the page.
+  const rated = reviews && reviews.count > 0 ? {
+    aggregateRating: { "@type": "AggregateRating", ratingValue: reviews.avg.toFixed(1), reviewCount: reviews.count, bestRating: "5", worstRating: "1" },
+  } : {};
+
   return {
+    ...rated,
     "@context": "https://schema.org",
     "@type": "Product",
     name: product.name,

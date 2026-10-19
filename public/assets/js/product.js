@@ -424,3 +424,45 @@ syncCartBadge();
 window.addEventListener('storage', (e) => {
   if (e.key === CART_KEY) syncCartBadge();
 });
+
+// ── reviews ───────────────────────────────────────────────────────
+// Posts to /api/reviews and shows the new review at the top of the list. The
+// verified badge comes back from the server, never from the page.
+(function reviewForm() {
+  const form = document.getElementById('rvForm');
+  if (!form) return;
+  const msg = document.getElementById('rvMsg');
+  const list = document.getElementById('rvList');
+  const say = (t, cls) => { msg.textContent = t; msg.className = 'rv-msg' + (cls ? ' ' + cls : ''); };
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const rating = Number(fd.get('rating'));
+    if (!rating) { say('Choose a star rating.', 'err'); return; }
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true; say('Posting…');
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: form.dataset.slug, rating, name: fd.get('name'), body: fd.get('body'), website: fd.get('website') }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not post your review.');
+      const r = data.review;
+      if (r && list) {
+        const li = document.createElement('li'); li.className = 'rv-item';
+        const head = document.createElement('div'); head.className = 'rv-head';
+        const stars = document.createElement('span'); stars.className = 'rv-stars'; stars.textContent = '★'.repeat(r.rating);
+        const off = document.createElement('span'); off.className = 'rv-off'; off.textContent = '★'.repeat(5 - r.rating); stars.appendChild(off);
+        const name = document.createElement('b'); name.className = 'rv-name'; name.textContent = r.name;
+        head.append(stars, ' ', name);
+        if (r.verified) { const b = document.createElement('span'); b.className = 'rv-badge'; b.textContent = '✓ Verified buyer'; head.append(' ', b); }
+        const body = document.createElement('p'); body.className = 'rv-body'; body.textContent = r.body;
+        li.append(head, body); list.prepend(li);
+      }
+      form.reset(); say('Thanks — your review is posted.', 'ok');
+    } catch (err) {
+      say(err.message, 'err');
+    } finally { btn.disabled = false; }
+  });
+})();

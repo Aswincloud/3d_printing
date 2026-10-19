@@ -69,6 +69,8 @@
             aria-selected="false" data-panel="couponsPanel">Coupons</button>
     <button class="admin-tab" id="tabQuotes" role="tab" type="button"
             aria-selected="false" data-panel="quotesPanel">Quotes <span class="tab-badge" id="quotesBadge" hidden></span></button>
+    <button class="admin-tab" id="tabReviews" role="tab" type="button"
+            aria-selected="false" data-panel="reviewsPanel">Reviews</button>
   </div>
 
   <div class="admin-alert admin-alert-err" id="adminError" hidden></div>
@@ -178,6 +180,26 @@
   <!-- Quotes -->
   <!-- Requests used to exist only as two emails. This is the record, and the
        place they get answered so every quotation goes out in one format. -->
+  <section class="admin-panel" id="reviewsPanel" hidden>
+    <div class="panel-head"><h2>Reviews</h2>
+      <span class="admin-muted">Posted reviews go live at once; you're emailed each one. Delete anything that isn't genuine.</span></div>
+    <details class="rv-add">
+      <summary>Add a review a customer sent you elsewhere</summary>
+      <p class="admin-muted">Only real reviews from real customers — e.g. a WhatsApp or Instagram message. It is shown with where it came from, never as a site review or verified.</p>
+      <form id="rvAddForm" class="coupon-form">
+        <div class="cf-grid">
+          <label class="cf-field"><span>Product</span><select id="rvAddProduct" class="admin-select" required></select></label>
+          <label class="cf-field"><span>Rating</span><select id="rvAddRating" class="admin-select"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></label>
+          <label class="cf-field"><span>Customer's name</span><input id="rvAddName" maxlength="60" required></label>
+          <label class="cf-field"><span>Where it came from</span><input id="rvAddNote" maxlength="40" placeholder="via WhatsApp" required></label>
+          <label class="cf-field cf-wide"><span>Their words</span><textarea id="rvAddBody" rows="3" maxlength="1000" required></textarea></label>
+        </div>
+        <button type="submit" class="admin-btn">Add review</button>
+      </form>
+    </details>
+    <div id="reviewsList" class="coupons-list"><p class="admin-muted">Loading…</p></div>
+  </section>
+
   <section class="admin-panel" id="quotesPanel" hidden>
     <div class="panel-head">
       <h2>Quotes</h2>
