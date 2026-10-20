@@ -7,6 +7,7 @@
 import { json, bad, isEmail, sendEmail, now, rupees } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
+import { payPendingPage } from "./paypending.js";
 import { submitReview, adminListReviews, adminDeleteReview, adminAddReview } from "./reviews.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
 import { googleFeed } from "./feed.js";
@@ -47,7 +48,7 @@ import {
   describeProducts as adminDescribe, setFormerPrices as adminSetFormerPrices,
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
   listOrders as adminListOrders, updateOrder as adminUpdateOrder,
-  refundOrder as adminRefundOrder, stats as adminStats,
+  refundOrder as adminRefundOrder, remindPayment as adminRemindPayment, stats as adminStats,
   bulkUpdateProducts as adminBulkUpdateProducts,
 } from "./admin.js";
 
@@ -111,6 +112,13 @@ export default {
     // binding because the Open Graph tags have to be per-product, and link
     // crawlers (WhatsApp, Slack, Facebook) do not run JavaScript — a preview is
     // built from the first HTML response, so this cannot be done client-side.
+    // Finish paying a pending order — the "Complete payment" link. See paypending.js.
+    const payMatch = url.pathname.match(/^\/o\/([0-9a-f]{32})\/?$/);
+    if (payMatch && (request.method === "GET" || request.method === "HEAD")) {
+      try { return withSecurityHeaders(await payPendingPage(env, payMatch[1])); }
+      catch (e) { console.error("pay page error", e?.message || e); return Response.redirect(new URL("/", url.origin).toString(), 302); }
+    }
+
     if (isProductPath(url.pathname) && (request.method === "GET" || request.method === "HEAD")) {
       try {
         return withSecurityHeaders(await productPage(request, env, url));
@@ -414,7 +422,7 @@ async function api(request, env, url, ctx) {
   // the verified cookie, never from the request body.
   if (p === "/api/orders" && m === "POST") {
     const buyer = await currentCustomer(request, env);
-    return createOrderHandler(request, env, body, buyer?.id || null);
+    return createOrderHandler(request, env, body, buyer?.id || null, ctx);
   }
   if (p === "/api/orders/verify" && m === "POST") return verifyOrderHandler(request, env, body);
 
@@ -559,6 +567,8 @@ async function api(request, env, url, ctx) {
 
     const refund = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/refund$/);
     if (refund && m === "POST") return adminRefundOrder(env, refund[1], body);
+    const remind = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/remind$/);
+    if (remind && m === "POST") return adminRemindPayment(env, remind[1]);
 
     if (p === "/api/admin/reviews" && m === "GET") return adminListReviews(env);
     if (p === "/api/admin/reviews" && m === "POST") return adminAddReview(env, body);
