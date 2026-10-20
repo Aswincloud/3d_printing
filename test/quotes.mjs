@@ -154,6 +154,9 @@ section("reply — the link carries the reference the webhook needs");
   // Razorpay wants seconds, not milliseconds. Off by 1000 and the link expires
   // in 1970 or in the year 57000.
   ok("expiry is in SECONDS", String(link.expire_by).length === 10, String(link.expire_by));
+  const mail = calls.find((c) => c.url.includes("api.resend.com")).body;
+  ok("the quotation goes to the customer", JSON.stringify(mail.to) === '["priya@example.com"]');
+  ok("the owner gets a blind copy", JSON.stringify(mail.bcc) === '["aswin@aswincloud.com"]', JSON.stringify(mail.bcc));
 
   const q = env.DB._db.quotes[0];
   ok("stored on the quote", q.rzp_plink_id === "plink_TEST123" && q.status === "replied");

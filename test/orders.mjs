@@ -499,6 +499,10 @@ section("POST /api/webhook/razorpay — order.paid");
   ok("owner emailed", to.includes("owner@example.com"));
   const cust = calls.resend.find((e) => e.to[0] === "buyer@example.com");
   ok("customer email shows the receipt", cust.html.includes(order.receipt));
+  ok("the owner gets a blind copy of the customer's confirmation",
+     JSON.stringify(cust.bcc) === JSON.stringify(["owner@example.com"]), JSON.stringify(cust.bcc));
+  const own = calls.resend.find((e) => e.to[0] === "owner@example.com");
+  ok("the owner's own alert is not copied to itself", own.bcc === undefined, JSON.stringify(own.bcc));
   ok("no secret in any email", !JSON.stringify(calls.resend).includes(KEY_SECRET));
 }
 

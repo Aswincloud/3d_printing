@@ -13,7 +13,7 @@
 // If the browser could mark an order paid, anyone could POST a fabricated
 // callback. And if only the browser could, a closed tab would lose the order.
 
-import { json, bad, uid, now, randToken, isEmail, sendEmail } from "./lib.js";
+import { json, bad, uid, now, randToken, isEmail, sendEmail, ownerCopy } from "./lib.js";
 import { priceCart } from "./shop.js";
 import { recordRedemption } from "./coupons.js";
 import {
@@ -586,6 +586,7 @@ function notifyPaid(env, ctx, paid, items) {
   ctx.waitUntil(Promise.all([
     sendEmail(env, {
       to: paid.cust_email,
+      bcc: ownerCopy(env),
       replyTo: owner,
       subject: `Order confirmed — ${paid.receipt}`,
       html: orderCustomerEmail(env, paid, items),

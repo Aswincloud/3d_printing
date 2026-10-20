@@ -78,6 +78,7 @@ section("shipped from the invoicer moves the shop order, emails, and does not ca
   ok("courier and tracking recorded", o.courier === "The Professional Couriers" && o.tracking_id === "TPC12345");
   ok("the shop's shipped email went to the customer", env._c.mail.length === 1 && /shipped/i.test(env._c.mail[0].subject) && JSON.stringify(env._c.mail[0].to).includes("buyer@example.com"), JSON.stringify(env._c.mail.map((m) => [m.subject, m.to])));
   ok("the email names the tracking number", /TPC12345/.test(env._c.mail[0].text));
+  ok("the owner gets a blind copy of it", JSON.stringify(env._c.mail[0].bcc) === JSON.stringify(["owner@example.com"]), JSON.stringify(env._c.mail[0].bcc));
   ok("NO call back to the invoicer (no loop, no second WhatsApp)", env._c.other.length === 0, JSON.stringify(env._c.other));
   const [st2, b2] = await call(env, SHIP());
   ok("a retry is harmless: already, no second email", st2 === 200 && b2.already === true && env._c.mail.length === 1, JSON.stringify(b2));
