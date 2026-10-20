@@ -1142,6 +1142,14 @@ section("admin orders — list");
     order_items: [{ order_id: ORDER.id, product_id: PRODUCT.id, name: "Kingfisher", price_paise: 34900, qty: 1, pos: 0 }],
   });
   const [, out] = await read(await listOrders(env, new URL("http://x/api/admin/orders")));
+  // The dashboard's "reminder sent" label and its confirm-before-resending read
+  // pay_reminder_at from this list. Without it every refresh looked unsent and a
+  // second press sent a second WhatsApp (CodeRabbit, PR #78).
+  {
+    const src = (await import("node:fs")).readFileSync(new URL("../src/admin.js", import.meta.url), "utf8");
+    const q = src.slice(src.indexOf("SELECT id, receipt, rzp_order_id, rzp_payment_id, status"), src.indexOf("FROM orders ${where}"));
+    ok("the order list selects pay_reminder_at", /\bpay_reminder_at\b/.test(q), q.slice(-120));
+  }
   ok("returns both orders", out.orders.length === 2);
   ok("newest first", out.orders[0].receipt === "AP-bbbbbbbb");
   ok("line items attached", out.orders.find((o) => o.receipt === "AP-aaaaaaaa").items.length === 1);

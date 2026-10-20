@@ -617,8 +617,9 @@ function notifyPaid(env, ctx, paid, items) {
 
 // ── owner alerts for unpaid checkouts ──────────────────────────────
 async function sendPendingMail(env, order, items, reason) {
-  const to = String(env.OWNER_EMAIL || "").split(",")[0].trim();
-  if (!to || !env.RESEND_API_KEY) return;
+  // Same fallback as the paid-order and unmatched-payment owner emails.
+  const to = String(env.OWNER_EMAIL || "aswin@aswincloud.com").split(",")[0].trim();
+  if (!env.RESEND_API_KEY) return;
   const m = pendingCheckoutOwnerEmail(env, order, items, { reason });
   const r = await sendEmail(env, { to, subject: m.subject, html: m.html, text: m.text }).catch((e) => ({ ok: false, error: e?.message }));
   if (r && r.ok === false) console.error(reason ? "failed-payment email failed" : "checkout-started email failed", order.receipt, r.error);

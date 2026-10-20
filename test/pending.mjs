@@ -24,7 +24,7 @@ function envWith(order, over = {}) {
     if (s.startsWith("SELECT * FROM orders WHERE rzp_order_id = ?")) return { first: db.orders.find((o) => o.rzp_order_id === a[0]) || null };
     if (s.startsWith("SELECT name, qty FROM order_items")) return { results: db.items.filter((i) => i.order_id === a[0]) };
     if (s.startsWith("SELECT name, qty, price_paise FROM order_items")) return { results: db.items.filter((i) => i.order_id === a[0]) };
-    if (s.startsWith("SELECT id, receipt, status, rzp_order_id, total_paise, shipping_paise")) return { first: db.orders.find((o) => o.pay_token === a[0]) || null };
+    if (s.startsWith("SELECT id, receipt, status, rzp_order_id, total_paise, shipping_paise, discount_paise, coupon_code")) return { first: db.orders.find((o) => o.pay_token === a[0]) || null };
     if (s.startsWith("SELECT id, receipt, status, total_paise, cust_name, cust_phone, pay_token FROM orders WHERE id = ?")) { const o = db.orders.find((x) => x.id === a[0]); return { first: o ? { ...o } : null }; }
     if (s.startsWith("UPDATE orders SET pay_token = ?")) { const o = db.orders.find((x) => x.id === a[1]); if (o && !o.pay_token) o.pay_token = a[0]; return { meta: { changes: 1 } }; }
     if (s.startsWith("SELECT pay_token FROM orders WHERE id = ?")) return { first: { pay_token: db.orders.find((x) => x.id === a[0])?.pay_token } };
@@ -54,6 +54,7 @@ section("owner email: checkout started");
   ok("never says paid or received", !/\bpaid\b(?! yet)|received/i.test(m.subject) && /not paid yet/i.test(m.text));
 }
 { const env = envWith(null, { RESEND_API_KEY: "" }); await notifyPendingCheckout(env, ORDER(), []); ok("no Resend key: nothing sent, no crash", env._out.mail.length === 0); }
+{ const env = envWith(null, { OWNER_EMAIL: "" }); await notifyPendingCheckout(env, ORDER(), []); ok("OWNER_EMAIL unset: falls back to the owner address like the other alerts", env._out.mail.length === 1 && JSON.stringify(env._out.mail[0].to).includes("aswin@aswincloud.com")); }
 
 section("owner email: payment failed");
 {
@@ -81,6 +82,10 @@ section("/o/<token>: the Complete-payment page");
 for (const [st, rx] of [["paid", /already paid/], ["delivered", /already paid/], ["cancelled", /cancelled/], ["refunded", /refunded/]]) {
   const html = await (await payPendingPage(envWith(ORDER({ status: st })), TOKEN)).text();
   ok(`${st}: says so, no pay button`, rx.test(html) && !html.includes('id="pay"'));
+}
+{
+  const html = await (await payPendingPage(envWith(ORDER({ discount_paise: 7000, coupon_code: "OFFER70", total_paise: 72800 })), TOKEN)).text();
+  ok("a coupon shows as a discount line, so the lines add up to the total", html.includes("Discount (OFFER70)") && html.includes("−₹70") && html.includes("Pay ₹728"), (html.match(/<table>[\s\S]*?<\/table>/) || [""])[0].slice(0, 400));
 }
 ok("unknown token: 404", (await payPendingPage(envWith(ORDER()), "f".repeat(32))).status === 404);
 ok("malformed token: 404 without a query", (await payPendingPage(envWith(ORDER()), "../etc")).status === 404);

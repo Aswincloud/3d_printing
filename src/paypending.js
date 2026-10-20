@@ -15,13 +15,16 @@ const TOKEN_RE = /^[0-9a-f]{32}$/;
 export async function payPendingPage(env, token) {
   if (!TOKEN_RE.test(String(token || ""))) return page("Not found", `<p>This payment link isn't valid.</p>`, 404);
   const o = await env.DB.prepare(
-    `SELECT id, receipt, status, rzp_order_id, total_paise, shipping_paise, cust_name, cust_email, cust_phone
+    `SELECT id, receipt, status, rzp_order_id, total_paise, shipping_paise, discount_paise, coupon_code,
+            cust_name, cust_email, cust_phone
        FROM orders WHERE pay_token = ?`).bind(token).first();
   if (!o) return page("Not found", `<p>This payment link isn't valid.</p>`, 404);
   const { results } = await env.DB.prepare(
     `SELECT name, qty, price_paise FROM order_items WHERE order_id = ? ORDER BY pos`).bind(o.id).all();
   const items = results || [];
   const rows = items.map((it) => `<tr><td>${esc(it.name)} × ${it.qty}</td><td class="r">${rupeesText(it.price_paise * it.qty)}</td></tr>`).join("") +
+    // The coupon, so the lines add up to the total the customer is asked to pay.
+    (o.discount_paise > 0 ? `<tr><td>Discount${o.coupon_code ? ` (${esc(o.coupon_code)})` : ""}</td><td class="r">−${rupeesText(o.discount_paise)}</td></tr>` : "") +
     (o.shipping_paise ? `<tr><td>Shipping</td><td class="r">${rupeesText(o.shipping_paise)}</td></tr>` : "") +
     `<tr class="t"><td>Total</td><td class="r">${rupeesText(o.total_paise)}</td></tr>`;
 

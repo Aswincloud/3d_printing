@@ -5,7 +5,7 @@
 // value goes through esc(). The shell/jq version dropped $NAME and $DESC into
 // HTML raw, so a description containing markup was injected verbatim.
 
-import { esc, rupees } from "./lib.js";
+import { esc, rupees, trimSlashes } from "./lib.js";
 
 const BG = "#0a0a0f";
 const CARD = "#1a1a24";
@@ -407,7 +407,7 @@ export function orderOwnerEmail(env, order, items) {
 // are not are the people worth a follow-up. `reason` is set when Razorpay says a
 // payment attempt failed, so the same template covers both.
 export function pendingCheckoutOwnerEmail(env, order, items, { reason = "" } = {}) {
-  const base = String(env.APP_BASE_URL || "https://3d-prints.aswincloud.com").replace(/\/+$/, "");
+  const base = trimSlashes(env.APP_BASE_URL || "https://3d-prints.aswincloud.com");
   const what = items.map((it) => `${it.name} × ${it.qty}`).join(", ");
   const head = reason ? "Payment failed — not paid" : "Checkout started — not paid yet";
   const lines = [

@@ -6,7 +6,7 @@ import { json, bad, uid, now, sendEmail, statusLabel, percentOff } from "./lib.j
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
 import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail } from "./emails.js";
 import { sendOrderShipment, sendPaymentReminder } from "./invoicing.js";
-import { randToken } from "./lib.js";
+import { randToken, trimSlashes } from "./lib.js";
 import { checkAgentEntries, checkDescribeEntries, checkFormerPriceEntries } from "./agent.js";
 import { galleryImages } from "./gallery.js";
 
@@ -1027,7 +1027,7 @@ export async function listOrders(env, url) {
             discount_paise, coupon_code, shipping_paise, total_paise, delivery,
             cust_name, cust_email, cust_phone, addr_line, addr_city, addr_state,
             addr_pin, notes, created_at, paid_at, production_at, ready_at,
-            shipped_at, delivered_at, courier, tracking_id
+            shipped_at, delivered_at, courier, tracking_id, pay_reminder_at
        FROM orders ${where} ORDER BY created_at DESC LIMIT ?`
   ).bind(...bindArgs).all();
 
@@ -1346,7 +1346,7 @@ export async function remindPayment(env, id) {
   const r = await sendPaymentReminder(env, o);
   if (!r.ok) return bad(`WhatsApp not sent: ${r.error || r.whatsapp || "unknown error"}`, 502);
   await env.DB.prepare(`UPDATE orders SET pay_reminder_at = ? WHERE id = ?`).bind(now(), o.id).run();
-  const site = String(env.APP_BASE_URL || "https://3d-prints.aswincloud.com").replace(/\/+$/, "");
+  const site = trimSlashes(env.APP_BASE_URL || "https://3d-prints.aswincloud.com");
   return json({ ok: true, link: `${site}/o/${o.pay_token}` });
 }
 
