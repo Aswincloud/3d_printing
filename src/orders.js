@@ -20,7 +20,7 @@ import {
   createOrder, paymentsConfigured, publicKeyId,
   verifyCallbackSignature, verifyWebhookSignature,
 } from "./razorpay.js";
-import { orderCustomerEmail, orderOwnerEmail, unmatchedPaymentEmail } from "./emails.js";
+import { orderCustomerEmail, orderOwnerEmail, unmatchedPaymentEmail, pendingCheckoutOwnerEmail } from "./emails.js";
 import { sendOrderInvoice } from "./invoicing.js";
 
 const MAX = { name: 100, email: 160, phone: 30, line: 200, city: 80, state: 80, pin: 10, notes: 500 };
@@ -72,7 +72,7 @@ const makeReceipt = () => "AP-" + randToken(4);
 // `sessionUserId` is resolved by the router from the customer session cookie, or
 // null for a guest. It is NOT read from the body: a request must not be able to
 // attach its order to an arbitrary account.
-export async function createOrderHandler(request, env, body, sessionUserId = null) {
+export async function createOrderHandler(request, env, body, sessionUserId = null, ctx = null) {
   if (!paymentsConfigured(env)) {
     console.error("checkout attempted but Razorpay keys are unset");
     return bad("Online payment isn't set up yet. Please use the quote form.", 503);
@@ -101,6 +101,8 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
 
   const receipt = makeReceipt();
   const orderId = uid();
+  // The customer's own link back to this order, should they leave without paying.
+  const payToken = randToken(16);
 
   const rzp = await createOrder(env, {
     amountPaise: priced.total_paise,
@@ -143,8 +145,8 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       `INSERT INTO orders (id, receipt, rzp_order_id, status, subtotal_paise,
          shipping_paise, total_paise, currency, delivery, cust_name, cust_email,
          cust_phone, addr_line, addr_city, addr_state, addr_pin, notes, created_at,
-         user_id, coupon_code, discount_paise)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         user_id, coupon_code, discount_paise, pay_token)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       orderId, receipt, rzp.order.id, "pending",
       priced.subtotal_paise, priced.shipping_paise, priced.total_paise, "INR", delivery,
@@ -157,6 +159,7 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       // Snapshot, so a receipt reprinted after the coupon is edited or deleted
       // still shows what was actually charged.
       priced.coupon_code ?? null, priced.discount_paise ?? 0,
+      payToken,
     ),
   ];
 
@@ -200,6 +203,16 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       console.error("could not save address to profile", e?.message || e);
     }
   }
+
+  // Tell the owner a checkout started. Labelled "not paid yet": most are paid a
+  // minute later and get the normal order email too; the rest are the people
+  // worth a follow-up, and until now nothing said they existed.
+  const ownerMail = notifyPendingCheckout(env, {
+    receipt, total_paise: priced.total_paise, pay_token: payToken,
+    cust_name: customer.cust_name, cust_phone: customer.cust_phone, cust_email: customer.cust_email,
+    addr_city: customer.addr_city, addr_state: customer.addr_state,
+  }, priced.items);
+  if (ctx?.waitUntil) ctx.waitUntil(ownerMail); else await ownerMail;
 
   // The browser needs the key id (public), the Razorpay order id, and the
   // amount to display. The amount is ours, not something it told us.
@@ -335,9 +348,11 @@ export async function razorpayWebhook(request, env, ctx) {
     await handleQuotePaid(env, ctx, evt);
   } else if (eventType === "payment.failed") {
     // NOT terminal: Razorpay may still capture this payment after a UPI retry,
-    // so the order stays 'pending' and just gets a note.
+    // so the order stays 'pending'. The owner is told, with Razorpay's reason.
     const p = evt?.payload?.payment?.entity || {};
     console.warn("payment failed", p.order_id, p.error_description || "");
+    const failed = notifyFailedPayment(env, p);
+    if (ctx?.waitUntil) ctx.waitUntil(failed); else await failed;
   }
 
   // Razorpay times out at ~5s, so return immediately; email goes out in the
@@ -598,4 +613,32 @@ function notifyPaid(env, ctx, paid, items) {
     // retries on a payment that already succeeded.
     sendOrderInvoice(env, paid, items),
   ]));
+}
+
+// ── owner alerts for unpaid checkouts ──────────────────────────────
+async function sendPendingMail(env, order, items, reason) {
+  // Same fallback as the paid-order and unmatched-payment owner emails.
+  const to = String(env.OWNER_EMAIL || "aswin@aswincloud.com").split(",")[0].trim();
+  if (!env.RESEND_API_KEY) return;
+  const m = pendingCheckoutOwnerEmail(env, order, items, { reason });
+  const r = await sendEmail(env, { to, subject: m.subject, html: m.html, text: m.text }).catch((e) => ({ ok: false, error: e?.message }));
+  if (r && r.ok === false) console.error(reason ? "failed-payment email failed" : "checkout-started email failed", order.receipt, r.error);
+}
+
+export async function notifyPendingCheckout(env, order, items) {
+  return sendPendingMail(env, order, items, "");
+}
+
+// payment.failed carries the Razorpay order id; the shop's own row gives the
+// customer and items. Not ours (a quote link, the invoicer's /pay) → nothing.
+// Not pending any more (paid on a retry before this arrived) → nothing.
+export async function notifyFailedPayment(env, payment) {
+  if (!payment?.order_id) return;
+  const order = await env.DB.prepare(`SELECT * FROM orders WHERE rzp_order_id = ?`).bind(payment.order_id).first();
+  if (!order || order.status !== "pending") return;
+  const { results } = await env.DB.prepare(
+    `SELECT name, qty FROM order_items WHERE order_id = ? ORDER BY pos`).bind(order.id).all();
+  const reason = [payment.error_description, payment.method ? `(${payment.method}${payment.wallet ? " " + payment.wallet : ""})` : ""]
+    .filter(Boolean).join(" ") || "Payment attempt failed";
+  return sendPendingMail(env, order, results || [], reason);
 }

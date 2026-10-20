@@ -5,7 +5,8 @@
 import { json, bad, uid, now, sendEmail, statusLabel, percentOff } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
 import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail } from "./emails.js";
-import { sendOrderShipment } from "./invoicing.js";
+import { sendOrderShipment, sendPaymentReminder } from "./invoicing.js";
+import { randToken, trimSlashes } from "./lib.js";
 import { checkAgentEntries, checkDescribeEntries, checkFormerPriceEntries } from "./agent.js";
 import { galleryImages } from "./gallery.js";
 
@@ -1026,7 +1027,7 @@ export async function listOrders(env, url) {
             discount_paise, coupon_code, shipping_paise, total_paise, delivery,
             cust_name, cust_email, cust_phone, addr_line, addr_city, addr_state,
             addr_pin, notes, created_at, paid_at, production_at, ready_at,
-            shipped_at, delivered_at, courier, tracking_id
+            shipped_at, delivered_at, courier, tracking_id, pay_reminder_at
        FROM orders ${where} ORDER BY created_at DESC LIMIT ?`
   ).bind(...bindArgs).all();
 
@@ -1326,6 +1327,29 @@ function trackingUrlFor(courier, tracking) {
 // Real money. Guarded accordingly: only a paid/shipped order, only up to what
 // was actually collected, and the local row is only updated after Razorpay
 // confirms — so a failed refund never shows as refunded.
+// POST /api/admin/orders/:id/remind — send the customer the "payment pending"
+// WhatsApp with their Complete-payment link. Owner-pressed, never automatic.
+// Pending orders only; mints a pay link for orders created before links
+// existed; records when it was sent so the dashboard can show it.
+export async function remindPayment(env, id) {
+  const o = await env.DB.prepare(
+    `SELECT id, receipt, status, total_paise, cust_name, cust_phone, pay_token FROM orders WHERE id = ?`).bind(id).first();
+  if (!o) return bad("Order not found.", 404);
+  if (o.status !== "pending") return bad("Only unpaid (pending) orders can get a payment reminder.", 409);
+  if (!o.cust_phone) return bad("This order has no phone number.", 400);
+  if (!o.pay_token) {
+    o.pay_token = randToken(16);
+    await env.DB.prepare(`UPDATE orders SET pay_token = ? WHERE id = ? AND pay_token IS NULL`).bind(o.pay_token, o.id).run();
+    const back = await env.DB.prepare(`SELECT pay_token FROM orders WHERE id = ?`).bind(o.id).first();
+    o.pay_token = back?.pay_token || o.pay_token;
+  }
+  const r = await sendPaymentReminder(env, o);
+  if (!r.ok) return bad(`WhatsApp not sent: ${r.error || r.whatsapp || "unknown error"}`, 502);
+  await env.DB.prepare(`UPDATE orders SET pay_reminder_at = ? WHERE id = ?`).bind(now(), o.id).run();
+  const site = trimSlashes(env.APP_BASE_URL || "https://3d-prints.aswincloud.com");
+  return json({ ok: true, link: `${site}/o/${o.pay_token}` });
+}
+
 export async function refundOrder(env, id, body) {
   if (!paymentsConfigured(env)) return bad("Razorpay isn't configured.", 503);
 

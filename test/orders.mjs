@@ -171,6 +171,10 @@ function makeDB() {
       if (c) c.uses = (c.uses || 0) + 1;
       return { meta: { changes: c ? 1 : 0 } };
     }
+    // The failed-payment owner email reads the order's items (2026-10-20).
+    if (s.startsWith("SELECT name, qty FROM order_items WHERE order_id = ?")) {
+      return { results: db.order_items.filter((i) => i.order_id === args[0]).map((i) => ({ name: i.name, qty: i.qty })) };
+    }
     throw new Error("unhandled SQL in fake D1: " + s.slice(0, 90));
   };
 
@@ -273,7 +277,10 @@ section("POST /api/orders — happy path");
   ok("order row is pending", env.DB._db.orders[0].status === "pending");
   ok("line item snapshots the name", env.DB._db.order_items[0].name === "Kingfisher");
   ok("line item snapshots the price", env.DB._db.order_items[0].price_paise === 34900);
-  ok("no email sent at creation", calls.resend.length === 0);
+  // Creation emails the OWNER only, labelled not-paid; never the customer.
+  ok("exactly one email at creation, to the owner", calls.resend.length === 1 && JSON.stringify(calls.resend[0].to).includes("owner@example.com"), JSON.stringify(calls.resend.map((m) => m.to)));
+  ok("it says checkout started, not paid", /^Checkout started:/.test(calls.resend[0]?.subject || ""), calls.resend[0]?.subject);
+  ok("the customer gets nothing until payment", !calls.resend.some((m) => JSON.stringify(m.to).includes(CUSTOMER.email)));
 }
 
 section("POST /api/orders — the client cannot set the price (invariant 1)");
@@ -462,6 +469,9 @@ async function seedPaidOrder() {
   const env = ENV(); const calls = stubFetch();
   const body = { items: [{ product_id: "p-small", qty: 2 }], delivery: "ship", customer: CUSTOMER };
   await createOrderHandler(post(body), env, body);
+  // Creating the order now emails the owner "checkout started" (2026-10-20).
+  // Cleared here so every count below measures only what the PAYMENT sends.
+  calls.resend.length = 0;
   const o = env.DB._db.orders[0];
   const raw = JSON.stringify({
     event: "order.paid",

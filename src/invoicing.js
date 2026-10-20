@@ -159,3 +159,27 @@ export async function sendOrderShipment(env, order, kind) {
     return { ok: false, whatsapp: "error", why: String(e?.message || e) };
   }
 }
+
+// Ask the invoicer to send the customer the "payment pending" WhatsApp for an
+// unpaid order (the owner pressed the button). The invoicer holds the Meta
+// credentials and the template; the shop sends only what the message needs.
+// Same signing as the other shop->invoicer calls.
+export async function sendPaymentReminder(env, order) {
+  if (String(env.INVOICE_ENABLED ?? "").toLowerCase() !== "true") return { ok: false, error: "WhatsApp is off" };
+  const url = env.INVOICER_URL, secret = env.SHOP_INGEST_SECRET;
+  if (!url || !secret) return { ok: false, error: "not configured" };
+  const raw = JSON.stringify({
+    ts: now(), receipt: order.receipt, name: order.cust_name || "", phone: order.cust_phone || "",
+    amount_paise: order.total_paise, pay_token: order.pay_token,
+  });
+  try {
+    const res = await fetch(`${url.replace(/\/$/, "")}/api/ingest/payment-reminder`, {
+      method: "POST", redirect: "error",
+      headers: { "Content-Type": "application/json", "x-shop-signature": await hmacHex(raw, secret), "User-Agent": "aswinprints-shop/1.0" },
+      body: raw,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: body?.error || `HTTP ${res.status}` };
+    return { ok: body.whatsapp === "sent", whatsapp: body.whatsapp, error: body.why };
+  } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+}

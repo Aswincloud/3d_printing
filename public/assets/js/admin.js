@@ -398,6 +398,21 @@ function orderCard(o) {
     }));
   }
 
+  // An unpaid order: send the customer a WhatsApp with their Complete-payment
+  // link. Pressed by you, never sent automatically.
+  if (o.status === 'pending' && o.cust_phone) {
+    const sent = o.pay_reminder_at ? ` (sent ${new Date(o.pay_reminder_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })})` : '';
+    actions.appendChild(actionBtn('Send payment reminder' + sent, 'admin-btn', async () => {
+      if (o.pay_reminder_at && !confirm(`A reminder was already sent${sent}. Send another?`)) return;
+      if (!o.pay_reminder_at && !confirm(`Send ${o.cust_name} a WhatsApp reminder with a link to pay ${o.receipt}?`)) return;
+      try {
+        const r = await api(`/api/admin/orders/${o.id}/remind`, { method: 'POST', body: '{}' });
+        flash(`Reminder sent to ${o.cust_name}. Link: ${r.link}`);
+        await loadOrders();
+      } catch (e) { flash(e.message, true); }
+    }));
+  }
+
   if (['pending', 'paid', 'in_production', 'ready', 'failed'].includes(o.status)) {
     actions.appendChild(actionBtn('Cancel', 'admin-btn-ghost', async () => {
       if (!confirm(`Cancel ${o.receipt}? This does not refund any money.`)) return;

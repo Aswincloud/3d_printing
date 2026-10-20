@@ -5,7 +5,7 @@
 // value goes through esc(). The shell/jq version dropped $NAME and $DESC into
 // HTML raw, so a description containing markup was injected verbatim.
 
-import { esc, rupees } from "./lib.js";
+import { esc, rupees, trimSlashes } from "./lib.js";
 
 const BG = "#0a0a0f";
 const CARD = "#1a1a24";
@@ -400,4 +400,39 @@ export function orderOwnerEmail(env, order, items) {
     button(base + "/shop", "Open Dashboard") +
     `<div style="height:32px"></div></div>`
   );
+}
+
+// To the owner, the moment a checkout starts (status pending, nothing paid yet).
+// Clearly NOT an order: most of these are paid a minute later, and the ones that
+// are not are the people worth a follow-up. `reason` is set when Razorpay says a
+// payment attempt failed, so the same template covers both.
+export function pendingCheckoutOwnerEmail(env, order, items, { reason = "" } = {}) {
+  const base = trimSlashes(env.APP_BASE_URL || "https://3d-prints.aswincloud.com");
+  const what = items.map((it) => `${it.name} × ${it.qty}`).join(", ");
+  const head = reason ? "Payment failed — not paid" : "Checkout started — not paid yet";
+  const lines = [
+    ["Order", order.receipt],
+    ["Items", what],
+    ["Total", rupees(order.total_paise)],
+    ["Customer", order.cust_name],
+    ["Phone", order.cust_phone || "—"],
+    ["Email", order.cust_email || "—"],
+    ["City", [order.addr_city, order.addr_state].filter(Boolean).join(", ") || "—"],
+  ];
+  if (reason) lines.push(["Reason", reason]);
+  const payUrl = order.pay_token ? `${base}/o/${order.pay_token}` : "";
+  const note = reason
+    ? "Razorpay reported a failed payment attempt. They may retry on their own; if not, a nudge often helps."
+    : "No payment yet. If it is paid you will get the usual order email. If not, this is the person to follow up.";
+  return {
+    subject: `${reason ? "Payment failed" : "Checkout started"}: ${order.receipt} · ${rupees(order.total_paise)} · ${order.cust_name}`,
+    text: `${head}\n\n` + lines.map(([k, v]) => `${k}: ${v}`).join("\n") + `\n\n${note}\n` +
+          (payUrl ? `\nTheir payment link: ${payUrl}\n` : "") + `Dashboard: ${base}/shop.html\n`,
+    html: shell(`<h2 style="margin:0 0 12px;color:${reason ? "#b91c1c" : "#b45309"}">${esc(head)}</h2>
+      <table style="border-collapse:collapse;font-size:14px">${lines.map(([k, v]) =>
+        `<tr><td style="padding:3px 12px 3px 0;color:#6b7280">${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join("")}</table>
+      <p style="font-size:13px;color:#6b7280">${esc(note)}</p>
+      ${payUrl ? `<p style="font-size:13px">Their payment link: <a href="${esc(payUrl)}">${esc(payUrl)}</a></p>` : ""}
+      <p style="font-size:13px"><a href="${esc(base)}/shop.html">Open the dashboard</a></p>`),
+  };
 }
