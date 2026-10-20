@@ -121,7 +121,7 @@ function fromHeader(env, name) {
 
 // `replyTo` added over invoicer's version: quote mails set it to the customer
 // so Aswin can just hit reply.
-export async function sendEmail(env, { to, subject, html, text, fromName, replyTo }) {
+export async function sendEmail(env, { to, subject, html, text, fromName, replyTo, bcc }) {
   const key = env.RESEND_API_KEY;
   if (!key) return { ok: false, error: "RESEND_API_KEY not set" };
   const payload = {
@@ -130,6 +130,11 @@ export async function sendEmail(env, { to, subject, html, text, fromName, replyT
     subject, html, text,
   };
   if (replyTo) payload.reply_to = replyTo;
+  // A blind copy to an address already in `to` would deliver the mail twice.
+  const lower = new Set(payload.to.map((a) => String(a).trim().toLowerCase()));
+  const blind = (Array.isArray(bcc) ? bcc : [bcc])
+    .map((a) => String(a || "").trim()).filter((a) => isEmail(a) && !lower.has(a.toLowerCase()));
+  if (blind.length) payload.bcc = blind;
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -142,6 +147,13 @@ export async function sendEmail(env, { to, subject, html, text, fromName, replyT
   if (r.ok) return { ok: true, id: (await r.json().catch(() => ({}))).id };
   return { ok: false, status: r.status, error: await r.text().catch(() => "") };
 }
+
+// The owner's own address for blind copies of customer mail: every message a
+// customer receives also lands in the owner's inbox, so there is a record of
+// exactly what was said. First entry of OWNER_EMAIL, the same fallback as the
+// owner alerts. Sign-in codes are deliberately never copied.
+export const ownerCopy = (env) =>
+  String(env.OWNER_EMAIL || "aswin@aswincloud.com").split(",")[0].trim();
 
 export const isEmail = (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s || "");
 

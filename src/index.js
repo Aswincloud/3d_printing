@@ -4,7 +4,7 @@
 // binding; everything else falls through to api(). Same shape as
 // ~/projects/invoicer, which runs this config in production.
 
-import { json, bad, isEmail, sendEmail, now, rupees } from "./lib.js";
+import { json, bad, isEmail, sendEmail, ownerCopy, now, rupees } from "./lib.js";
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { payPendingPage } from "./paypending.js";
@@ -714,6 +714,7 @@ async function quote(request, env, ctx, body) {
 
   ctx.waitUntil(sendEmail(env, {
     to: q.email,
+    bcc: ownerCopy(env),
     replyTo: owner,
     subject: "Got your quote request! — AswinPrints",
     html: quoteCustomerEmail(env, q),

@@ -2,7 +2,7 @@
 // authenticated by the positional gate in index.js — these functions never
 // check auth themselves, so the gate must stay above them in the router.
 
-import { json, bad, uid, now, sendEmail, statusLabel, percentOff } from "./lib.js";
+import { json, bad, uid, now, sendEmail, ownerCopy, statusLabel, percentOff } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
 import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail } from "./emails.js";
 import { sendOrderShipment, sendPaymentReminder } from "./invoicing.js";
@@ -1187,6 +1187,7 @@ export async function applyStageFromInvoicer(env, { receipt, kind, courier, trac
     emailed = true;
     const send = sendEmail(env, {
       to: merged.cust_email,
+      bcc: ownerCopy(env),
       replyTo: env.OWNER_EMAIL || "aswin@aswincloud.com",
       subject: mail.subject(merged), html: mail.html(env, merged), text: mail.text(merged),
     }).then((r) => { if (!r.ok) console.error(`${kind} email (from invoicer) failed`, receipt, r.status, r.error); });
@@ -1264,6 +1265,7 @@ export async function updateOrder(env, id, body, ctx = null) {
     const merged = { ...order, ...row };
     const send = sendEmail(env, {
       to: merged.cust_email,
+      bcc: ownerCopy(env),
       replyTo: env.OWNER_EMAIL || "aswin@aswincloud.com",
       subject: mail.subject(merged),
       html: mail.html(env, merged),

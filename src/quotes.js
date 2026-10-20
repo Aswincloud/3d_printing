@@ -8,7 +8,7 @@
 // in index.js and are deliberately absent from AGENT_ROUTES: this surface reads
 // customer names, emails and phone numbers, and mints live payment links.
 
-import { json, bad, uid, now, sendEmail } from "./lib.js";
+import { json, bad, uid, now, sendEmail, ownerCopy } from "./lib.js";
 import { createPaymentLink, paymentsConfigured, QUOTE_MIN_PAISE, QUOTE_MAX_PAISE } from "./razorpay.js";
 import { quotationEmail } from "./emails.js";
 
@@ -129,6 +129,7 @@ export async function replyToQuote(env, id, body) {
 
   const sent = await sendEmail(env, {
     to: q.cust_email,
+    bcc: ownerCopy(env),
     replyTo: env.OWNER_EMAIL || "aswin@aswincloud.com",
     subject: `Your quote — ${q.receipt}`,
     html: quotationEmail(env, fresh),

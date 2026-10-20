@@ -4,7 +4,7 @@
 // These cover the properties that are painful to verify by clicking:
 // HTML escaping in emails, and money formatting.
 
-import { esc, rupees, hmacHex, timingSafeEqualHex, isEmail } from "../src/lib.js";
+import { esc, rupees, hmacHex, timingSafeEqualHex, isEmail, sendEmail, ownerCopy } from "../src/lib.js";
 import {
   quoteOwnerEmail, quoteCustomerEmail, orderCustomerEmail, orderOwnerEmail,
 } from "../src/emails.js";
@@ -228,6 +228,48 @@ section("quote ref_item");
   const nasty = quoteOwnerEmail(ENV, { ...evil, ref_item: '<img src=x onerror="alert(1)">' });
   ok("reference is escaped", !nasty.includes("<img src=x"));
   ok("no live attribute from the reference", !/onerror\s*=\s*"/.test(nasty));
+}
+
+section("sendEmail() bcc — the owner's copy of customer mail");
+{
+  const sent = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_u, init) => { sent.push(JSON.parse(init.body)); return new Response('{"id":"m"}'); };
+  const env = { RESEND_API_KEY: "k", OWNER_EMAIL: "Owner@Example.com, second@example.com" };
+  try {
+    ok("ownerCopy takes the first OWNER_EMAIL entry", ownerCopy(env) === "Owner@Example.com");
+    ok("ownerCopy falls back to the shop address", ownerCopy({}) === "aswin@aswincloud.com");
+    await sendEmail(env, { to: "buyer@example.com", subject: "s", text: "t", bcc: ownerCopy(env) });
+    ok("bcc is sent as a list", JSON.stringify(sent[0].bcc) === '["Owner@Example.com"]', JSON.stringify(sent[0].bcc));
+    await sendEmail(env, { to: "owner@example.com", subject: "s", text: "t", bcc: ownerCopy(env) });
+    ok("no bcc when it is already the recipient (any case)", sent[1].bcc === undefined, JSON.stringify(sent[1].bcc));
+    await sendEmail(env, { to: "buyer@example.com", subject: "s", text: "t", bcc: "not an email" });
+    ok("a malformed bcc is dropped, the mail still goes", sent[2].bcc === undefined && sent.length === 3);
+    await sendEmail(env, { to: "buyer@example.com", subject: "s", text: "t" });
+    ok("no bcc unless asked", !("bcc" in sent[3]));
+  } finally { globalThis.fetch = real; }
+}
+
+section("quote request — the customer's acknowledgement is copied to the owner");
+{
+  const { default: worker } = await import("../src/index.js");
+  const sent = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_u, init) => { sent.push(JSON.parse(init.body)); return new Response('{"id":"m"}'); };
+  const stmt = { bind() { return stmt; }, async run() { return { meta: { changes: 1 } }; } };
+  const env = { RESEND_API_KEY: "k", OWNER_EMAIL: "owner@example.com", DB: { prepare: () => stmt } };
+  const jobs = [];
+  try {
+    const res = await worker.fetch(new Request("https://x/api/quote", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Priya", email: "priya@example.com", type: "Figurine", qty: 1,
+                             desc: "A small figurine of my dog." }),
+    }), env, { waitUntil: (p) => jobs.push(p), passThroughOnException() {} });
+    await Promise.all(jobs);
+    ok("quote accepted", res.status === 200, String(res.status));
+    const ack = sent.find((m) => JSON.stringify(m.to) === '["priya@example.com"]');
+    ok("the acknowledgement blind-copies the owner", ack && JSON.stringify(ack.bcc) === '["owner@example.com"]', JSON.stringify(ack?.bcc));
+  } finally { globalThis.fetch = real; }
 }
 
 // ── summary ───────────────────────────────────────────────────────
