@@ -174,10 +174,16 @@ export async function sendPaymentReminder(env, order) {
   });
   try {
     const res = await fetch(`${url.replace(/\/$/, "")}/api/ingest/payment-reminder`, {
-      method: "POST", redirect: "error",
+      // "manual", not "error": Workers reject "error" at runtime (Node accepts it,
+      // which is how it passed the tests). A redirect is then refused below, so
+      // the signature and the customer's phone are never sent anywhere else.
+      method: "POST", redirect: "manual",
       headers: { "Content-Type": "application/json", "x-shop-signature": await hmacHex(raw, secret), "User-Agent": "aswinprints-shop/1.0" },
       body: raw,
     });
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+      return { ok: false, error: "the invoicer answered with a redirect — refused" };
+    }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: body?.error || `HTTP ${res.status}` };
     return { ok: body.whatsapp === "sent", whatsapp: body.whatsapp, error: body.why };

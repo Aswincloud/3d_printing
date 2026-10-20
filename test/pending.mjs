@@ -98,7 +98,9 @@ section("Send payment reminder (owner-pressed)");
   const call = env._out.invoicer[0];
   ok("asks the invoicer once, signed", r.status === 200 && env._out.invoicer.length === 1 && call.sig === await hmacHex(call.raw, "s3cret"), JSON.stringify(b));
   ok("sends receipt, name, phone, amount and the pay token", call.body.receipt === "AP-534abe47" && call.body.phone === "9876543210" && call.body.amount_paise === 79800 && call.body.pay_token === TOKEN);
-  ok("never follows a redirect", call.redirect === "error");
+  // Workers accept only "follow" or "manual" — "error" throws at the edge (it
+  // broke the live reminder on 2026-10-20 though Node accepted it here).
+  ok("redirect mode is one Workers accept, and not follow", call.redirect === "manual", String(call.redirect));
   ok("records when it was sent", env._db.orders[0].pay_reminder_at > 0);
   ok("returns the customer's link", b.link === `https://shop.test/o/${TOKEN}`);
 }
@@ -111,6 +113,15 @@ for (const st of ["paid", "shipped", "cancelled"]) {
   const env = envWith(ORDER({ status: st }));
   const r = await remindPayment(env, "o-1");
   ok(`${st} order: refused, nothing sent`, r.status === 409 && env._out.invoicer.length === 0);
+}
+{
+  const env = envWith(ORDER());
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url, init) => new URL(String(url)).pathname === "/api/ingest/payment-reminder"
+    ? new Response(null, { status: 302, headers: { location: "https://evil.example/" } }) : prev(url, init);
+  const r = await remindPayment(env, "o-1"); const b = await r.json();
+  ok("a redirect from the invoicer is refused, not followed", r.status === 502 && /redirect/.test(b.error) && !env._db.orders[0].pay_reminder_at, JSON.stringify(b));
+  globalThis.fetch = prev;
 }
 { const env = envWith(ORDER({ cust_phone: "" })); ok("no phone: refused", (await remindPayment(env, "o-1")).status === 400 && env._out.invoicer.length === 0); }
 { const env = envWith(ORDER(), { _invoicerReply: { ok: true, whatsapp: "failed", why: "template not approved" } });
