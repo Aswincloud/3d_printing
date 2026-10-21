@@ -430,6 +430,13 @@
         <label for="coPhone">Phone <span aria-hidden="true">*</span></label>
         <input type="tel" id="coPhone" name="co_phone" autocomplete="tel" required />
         <span class="field-error" id="co_phoneError"></span>
+        <!-- Unticked by default: a WhatsApp naming a discount is a marketing
+             message, and needs the customer's own yes. Order updates on
+             WhatsApp do not depend on it. -->
+        <label class="co-check" for="coWaOffers">
+          <input type="checkbox" id="coWaOffers" name="co_wa_offers" />
+          <span>Send me offers on WhatsApp</span>
+        </label>
       </div>
     </div>
 
@@ -532,6 +539,11 @@
       <input type="text" id="setPin" name="set_pin" inputmode="numeric" autocomplete="postal-code" />
       <span class="field-error" id="set_pinError"></span>
     </div>
+
+    <label class="co-check" for="setWaOffers">
+      <input type="checkbox" id="setWaOffers" name="set_wa_offers" />
+      <span>Send me offers on WhatsApp</span>
+    </label>
 
     <div class="co-error" id="settingsError" hidden></div>
     <span class="co-promo-ok" id="settingsOk" hidden></span>

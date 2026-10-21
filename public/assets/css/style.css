@@ -3396,3 +3396,7 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
     font-size: 16px;
   }
 }
+
+/* Opt-in checkbox under a form field (WhatsApp offers). 44px tall for touch. */
+.co-check { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 6px; font-size: 14px; color: var(--text-muted, #a1a1aa); cursor: pointer; }
+.co-check input { width: 18px; height: 18px; margin: 0; font-size: 16px; accent-color: var(--orange, #ff6b00); flex: none; }

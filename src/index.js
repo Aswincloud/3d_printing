@@ -8,6 +8,7 @@ import { json, bad, isEmail, sendEmail, ownerCopy, now, rupees } from "./lib.js"
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { payPendingPage } from "./paypending.js";
+import { backPage, stopReminders, stopConfirmPage, handleReminderBatch } from "./reminders.js";
 import { submitReview, adminListReviews, adminDeleteReview, adminAddReview } from "./reviews.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
 import { googleFeed } from "./feed.js";
@@ -117,6 +118,21 @@ export default {
     if (payMatch && (request.method === "GET" || request.method === "HEAD")) {
       try { return withSecurityHeaders(await payPendingPage(env, payMatch[1])); }
       catch (e) { console.error("pay page error", e?.message || e); return Response.redirect(new URL("/", url.origin).toString(), 302); }
+    }
+
+    // A reminder's "Finish my order" link, and its one-click unsubscribe. See reminders.js.
+    const backMatch = url.pathname.match(/^\/back\/([uo][0-9a-f]{32})(\/stop)?\/?$/);
+    if (backMatch && (request.method === "GET" || request.method === "HEAD" || (backMatch[2] && request.method === "POST"))) {
+      try {
+        // Unsubscribe only on POST from the page's own button: a GET is what mail
+        // scanners and link previews fetch, and they must not unsubscribe anyone.
+        if (backMatch[2]) {
+          return withSecurityHeaders(request.method === "POST"
+            ? await stopReminders(env, backMatch[1])
+            : stopConfirmPage(backMatch[1]));
+        }
+        return withSecurityHeaders(await backPage(env, backMatch[1]));
+      } catch (e) { console.error("back page error", e?.message || e); return Response.redirect(new URL("/#shop", url.origin).toString(), 302); }
     }
 
     if (isProductPath(url.pathname) && (request.method === "GET" || request.method === "HEAD")) {
@@ -251,6 +267,11 @@ export default {
       return withSecurityHeaders(await notFoundPage(request, env, url));
     }
     return withSecurityHeaders(asset);
+  },
+
+  // Delayed reminder messages (src/reminders.js). One per checkout or cart change.
+  async queue(batch, env) {
+    await handleReminderBatch(batch, env);
   },
 };
 

@@ -64,7 +64,7 @@ export async function currentCustomer(request, env) {
   const userId = await verifyToken(env.SESSION_SECRET, raw, USER_PURPOSE);
   if (!userId) return null;
   const user = await env.DB.prepare(
-    `SELECT id, email, name, created_at, phone, addr_line, addr_city, addr_state, addr_pin
+    `SELECT id, email, name, created_at, phone, addr_line, addr_city, addr_state, addr_pin, wa_offers
        FROM users WHERE id = ?`
   ).bind(userId).first();
   // A deleted account must not keep a working session.
@@ -321,6 +321,7 @@ export async function whoami(env, user, isAdmin = false) {
     addr_city: user.addr_city || null,
     addr_state: user.addr_state || null,
     addr_pin: user.addr_pin || null,
+    wa_offers: Boolean(user.wa_offers),
 
     // ── the two things live chat needs ──
     //
@@ -437,6 +438,16 @@ export async function updateMe(env, user, body) {
     sets.push(`${col} = ?`);
     args.push(v || null);
     out[col] = v || null;
+  }
+
+  // The WhatsApp-offers opt-in. A boolean, not a profile string: only true or
+  // false are accepted, so a stray value can neither opt someone in nor out.
+  if (typeof body?.wa_offers === "boolean") {
+    sets.push("wa_offers = ?");
+    args.push(body.wa_offers ? 1 : 0);
+    out.wa_offers = body.wa_offers;
+    // Opting in again also turns reminders back on after an unsubscribe.
+    if (body.wa_offers) sets.push("reminders_off = 0");
   }
 
   if (!sets.length) return bad("Nothing to update.");

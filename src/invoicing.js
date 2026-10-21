@@ -17,7 +17,7 @@
 // email is on its way regardless. A missing invoice is a thing to fix on Monday;
 // a wedged payment webhook is not.
 
-import { now, hmacHex } from "./lib.js";
+import { now, hmacHex, trimSlashes } from "./lib.js";
 
 export async function sendOrderInvoice(env, order, items) {
   // Kill switch, checked first. One deploy stops invoicing without touching
@@ -165,15 +165,27 @@ export async function sendOrderShipment(env, order, kind) {
 // credentials and the template; the shop sends only what the message needs.
 // Same signing as the other shop->invoicer calls.
 export async function sendPaymentReminder(env, order) {
+  return postSigned(env, "/api/ingest/payment-reminder", {
+    receipt: order.receipt, name: order.cust_name || "", phone: order.cust_phone || "",
+    amount_paise: order.total_paise, pay_token: order.pay_token,
+  });
+}
+
+// The COMEBACK offer on WhatsApp (marketing template comeback_offer). Only ever
+// called for a customer who opted in to WhatsApp offers — see src/reminders.js.
+// `token` is the /back/ link's token; `what` names the items.
+export async function sendComebackWhatsApp(env, { name, phone, what, token }) {
+  return postSigned(env, "/api/ingest/comeback", { name: name || "", phone: phone || "", what, token });
+}
+
+// Signed POST to the invoicer, which owns every WhatsApp template. Never throws.
+async function postSigned(env, path, fields) {
   if (String(env.INVOICE_ENABLED ?? "").toLowerCase() !== "true") return { ok: false, error: "WhatsApp is off" };
   const url = env.INVOICER_URL, secret = env.SHOP_INGEST_SECRET;
   if (!url || !secret) return { ok: false, error: "not configured" };
-  const raw = JSON.stringify({
-    ts: now(), receipt: order.receipt, name: order.cust_name || "", phone: order.cust_phone || "",
-    amount_paise: order.total_paise, pay_token: order.pay_token,
-  });
+  const raw = JSON.stringify({ ts: now(), ...fields });
   try {
-    const res = await fetch(`${url.replace(/\/$/, "")}/api/ingest/payment-reminder`, {
+    const res = await fetch(`${trimSlashes(url)}${path}`, {
       // "manual", not "error": Workers reject "error" at runtime (Node accepts it,
       // which is how it passed the tests). A redirect is then refused below, so
       // the signature and the customer's phone are never sent anywhere else.

@@ -14,6 +14,7 @@
 
 import { json, bad, now } from "./lib.js";
 import { MAX_QTY, MAX_PERSONALISATION } from "./shop.js";
+import { scheduleCartReminder } from "./reminders.js";
 
 const MAX_LINES = 50;      // matches priceCart's cap on distinct items
 
@@ -64,10 +65,10 @@ async function readCart(env, userId) {
 }
 
 async function writeCart(env, userId, map) {
+  const t = now();
   const stmts = [
     env.DB.prepare(`DELETE FROM cart_items WHERE user_id = ?`).bind(userId),
   ];
-  const t = now();
   for (const [productId, line] of map) {
     stmts.push(env.DB.prepare(
       `INSERT INTO cart_items (user_id, product_id, qty, personalisation, updated_at)
@@ -75,6 +76,9 @@ async function writeCart(env, userId, map) {
     ).bind(userId, productId, line.qty, line.pz || "", t));
   }
   await env.DB.batch(stmts);
+  // An hour from now, remind them if the cart is still exactly this. A later
+  // write re-arms it with a newer stamp; this one then finds the cart moved on.
+  if (map.size) await scheduleCartReminder(env, userId, t);
 }
 
 // ── GET /api/me/cart ──────────────────────────────────────────────
