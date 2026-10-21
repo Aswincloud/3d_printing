@@ -2157,6 +2157,23 @@ function takeBuyNowHandoff() {
   }
 }
 
+// A reminder's /back/ link leaves the code here (public/assets/js/back.js).
+// Read once and removed, then applied exactly as if typed: the server prices it,
+// and refuses it if it has been used or does not apply.
+const PROMO_HANDOFF_KEY = 'ap_promo';
+function takePromoHandoff() {
+  let code = '';
+  try { code = sessionStorage.getItem(PROMO_HANDOFF_KEY) || ''; sessionStorage.removeItem(PROMO_HANDOFF_KEY); } catch { return; }
+  code = code.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+  const promo = checkoutForm?.querySelector('[name="co_promo"]');
+  if (!code || !promo) return;
+  promo.value = code;
+  // A once-per-customer code needs the email, so apply only once there is one
+  // (prefill has run just above for a signed-in customer). A guest sees the code
+  // in the box and presses Apply after typing their email.
+  if ((checkoutForm.querySelector('[name="co_email"]')?.value || '').trim()) applyPromo();
+}
+
 function openCheckout(items = null) {
   if (!checkoutModal) return;
   buyNowItems = items;
@@ -2171,6 +2188,7 @@ function openCheckout(items = null) {
   if (promo) promo.value = '';
   renderCoSummary();
   if (typeof prefillCheckout === 'function') prefillCheckout();
+  takePromoHandoff();
   checkoutModal.hidden = false;
   checkoutOverlay.hidden = false;
   checkoutModal.setAttribute('aria-hidden', 'false');
@@ -2282,6 +2300,7 @@ checkoutForm?.addEventListener('submit', async (e) => {
           addr_state: v('co_state'),
           addr_pin: v('co_pin'),
           notes: v('co_notes'),
+          wa_offers: Boolean(checkoutForm.querySelector('[name="co_wa_offers"]')?.checked),
         },
       }),
     });
@@ -2790,6 +2809,8 @@ function openSettings() {
     const el = settingsForm?.querySelector(`[name="${field}"]`);
     if (el) el.value = currentUser[key] || '';
   }
+  const waBox = document.getElementById('setWaOffers');
+  if (waBox) waBox.checked = Boolean(currentUser.wa_offers);
 
   settingsModal.hidden = false;
   settingsOverlay.hidden = false;
@@ -2823,6 +2844,8 @@ settingsForm?.addEventListener('submit', async (e) => {
   const v = (n) => (settingsForm.querySelector(`[name="${n}"]`)?.value || '').trim();
   const body = {};
   for (const [field, key] of SETTINGS_FIELDS) body[key] = v(field);
+  const waBox = document.getElementById('setWaOffers');
+  if (waBox) body.wa_offers = waBox.checked;
 
   const btn = document.getElementById('settingsSave');
   const label = document.getElementById('settingsSaveLabel');
@@ -3214,16 +3237,31 @@ const cartOwner = () => { try { return localStorage.getItem(CART_OWNER_KEY); } c
 const CART_DIRTY_KEY = 'ap_cart_dirty';
 const cartDirty = () => { try { return localStorage.getItem(CART_DIRTY_KEY) === '1'; } catch { return false; } };
 const clearCartDirty = () => { try { localStorage.removeItem(CART_DIRTY_KEY); } catch { /* ignore */ } };
+// Set by a reminder's /back/ link (back.js): the local cart was rebuilt FROM the
+// account's own cart, so on sign-in it REPLACES the account copy. Merging would
+// sum the two identical carts into double quantities — the 2026-09-26 bug again.
+// Only for an account's own link, and only for 15 minutes: an old marker must not
+// let some later local cart overwrite whatever the account has saved since.
+const CART_BACK_KEY = 'ap_cart_back';
+const CART_BACK_TTL_MS = 15 * 60 * 1000;
+const takeCartBack = () => {
+  try {
+    const at = Number(localStorage.getItem(CART_BACK_KEY));
+    localStorage.removeItem(CART_BACK_KEY);
+    return Number.isFinite(at) && at > 0 && Date.now() - at < CART_BACK_TTL_MS;
+  } catch { return false; }
+};
 
 async function adoptServerCart() {
   try {
     const me = String(currentUser?.email || '').toLowerCase();
     const local = readCart();
+    const fromBack = takeCartBack() && local.length > 0;
     // Merge ONLY a cart that is not already this account's mirror: a guest's, or
     // one left behind by a different account on this browser. After that the
     // account is the source of truth — syncCartUp() PUTs every edit as it happens,
     // so on the next load there is nothing to merge, only something to fetch.
-    if (local.length && cartOwner() !== me) {
+    if (local.length && cartOwner() !== me && !fromBack) {
       const merged = await fetch('/api/me/cart/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3233,7 +3271,7 @@ async function adoptServerCart() {
       // rather than stamping a cart the account never received.
       if (!merged.ok) return;
       clearCartDirty();                    // the merge delivered whatever was pending
-    } else if (cartOwner() === me && cartDirty()) {
+    } else if (fromBack || (cartOwner() === me && cartDirty())) {
       // An edit the account has not received: the product page's add, or a PUT
       // that failed. Push the local copy up rather than fetch the older one down.
       const put = await fetch('/api/me/cart', {
@@ -3302,6 +3340,8 @@ function prefillCheckout() {
   fill('coCity', currentUser.addr_city);
   fill('coState', currentUser.addr_state);
   fill('coPin', currentUser.addr_pin);
+  const wa = document.getElementById('coWaOffers');
+  if (wa && currentUser.wa_offers) wa.checked = true;
 }
 
 /* ── provider buttons ──────────────────────────────────────────── */

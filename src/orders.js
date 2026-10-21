@@ -16,6 +16,7 @@
 import { json, bad, uid, now, randToken, isEmail, sendEmail, ownerCopy } from "./lib.js";
 import { priceCart } from "./shop.js";
 import { recordRedemption } from "./coupons.js";
+import { scheduleUnpaidReminder } from "./reminders.js";
 import {
   createOrder, paymentsConfigured, publicKeyId,
   verifyCallbackSignature, verifyWebhookSignature,
@@ -99,6 +100,8 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
   );
   if (priced.error) return bad(priced.error, 400);
 
+  const waOffers = body?.customer?.wa_offers === true ? 1 : 0;
+
   const receipt = makeReceipt();
   const orderId = uid();
   // The customer's own link back to this order, should they leave without paying.
@@ -145,8 +148,8 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       `INSERT INTO orders (id, receipt, rzp_order_id, status, subtotal_paise,
          shipping_paise, total_paise, currency, delivery, cust_name, cust_email,
          cust_phone, addr_line, addr_city, addr_state, addr_pin, notes, created_at,
-         user_id, coupon_code, discount_paise, pay_token)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         user_id, coupon_code, discount_paise, pay_token, wa_offers)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       orderId, receipt, rzp.order.id, "pending",
       priced.subtotal_paise, priced.shipping_paise, priced.total_paise, "INR", delivery,
@@ -160,6 +163,9 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       // still shows what was actually charged.
       priced.coupon_code ?? null, priced.discount_paise ?? 0,
       payToken,
+      // Only a literal true counts as consent to WhatsApp offers — the box is
+      // unticked by default and nothing else in the body can switch it on.
+      waOffers,
     ),
   ];
 
@@ -193,11 +199,14 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
            addr_line  = COALESCE(NULLIF(?, ''), addr_line),
            addr_city  = COALESCE(NULLIF(?, ''), addr_city),
            addr_state = COALESCE(NULLIF(?, ''), addr_state),
-           addr_pin   = COALESCE(NULLIF(?, ''), addr_pin)
+           addr_pin   = COALESCE(NULLIF(?, ''), addr_pin),
+           -- Ticking the box opts in; leaving it unticked never opts OUT, which
+           -- is what Account settings is for.
+           wa_offers  = MAX(wa_offers, ?)
          WHERE id = ?`
       ).bind(
         customer.cust_name, customer.cust_phone, customer.addr_line,
-        customer.addr_city, customer.addr_state, customer.addr_pin, sessionUserId,
+        customer.addr_city, customer.addr_state, customer.addr_pin, waOffers, sessionUserId,
       ).run();
     } catch (e) {
       console.error("could not save address to profile", e?.message || e);
@@ -213,6 +222,9 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
     addr_city: customer.addr_city, addr_state: customer.addr_state,
   }, priced.items);
   if (ctx?.waitUntil) ctx.waitUntil(ownerMail); else await ownerMail;
+
+  // The customer's own reminder, 30 minutes on, if this is still unpaid then.
+  await scheduleUnpaidReminder(env, orderId);
 
   // The browser needs the key id (public), the Razorpay order id, and the
   // amount to display. The amount is ours, not something it told us.

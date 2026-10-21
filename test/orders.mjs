@@ -90,11 +90,13 @@ function makeDB() {
     if (s.startsWith("INSERT INTO orders")) {
       const [id, receipt, rzp_order_id, status, subtotal_paise, shipping_paise,
         total_paise, currency, delivery, cust_name, cust_email, cust_phone,
-        addr_line, addr_city, addr_state, addr_pin, notes, created_at] = args;
+        addr_line, addr_city, addr_state, addr_pin, notes, created_at,
+        user_id, coupon_code, discount_paise, pay_token, wa_offers] = args;
       db.orders.push({ id, receipt, rzp_order_id, rzp_payment_id: null, status,
         subtotal_paise, shipping_paise, total_paise, currency, delivery,
         cust_name, cust_email, cust_phone, addr_line, addr_city, addr_state,
-        addr_pin, notes, created_at, paid_at: null });
+        addr_pin, notes, created_at, paid_at: null,
+        user_id, coupon_code, discount_paise, pay_token, wa_offers });
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("INSERT INTO order_items (id, order_id, product_id, name, price_paise, qty, personalisation, pos) VALUES (?,?,NULL,")) {
@@ -281,6 +283,35 @@ section("POST /api/orders — happy path");
   ok("exactly one email at creation, to the owner", calls.resend.length === 1 && JSON.stringify(calls.resend[0].to).includes("owner@example.com"), JSON.stringify(calls.resend.map((m) => m.to)));
   ok("it says checkout started, not paid", /^Checkout started:/.test(calls.resend[0]?.subject || ""), calls.resend[0]?.subject);
   ok("the customer gets nothing until payment", !calls.resend.some((m) => JSON.stringify(m.to).includes(CUSTOMER.email)));
+}
+
+section("POST /api/orders — the 30-minute unpaid reminder, and WhatsApp-offer consent");
+{
+  const queued = [];
+  const env = { ...ENV(), REMINDERS_ENABLED: "true", REMINDERS: { async send(b, o) { queued.push({ b, o }); } } };
+  stubFetch();
+  const body = { items: [{ product_id: "p-small", qty: 1 }], customer: CUSTOMER };
+  await createOrderHandler(post(body), env, body);
+  const row = env.DB._db.orders[0];
+  ok("one unpaid reminder queued, 30 minutes out, for this order",
+     queued.length === 1 && queued[0].b.kind === "unpaid" && queued[0].b.order_id === row.id && queued[0].o.delaySeconds === 1800,
+     JSON.stringify(queued));
+  ok("no box ticked: wa_offers 0", row.wa_offers === 0, String(row.wa_offers));
+
+  for (const v of ["true", 1, "on"]) {
+    const e2 = { ...ENV(), REMINDERS_ENABLED: "true", REMINDERS: { async send() {} } }; stubFetch();
+    const b2 = { items: [{ product_id: "p-small", qty: 1 }], customer: { ...CUSTOMER, wa_offers: v } };
+    await createOrderHandler(post(b2), e2, b2);
+    ok(`wa_offers ${JSON.stringify(v)} is not consent`, e2.DB._db.orders[0].wa_offers === 0, String(e2.DB._db.orders[0].wa_offers));
+  }
+  const e3 = { ...ENV(), REMINDERS_ENABLED: "true", REMINDERS: { async send() {} } }; stubFetch();
+  const b3 = { items: [{ product_id: "p-small", qty: 1 }], customer: { ...CUSTOMER, wa_offers: true } };
+  await createOrderHandler(post(b3), e3, b3);
+  ok("the ticked box (true) is recorded", e3.DB._db.orders[0].wa_offers === 1);
+
+  const e4 = { ...ENV(), REMINDERS_ENABLED: "true", REMINDERS: { async send() { throw new Error("queue down"); } } }; stubFetch();
+  const [st4] = await readJson(await createOrderHandler(post(body), e4, body));
+  ok("a queue failure never fails the checkout", st4 === 200, String(st4));
 }
 
 section("POST /api/orders — the client cannot set the price (invariant 1)");
