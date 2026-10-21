@@ -155,7 +155,18 @@ export async function sendEmail(env, { to, subject, html, text, fromName, replyT
 export const ownerCopy = (env) =>
   String(env.OWNER_EMAIL || "aswin@aswincloud.com").split(",")[0].trim();
 
-export const isEmail = (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s || "");
+// Same rule as the old /^[^@\s]+@[^@\s]+\.[^@\s]+$/ — one @, no whitespace, a
+// dot in the domain with text either side of it — checked without a regex.
+// CodeQL flagged that pattern (js/polynomial-redos): `[^@\s]+\.[^@\s]+` can
+// split a long run of "!." many ways before failing. This is one linear pass.
+export function isEmail(s) {
+  const v = String(s || "");
+  if (v.length > 320 || /\s/.test(v)) return false;
+  const at = v.indexOf("@");
+  if (at < 1 || at !== v.lastIndexOf("@")) return false;
+  // A dot in the domain with at least one character either side of it.
+  return v.slice(at + 2, -1).includes(".");
+}
 
 // ── order stages ──────────────────────────────────────────────────
 //

@@ -272,7 +272,10 @@ section("/back/<token> — restores items, never prices");
 const cfgOf = async (res) => {
   const html = await res.text();
   const m = html.match(/data-cfg="([^"]*)"/);
-  return m ? JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">")) : null;
+  // One pass over the entities, so "&amp;quot;" decodes to "&quot;" and not on
+  // to a quote — the same order a browser's attribute parser uses.
+  const ENT = { "&quot;": '"', "&amp;": "&", "&#39;": "'", "&lt;": "<", "&gt;": ">" };
+  return m ? JSON.parse(m[1].replace(/&(?:quot|amp|#39|lt|gt);/g, (e) => ENT[e])) : null;
 };
 {
   const { db, env } = setup();
