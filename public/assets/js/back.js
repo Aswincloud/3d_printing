@@ -10,11 +10,17 @@
   try {
     if (cart.length) {
       localStorage.setItem('ap_cart', JSON.stringify(cart));
-      // Marks the copy as newer than the account's, so a signed-in visitor's
-      // account cart is updated from it rather than replacing it.
-      localStorage.setItem('ap_cart_dirty', '1');
-      // Replace, never merge, on sign-in: see CART_BACK_KEY in main.js.
-      localStorage.setItem('ap_cart_back', '1');
+      // Not any account's mirror any more. Left in place, an expired session's
+      // stamp makes main.js drop this freshly restored cart as a stale mirror.
+      localStorage.removeItem('ap_cart_owner');
+      if (cfg.own) {
+        // An account's own cart: on sign-in it replaces the server copy rather
+        // than merging (which would double it). Timestamped, and honoured only
+        // briefly — see CART_BACK_KEY in main.js.
+        localStorage.setItem('ap_cart_back', String(Date.now()));
+      } else {
+        localStorage.removeItem('ap_cart_back');
+      }
     }
     if (cfg.code) sessionStorage.setItem('ap_promo', String(cfg.code));
   } catch { /* private mode: the shop still opens; they can type the code */ }

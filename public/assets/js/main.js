@@ -3240,10 +3240,16 @@ const clearCartDirty = () => { try { localStorage.removeItem(CART_DIRTY_KEY); } 
 // Set by a reminder's /back/ link (back.js): the local cart was rebuilt FROM the
 // account's own cart, so on sign-in it REPLACES the account copy. Merging would
 // sum the two identical carts into double quantities — the 2026-09-26 bug again.
+// Only for an account's own link, and only for 15 minutes: an old marker must not
+// let some later local cart overwrite whatever the account has saved since.
 const CART_BACK_KEY = 'ap_cart_back';
+const CART_BACK_TTL_MS = 15 * 60 * 1000;
 const takeCartBack = () => {
-  try { const v = localStorage.getItem(CART_BACK_KEY) === '1'; localStorage.removeItem(CART_BACK_KEY); return v; }
-  catch { return false; }
+  try {
+    const at = Number(localStorage.getItem(CART_BACK_KEY));
+    localStorage.removeItem(CART_BACK_KEY);
+    return Number.isFinite(at) && at > 0 && Date.now() - at < CART_BACK_TTL_MS;
+  } catch { return false; }
 };
 
 async function adoptServerCart() {

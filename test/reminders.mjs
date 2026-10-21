@@ -281,6 +281,7 @@ const cfgOf = async (res) => {
   const cfg = await cfgOf(res);
   ok("a guest order's lines come back", res.status === 200 && JSON.stringify(cfg?.cart) === '[{"id":"p1","qty":1,"pz":""}]', JSON.stringify(cfg));
   ok("with the code", cfg?.code === "COMEBACK");
+  ok("a guest order's link is NOT an account's own cart (it must merge, not replace)", cfg?.own === false);
   ok("no price anywhere in it", !JSON.stringify(cfg).includes("price") && !JSON.stringify(cfg).includes("4990"));
   ok("not indexed, not cached", res.headers.get("x-robots-tag")?.includes("noindex") && res.headers.get("cache-control") === "no-store");
 }
@@ -291,6 +292,7 @@ const cfgOf = async (res) => {
   db.exec(`UPDATE users SET back_token = '${"c".repeat(32)}'`);
   const cfg = await cfgOf(await backPage(env, "u" + "c".repeat(32)));
   ok("an account's cart comes back", JSON.stringify(cfg?.cart) === '[{"id":"p1","qty":3,"pz":""}]', JSON.stringify(cfg));
+  ok("an account's link is marked as its own cart", cfg?.own === true);
   db.exec(`DELETE FROM cart_items`);
   seedOrder(db, { user_id: "u1" });
   const cfg2 = await cfgOf(await backPage(env, "u" + "c".repeat(32)));

@@ -331,7 +331,10 @@ export async function backPage(env, token) {
   if (!r) return backHtml("Link not found", `<p>This link isn't valid any more.</p><p><a href="/#shop">Go to the shop</a></p>`, 404);
   const cart = r.items.map((i) => ({ id: i.product_id, qty: Math.max(1, Math.min(100, Number(i.qty) || 1)), pz: String(i.personalisation || "").slice(0, 120) }));
   if (!cart.length) return backHtml("Nothing to restore", `<p>Those items aren't available any more.</p><p><a href="/#shop">See what's in the shop</a></p>`);
-  const cfg = esc(JSON.stringify({ cart, code: COMEBACK_CODE }));
+  // `own` is true only for an account's link: the cart it carries IS that
+  // account's cart, so on sign-in it may replace the server copy. A guest order's
+  // link must merge like any guest cart, or it would wipe an account's saved items.
+  const cfg = esc(JSON.stringify({ cart, code: COMEBACK_CODE, own: r.kind === "user" }));
   return backHtml("Taking you to checkout…",
     `<p id="back" data-cfg="${cfg}">Putting your items back in the cart…</p>
      <noscript><p>Turn on JavaScript, or <a href="/#shop">go to the shop</a> and use code ${COMEBACK_CODE}.</p></noscript>
