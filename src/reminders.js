@@ -27,6 +27,7 @@
 //   - reminders_off (one-click unsubscribe in the email) stops both kinds.
 import { sendEmail, ownerCopy, now, randToken, rupees, esc, trimSlashes } from "./lib.js";
 import { sendPaymentReminder, sendComebackWhatsApp } from "./invoicing.js";
+import { waOptedOut, phoneKey } from "./waoptout.js";
 
 export const UNPAID_DELAY_S = 30 * 60;
 export const CART_DELAY_S = 60 * 60;
@@ -35,6 +36,14 @@ export const COMEBACK_CODE = "COMEBACK";
 // changes. Without it, clicking "Finish my order" and leaving again rewrites the
 // cart and arms another reminder an hour later — every visit, forever.
 export const CART_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
+// At most one automatic unpaid reminder per email address and per phone number
+// in this window. A checkout needs no sign-in, so anyone can type a stranger's
+// email and mobile, abandon it, and repeat — without this, every abandoned
+// checkout would message that stranger. One a day caps the harm at one.
+export const UNPAID_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+// phoneKey (waoptout.js): the last 10 digits, so "+91 98765-43210",
+// "09876543210" and "9876543210" compare as one phone.
 
 const site = (env) => trimSlashes(env.APP_BASE_URL || "https://3d-prints.aswincloud.com");
 
@@ -102,6 +111,23 @@ export async function runUnpaid(env, orderId) {
   const prefs = await prefsFor(env, o.user_id, o.cust_email);
   if (prefs.off) return { sent: false, why: "unsubscribed" };
 
+  // Per recipient, not per order: see UNPAID_COOLDOWN_MS. Compared in JS rather
+  // than SQL so the phone match ignores formatting; the window keeps it small.
+  const { results: recent } = await env.DB.prepare(
+    `SELECT cust_email, cust_phone FROM orders WHERE auto_reminder_at > ? AND id != ?`)
+    .bind(now() - UNPAID_COOLDOWN_MS, o.id).all();
+  const email = String(o.cust_email || "").trim().toLowerCase();
+  const phone = phoneKey(o.cust_phone);
+  if ((recent || []).some((r) => String(r.cust_email || "").trim().toLowerCase() === email
+      || (phone.length === 10 && phoneKey(r.cust_phone) === phone))) {
+    return { sent: false, why: "this person was reminded recently" };
+  }
+
+  // Every read that can fail happens BEFORE the claim: once claimed, a retry
+  // stops at "already reminded", so a failure after it would silently drop a
+  // part of the reminder rather than retry it.
+  const waStopped = o.cust_phone ? await waOptedOut(env, o.cust_phone) : true;
+
   // Claim before sending, so a queue retry or a second message cannot double up.
   const claim = await env.DB.prepare(
     `UPDATE orders SET auto_reminder_at = ? WHERE id = ? AND status = 'pending' AND auto_reminder_at IS NULL`)
@@ -121,7 +147,10 @@ export async function runUnpaid(env, orderId) {
 
   // WhatsApp: the offer for someone who opted in, else the plain utility reminder.
   let wa;
-  if (o.cust_phone && (o.wa_offers || prefs.waOffers)) {
+  // A phone that replied STOP gets no reminder WhatsApp of either kind.
+  if (waStopped) {
+    // email only
+  } else if (o.cust_phone && (o.wa_offers || prefs.waOffers)) {
     wa = await sendComebackWhatsApp(env, { name: o.cust_name, phone: o.cust_phone, what, token: back.token });
   } else if (o.cust_phone && o.pay_token) {
     wa = await sendPaymentReminder(env, o);
@@ -163,6 +192,7 @@ export async function runCart(env, userId, stamp) {
   // Claimed before sending: cart_reminded_at is when the last reminder went, and
   // the conditional UPDATE is what stops a queue retry, a duplicate delivery, or
   // a second cart change inside the cooldown from sending another.
+  const waStopped = u.phone ? await waOptedOut(env, u.phone) : true;   // before the claim, as above
   const t = now();
   const claim = await env.DB.prepare(
     `UPDATE users SET cart_reminded_at = ? WHERE id = ? AND (cart_reminded_at IS NULL OR cart_reminded_at <= ?)`)
@@ -176,7 +206,7 @@ export async function runCart(env, userId, stamp) {
   if (!r.ok) console.error("cart reminder email failed", u.id, r.error);
 
   let wa = null;
-  if (u.wa_offers && u.phone) {
+  if (u.wa_offers && u.phone && !waStopped) {
     wa = await sendComebackWhatsApp(env, { name: u.name, phone: u.phone, what: itemsLabel(items), token: back.token });
     if (!wa.ok) console.error("cart reminder whatsapp not sent", u.id, wa.error);
   }

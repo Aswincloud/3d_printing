@@ -8,10 +8,12 @@ import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import {
   runUnpaid, runCart, backPage, stopReminders, stopConfirmPage, handleReminderBatch,
-  scheduleUnpaidReminder, itemsLabel, UNPAID_DELAY_S, CART_DELAY_S, CART_COOLDOWN_MS,
+  scheduleUnpaidReminder, itemsLabel, UNPAID_DELAY_S, CART_DELAY_S, CART_COOLDOWN_MS, UNPAID_COOLDOWN_MS,
 } from "../src/reminders.js";
 import { putCart } from "../src/cart.js";
 import { updateMe } from "../src/customers.js";
+import { waWebhookHandler, isStop, isStart } from "../src/waoptout.js";
+import { hmacHex } from "../src/lib.js";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -173,6 +175,28 @@ for (const [label, prep, why] of [
 }
 
 // ══ cart ═════════════════════════════════════════════════════════
+section("unpaid — one per person a day, so a stranger's details can't be used to spam them");
+{
+  const { db, env, calls } = setup();
+  seedOrder(db);
+  seedOrder(db, { id: "o2", receipt: "AP-22222222", pay_token: "b".repeat(32), cust_email: "other@example.com", cust_phone: "+91 98765-43210", created_at: T0 - 1000 });
+  await runUnpaid(env, "o1");
+  const r = await runUnpaid(env, "o2");
+  ok("same phone, different format and email: not reminded again", r.sent === false && r.why === "this person was reminded recently" && calls.mail.length === 1, JSON.stringify(r));
+  seedOrder(db, { id: "o3", receipt: "AP-33333333", pay_token: "c".repeat(32), cust_email: " PRIYA@example.com ", cust_phone: "9000000001", created_at: T0 - 2000 });
+  ok("same email, other case/spaces: not reminded again", (await runUnpaid(env, "o3")).why === "this person was reminded recently");
+  seedOrder(db, { id: "o4", receipt: "AP-44444444", pay_token: "d".repeat(32), cust_email: "someone@else.com", cust_phone: "9000000002", created_at: T0 - 3000 });
+  ok("a different person is still reminded", (await runUnpaid(env, "o4")).sent === true && calls.mail.length === 2);
+  db.prepare("UPDATE orders SET auto_reminder_at = ? WHERE id = 'o1'").run(Date.now() - UNPAID_COOLDOWN_MS - 1000);
+  seedOrder(db, { id: "o5", receipt: "AP-55555555", pay_token: "e".repeat(32), cust_email: "priya@example.com", cust_phone: "9876543210", created_at: T0 + 60000 });
+  const r5 = await runUnpaid(env, "o5");
+  ok("after a day, the same person can be reminded again", r5.sent === true, JSON.stringify(r5));
+  seedOrder(db, { id: "o6", receipt: "AP-66666666", pay_token: "f".repeat(32), cust_email: "x@y.com", cust_phone: "12", created_at: T0 - 5000 });
+  seedOrder(db, { id: "o7", receipt: "AP-77777777", pay_token: "9".repeat(32), cust_email: "z@y.com", cust_phone: "12", created_at: T0 - 6000 });
+  await runUnpaid(env, "o6");
+  ok("short junk phones don't match each other", (await runUnpaid(env, "o7")).sent === true);
+}
+
 section("cart — once per cart state, signed-in only");
 async function cartAt(db, env, items) {
   await putCart(env, { id: "u1" }, { items });
@@ -351,6 +375,66 @@ section("WhatsApp-offers consent — only a literal boolean");
   await updateMe(env, { id: "u1" }, { wa_offers: false });
   ok("false opts out", db.prepare("SELECT wa_offers FROM users").get().wa_offers === 0);
 }
+
+section("WhatsApp STOP — signed by Meta, honoured everywhere");
+const APP = "meta-app-secret";
+const waHook = async (env, from, text, { secret = APP, phoneId = "SUP" } = {}) => {
+  const raw = JSON.stringify({ entry: [{ changes: [{ value: { metadata: { phone_number_id: phoneId }, messages: [{ from, text: { body: text } }] } }] }] });
+  const sig = "sha256=" + await hmacHex(raw, secret);
+  const res = await waWebhookHandler(new Request("https://shop.test/api/webhook/whatsapp", { method: "POST", body: raw, headers: { "x-hub-signature-256": sig } }), env);
+  return res.status;
+};
+{
+  const { db, env, calls } = setup({ WA_APP_SECRET: APP, WA_SUPPORT_PHONE_ID: "SUP" });
+  seedUser(db, { wa_offers: 1, phone: "+91 98765-43210" });
+  seedUser(db, { id: "u2", email: "bystander@example.com", wa_offers: 1, phone: "9000000009" });
+  ok("a forged STOP (wrong secret) is refused", (await waHook(env, "919876543210", "STOP", { secret: "guess" })) === 401);
+  ok("…and changes nothing", db.prepare("SELECT COUNT(*) n FROM wa_optouts").get().n === 0 && db.prepare("SELECT wa_offers FROM users WHERE id='u1'").get().wa_offers === 1);
+  ok("no secret configured: 503, fails closed", (await waWebhookHandler(new Request("https://x", { method: "POST", body: "{}" }), { ...env, WA_APP_SECRET: "" })).status === 503);
+  ok("STOP to a different number is ignored", (await waHook(env, "919876543210", "STOP", { phoneId: "OTHER" })) === 200 && db.prepare("SELECT COUNT(*) n FROM wa_optouts").get().n === 0);
+  ok("an ordinary message is ignored", (await waHook(env, "919876543210", "please stop by tomorrow")) === 200 && db.prepare("SELECT COUNT(*) n FROM wa_optouts").get().n === 0);
+  ok("a signed STOP is accepted", (await waHook(env, "919876543210", " stop! ")) === 200);
+  ok("the phone is recorded by its last 10 digits", db.prepare("SELECT phone FROM wa_optouts").get()?.phone === "9876543210");
+  const u = db.prepare("SELECT wa_offers, reminders_off FROM users WHERE id='u1'").get();
+  ok("the account with that phone (stored with +91, spaces, dash) is opted out", u.wa_offers === 0 && u.reminders_off === 1, JSON.stringify(u));
+  const other = db.prepare("SELECT wa_offers, reminders_off FROM users WHERE id='u2'").get();
+  ok("another customer's account is untouched", other.wa_offers === 1 && other.reminders_off === 0, JSON.stringify(other));
+
+  // A guest checkout later, box ticked again: still no WhatsApp to that phone.
+  seedOrder(db, { cust_email: "guest@example.com", cust_phone: "09876543210", wa_offers: 1 });
+  await runUnpaid(env, "o1");
+  ok("a STOP'd phone gets the email but no WhatsApp at all", calls.mail.length === 1 && calls.invoicer.length === 0, JSON.stringify(calls.invoicer.map((c) => c.path)));
+
+  await waHook(env, "919876543210", "START");
+  ok("START removes the opt-out", db.prepare("SELECT COUNT(*) n FROM wa_optouts").get().n === 0);
+}
+{
+  const { db, env, calls } = setup({ WA_APP_SECRET: APP });
+  seedUser(db, { wa_offers: 1 });
+  db.prepare("INSERT INTO wa_optouts VALUES ('9876543210', 1)").run();
+  db.exec("UPDATE users SET wa_offers = 1, reminders_off = 0");   // opted back in on the site, but STOP stands for WhatsApp
+  const stamp = await cartAt(db, env, [{ product_id: "p1", qty: 1 }]);
+  await runCart(env, "u1", stamp);
+  ok("cart reminder: STOP'd phone gets no WhatsApp offer", calls.mail.length === 1 && calls.invoicer.length === 0);
+}
+ok("STOP words", isStop("STOP") && isStop("unsubscribe.") && !isStop("stop it please") && !isStop("nonstop"));
+ok("START words", isStart("Start") && isStart("resume") && !isStart("restart"));
+
+section("a failed opt-out lookup is retried, not lost");
+{
+  const { db, env, calls } = setup();
+  seedOrder(db);
+  const real = env.DB;
+  let fails = 1;
+  env.DB = { ...real, prepare: (sql) => (fails && /FROM wa_optouts/.test(sql) ? (fails--, { bind: () => ({ first: async () => { throw new Error("D1 blip"); } }) }) : real.prepare(sql)) };
+  let threw = false;
+  try { await runUnpaid(env, "o1"); } catch { threw = true; }
+  ok("the first attempt throws (so the queue retries)", threw);
+  ok("…without claiming the order", db.prepare("SELECT auto_reminder_at FROM orders").get().auto_reminder_at === null);
+  const r = await runUnpaid(env, "o1");
+  ok("the retry sends the email and the WhatsApp", r.sent === true && calls.mail.length === 1 && calls.invoicer.length === 1, JSON.stringify(r));
+}
+ok("the consumer runs one batch at a time", /\[\[queues\.consumers\]\][\s\S]*max_concurrency = 1/.test(readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8")));
 
 section("itemsLabel()");
 ok("one item", itemsLabel([{ name: "Box" }]) === "Box");

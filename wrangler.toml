@@ -169,6 +169,10 @@ INVOICE_ENABLED = "true"
 # signed-in customer's untouched cart 1 h on. Kill switch: "false" + deploy
 # schedules nothing, and messages already queued do nothing when they arrive.
 REMINDERS_ENABLED = "true"
+# The support number's phone_number_id: STOP/START is only honoured for
+# messages to this number (src/waoptout.js). Public, not a secret. The Meta app
+# secret that checks the signature is WA_APP_SECRET, a Worker secret.
+WA_SUPPORT_PHONE_ID = "1336188189573573"
 INVOICER_URL = "https://invoicer.aswincloud.com"
 
 # Secrets (NOT here — set via `wrangler secret put`, never committed):
@@ -195,3 +199,7 @@ queue = "shop-reminders"
 max_batch_size = 10
 max_batch_timeout = 5
 max_retries = 3
+# One batch at a time. The once-a-day-per-person cap is a read-then-claim
+# across different orders; two batches at once could both pass the read and
+# both send. Reminder volume is a handful a day, so this costs nothing.
+max_concurrency = 1

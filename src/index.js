@@ -9,6 +9,7 @@ import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { payPendingPage } from "./paypending.js";
 import { backPage, stopReminders, stopConfirmPage, handleReminderBatch } from "./reminders.js";
+import { waWebhookHandler } from "./waoptout.js";
 import { submitReview, adminListReviews, adminDeleteReview, adminAddReview } from "./reviews.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
 import { googleFeed } from "./feed.js";
@@ -413,6 +414,9 @@ async function api(request, env, url, ctx) {
   // The invoicer telling the shop an order shipped or was delivered from ITS
   // dashboard. Signed, raw body, no session — see src/shipsync.js.
   if (p === "/api/sync/shipment" && m === "POST") return shipmentSyncHandler(request, env, ctx);
+  // WhatsApp STOP/START for offers, forwarded by wa-relay with Meta's signature
+  // intact. Raw body, no session — see src/waoptout.js.
+  if (p === "/api/webhook/whatsapp" && m === "POST") return waWebhookHandler(request, env);
 
   // The quote form's file, as raw bytes — so it too must be dispatched before
   // the JSON parse below. Anonymous, like the form; rate-limited with it.
