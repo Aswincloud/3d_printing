@@ -199,3 +199,7 @@ queue = "shop-reminders"
 max_batch_size = 10
 max_batch_timeout = 5
 max_retries = 3
+# One batch at a time. The once-a-day-per-person cap is a read-then-claim
+# across different orders; two batches at once could both pass the read and
+# both send. Reminder volume is a handful a day, so this costs nothing.
+max_concurrency = 1

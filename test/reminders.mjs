@@ -420,6 +420,22 @@ const waHook = async (env, from, text, { secret = APP, phoneId = "SUP" } = {}) =
 ok("STOP words", isStop("STOP") && isStop("unsubscribe.") && !isStop("stop it please") && !isStop("nonstop"));
 ok("START words", isStart("Start") && isStart("resume") && !isStart("restart"));
 
+section("a failed opt-out lookup is retried, not lost");
+{
+  const { db, env, calls } = setup();
+  seedOrder(db);
+  const real = env.DB;
+  let fails = 1;
+  env.DB = { ...real, prepare: (sql) => (fails && /FROM wa_optouts/.test(sql) ? (fails--, { bind: () => ({ first: async () => { throw new Error("D1 blip"); } }) }) : real.prepare(sql)) };
+  let threw = false;
+  try { await runUnpaid(env, "o1"); } catch { threw = true; }
+  ok("the first attempt throws (so the queue retries)", threw);
+  ok("…without claiming the order", db.prepare("SELECT auto_reminder_at FROM orders").get().auto_reminder_at === null);
+  const r = await runUnpaid(env, "o1");
+  ok("the retry sends the email and the WhatsApp", r.sent === true && calls.mail.length === 1 && calls.invoicer.length === 1, JSON.stringify(r));
+}
+ok("the consumer runs one batch at a time", /\[\[queues\.consumers\]\][\s\S]*max_concurrency = 1/.test(readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8")));
+
 section("itemsLabel()");
 ok("one item", itemsLabel([{ name: "Box" }]) === "Box");
 ok("three items", itemsLabel([{ name: "Box" }, { name: "A" }, { name: "B" }]) === "Box and 2 more items");

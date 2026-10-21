@@ -123,6 +123,11 @@ export async function runUnpaid(env, orderId) {
     return { sent: false, why: "this person was reminded recently" };
   }
 
+  // Every read that can fail happens BEFORE the claim: once claimed, a retry
+  // stops at "already reminded", so a failure after it would silently drop a
+  // part of the reminder rather than retry it.
+  const waStopped = o.cust_phone ? await waOptedOut(env, o.cust_phone) : true;
+
   // Claim before sending, so a queue retry or a second message cannot double up.
   const claim = await env.DB.prepare(
     `UPDATE orders SET auto_reminder_at = ? WHERE id = ? AND status = 'pending' AND auto_reminder_at IS NULL`)
@@ -143,7 +148,6 @@ export async function runUnpaid(env, orderId) {
   // WhatsApp: the offer for someone who opted in, else the plain utility reminder.
   let wa;
   // A phone that replied STOP gets no reminder WhatsApp of either kind.
-  const waStopped = o.cust_phone ? await waOptedOut(env, o.cust_phone) : true;
   if (waStopped) {
     // email only
   } else if (o.cust_phone && (o.wa_offers || prefs.waOffers)) {
@@ -188,6 +192,7 @@ export async function runCart(env, userId, stamp) {
   // Claimed before sending: cart_reminded_at is when the last reminder went, and
   // the conditional UPDATE is what stops a queue retry, a duplicate delivery, or
   // a second cart change inside the cooldown from sending another.
+  const waStopped = u.phone ? await waOptedOut(env, u.phone) : true;   // before the claim, as above
   const t = now();
   const claim = await env.DB.prepare(
     `UPDATE users SET cart_reminded_at = ? WHERE id = ? AND (cart_reminded_at IS NULL OR cart_reminded_at <= ?)`)
@@ -201,7 +206,7 @@ export async function runCart(env, userId, stamp) {
   if (!r.ok) console.error("cart reminder email failed", u.id, r.error);
 
   let wa = null;
-  if (u.wa_offers && u.phone && !(await waOptedOut(env, u.phone))) {
+  if (u.wa_offers && u.phone && !waStopped) {
     wa = await sendComebackWhatsApp(env, { name: u.name, phone: u.phone, what: itemsLabel(items), token: back.token });
     if (!wa.ok) console.error("cart reminder whatsapp not sent", u.id, wa.error);
   }
