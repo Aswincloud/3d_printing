@@ -10,6 +10,7 @@ import { isProductPath, productPage } from "./productpage.js";
 import { payPendingPage } from "./paypending.js";
 import { backPage, stopReminders, stopConfirmPage, handleReminderBatch } from "./reminders.js";
 import { waWebhookHandler } from "./waoptout.js";
+import { recordActivity, adminActivity } from "./activity.js";
 import { submitReview, adminListReviews, adminDeleteReview, adminAddReview } from "./reviews.js";
 import { sitemap, robots, rewriteHome, localPageJsonLd, jsonLdScript } from "./seo.js";
 import { googleFeed } from "./feed.js";
@@ -451,6 +452,13 @@ async function api(request, env, url, ctx) {
   }
   if (p === "/api/orders/verify" && m === "POST") return verifyOrderHandler(request, env, body);
 
+  // Shopper activity for the dashboard (src/activity.js). Public, insert-only,
+  // rate limited; the account id comes from the session cookie, never the body.
+  if (p === "/api/activity" && m === "POST") {
+    const buyer = await currentCustomer(request, env);
+    return recordActivity(env, body, buyer?.id || null);
+  }
+
   const receiptMatch = p.match(/^\/api\/orders\/(AP-[0-9a-f]{8})$/);
   if (receiptMatch && m === "GET") return getOrderHandler(env, receiptMatch[1]);
 
@@ -596,6 +604,7 @@ async function api(request, env, url, ctx) {
     if (remind && m === "POST") return adminRemindPayment(env, remind[1]);
 
     if (p === "/api/admin/reviews" && m === "GET") return adminListReviews(env);
+    if (p === "/api/admin/activity" && m === "GET") return adminActivity(env, url);
     if (p === "/api/admin/reviews" && m === "POST") return adminAddReview(env, body);
     const rev = p.match(/^\/api\/admin\/reviews\/([0-9a-f-]{36})$/);
     if (rev && m === "DELETE") return adminDeleteReview(env, rev[1]);

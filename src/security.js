@@ -209,6 +209,9 @@ const RULES = [
   // cookie — it carries a signature instead — so a stolen bot secret should be
   // bounded in how fast it can be used, not just in what it can reach.
   { test: (p, m) => p === "/api/chat/orders" && m === "POST", limiter: "RL_CHATCOUPON" },
+  // Shopper activity: public and insert-only. Bounds how fast one client can
+  // fill the table; a real visitor sends a few events a minute at most.
+  { test: (p, m) => p === "/api/activity" && m === "POST", limiter: "RL_ACTIVITY" },
 ];
 
 export async function rateLimit(request, env, url) {

@@ -241,6 +241,7 @@ async function addToCart(qty) {
   writeCart(cart);
   syncCartBadge();
   syncCartUp(cart);
+  window.apTrack?.('cart_add', { product_id: id, qty: cart.find((it) => it.id === id).qty });
   return true;
 }
 
@@ -501,3 +502,6 @@ window.addEventListener('storage', (e) => {
     } finally { btn.disabled = false; }
   });
 })();
+
+// A product page open is a view. Resolved through the same lookup as Add to cart.
+resolveProductId().then((id) => { if (id) window.apTrack?.('view', { product_id: id }); }).catch(() => {});

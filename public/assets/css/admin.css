@@ -1189,3 +1189,12 @@
 .cr-edit-scope { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem; }
 .cr-edit-scope .ul-input { width: 100%; }
 .cr-edit-scope .cp-products { max-height: 150px; }
+
+/* Shoppers tab */
+.act-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 14px; }
+.act-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 0 0 16px; }
+.act-stat { background: var(--card, #1a1a24); border: 1px solid var(--line, #22222e); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.act-stat strong { font-size: 1.4rem; }
+.act-stat span { font-size: 12.5px; color: var(--muted, #a1a1aa); }
+.act-row.is-live { border-color: #16a34a; }
+.act-live { display: inline-block; margin-right: 8px; padding: 1px 7px; border-radius: 999px; background: #16a34a; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .5px; vertical-align: middle; }

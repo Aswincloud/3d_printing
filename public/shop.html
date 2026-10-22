@@ -71,6 +71,8 @@
             aria-selected="false" data-panel="quotesPanel">Quotes <span class="tab-badge" id="quotesBadge" hidden></span></button>
     <button class="admin-tab" id="tabReviews" role="tab" type="button"
             aria-selected="false" data-panel="reviewsPanel">Reviews</button>
+    <button class="admin-tab" id="tabActivity" role="tab" type="button"
+            aria-selected="false" data-panel="activityPanel">Shoppers <span class="tab-badge" id="activityBadge" hidden></span></button>
   </div>
 
   <div class="admin-alert admin-alert-err" id="adminError" hidden></div>
@@ -198,6 +200,21 @@
       </form>
     </details>
     <div id="reviewsList" class="coupons-list"><p class="admin-muted">Loading…</p></div>
+  </section>
+
+  <!-- Shoppers: what visitors are doing right now, guests included (src/activity.js). -->
+  <section class="admin-panel" id="activityPanel" hidden>
+    <div class="panel-head"><h2>Shoppers</h2>
+      <span class="admin-muted">Each row is one browser. Names show only for signed-in customers; guests stay anonymous until they pay.</span></div>
+    <div class="act-bar">
+      <select id="activityHours" class="admin-select" aria-label="Time range">
+        <option value="1">Last hour</option><option value="24" selected>Last 24 hours</option><option value="168">Last 7 days</option><option value="720">Last 30 days</option>
+      </select>
+      <button type="button" class="admin-btn" id="activityRefresh">Refresh</button>
+      <span class="admin-muted" id="activityUpdated"></span>
+    </div>
+    <div class="act-summary" id="activitySummary"></div>
+    <div id="activityList" class="coupons-list"><p class="admin-muted">Loading…</p></div>
   </section>
 
   <section class="admin-panel" id="quotesPanel" hidden>

@@ -348,6 +348,7 @@ export function renderProductPage(env, { product, related, reviews = null, headE
 </footer>
 
 <script src="/assets/js/quote-modal.js" defer></script>
+<script src="/assets/js/activity.js" defer></script>
 <script src="/assets/js/product.js" defer></script>
 <script src="/assets/js/chat.js" defer></script>
 </body>

@@ -638,6 +638,7 @@ function addToCart(id) {
     cart.push({ id, qty: 1 });
   }
   writeCart(cart);
+  window.apTrack?.('cart_add', { product_id: id, qty: (line?.qty) || 1 });
   return true;
 }
 
@@ -649,6 +650,7 @@ function setQty(id, qty) {
     if (line) line.qty = Math.min(MAX_QTY, qty);
   }
   writeCart(cart);
+  window.apTrack?.(qty < 1 ? 'cart_remove' : 'cart_add', { product_id: id, qty: qty < 1 ? undefined : Math.min(MAX_QTY, qty) });
 }
 
 /* ── personalisation ───────────────────────────────────────────── */
@@ -2189,6 +2191,7 @@ function openCheckout(items = null) {
   renderCoSummary();
   if (typeof prefillCheckout === 'function') prefillCheckout();
   takePromoHandoff();
+  window.apTrack?.('checkout_open');
   checkoutModal.hidden = false;
   checkoutOverlay.hidden = false;
   checkoutModal.setAttribute('aria-hidden', 'false');
@@ -2313,6 +2316,7 @@ checkoutForm?.addEventListener('submit', async (e) => {
   }
 
   setCheckoutBusy(true, 'Opening payment…');
+  window.apTrack?.('pay_click', { receipt: data.receipt });
   openRazorpay(data, v('co_name'), v('co_email'), v('co_phone'));
 });
 
@@ -2532,6 +2536,8 @@ function lightboxProduct() {
 // on every prev/next, so navigating with the arrows keeps the price honest.
 function updateLightboxBuy() {
   const p = lightboxProduct();
+  // Opening a product's photo is the homepage's "viewed this product".
+  if (p?.id) window.apTrack?.('view', { product_id: p.id });
   const priceEl = document.getElementById('lightboxPrice');
   const addBtn = document.getElementById('lightboxAdd');
   const buyBtn = document.getElementById('lightboxBuy');
