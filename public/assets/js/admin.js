@@ -135,7 +135,7 @@ async function boot() {
   who.textContent = me.email;
   who.hidden = false;
 
-  await Promise.all([loadStats(), loadOrders(), loadProducts(), loadCoupons(), loadQuoteBadge(), loadReviews()]);
+  await Promise.all([loadStats(), loadOrders(), loadProducts(), loadCoupons(), loadQuoteBadge(), loadReviews(), loadActivity()]);
 }
 
 // New quote requests are the one thing on this page with a person waiting on
@@ -2197,6 +2197,7 @@ for (const tab of document.querySelectorAll('.admin-tab')) {
   tab.addEventListener('click', () => {
     selectTab(tab.dataset.panel);
     if (tab.dataset.panel === 'quotesPanel') loadQuotes();
+    if (tab.dataset.panel === 'activityPanel') loadActivity();
   });
 }
 
@@ -2257,3 +2258,73 @@ $('rvAddForm')?.addEventListener('submit', async (e) => {
     await loadReviews();
   } catch (err) { flash(err.message, true); }
 });
+
+/* ── shoppers (src/activity.js) ────────────────────────────────── */
+// One row per browser: how far they got, what's in their cart, when last seen.
+// Everything is set with textContent — product names are owner-written, but the
+// rule here is the same for every field.
+const ACT_STAGE = {
+  'browsing': 'Browsing', 'cart': 'Added to cart', 'checkout': 'At checkout',
+  'pressed pay': 'Pressed Pay', 'paid': 'Paid',
+  'cancelled': 'Order cancelled', 'refunded': 'Refunded', 'failed': 'Payment failed',
+};
+const ago = (t) => {
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  return new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+};
+
+let activityTimer = null;
+async function loadActivity() {
+  const box = $('activityList');
+  if (!box) return;
+  const hours = $('activityHours')?.value || '24';
+  let data;
+  // Rescheduled whether or not this load works: a blip must not stop the
+  // auto-refresh for the rest of the time the tab stays open.
+  clearTimeout(activityTimer);
+  if (!$('activityPanel')?.hidden) activityTimer = setTimeout(loadActivity, 30000);
+  try { data = await api('/api/admin/activity?hours=' + encodeURIComponent(hours)); }
+  catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'admin-muted', 'Could not load activity: ' + e.message)); return; }
+
+  const badge = $('activityBadge');
+  if (badge) { badge.textContent = data.summary.live; badge.hidden = !data.summary.live; }
+
+  const sum = $('activitySummary');
+  if (sum) {
+    sum.innerHTML = '';
+    for (const [k, label] of [['live', 'Here now'], ['visitors', 'Visitors'], ['carts', 'Added to cart'], ['checkouts', 'Reached checkout'], ['paid', 'Paid']]) {
+      const c = el('div', 'act-stat');
+      c.appendChild(el('strong', '', String(data.summary[k])));
+      c.appendChild(el('span', '', label));
+      sum.appendChild(c);
+    }
+  }
+  const upd = $('activityUpdated');
+  if (upd) upd.textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+
+  box.innerHTML = '';
+  if (!data.sessions.length) { box.appendChild(el('p', 'admin-muted', 'No shoppers in this period.')); }
+  for (const s of data.sessions) {
+    const row = el('div', 'coupon-row act-row' + (s.live ? ' is-live' : ''));
+    const main = el('div', 'cr-main');
+    const who = s.user ? (s.user.name || s.user.email) : 'Guest ' + s.sid.slice(0, 4);
+    const head = el('div', 'cr-code');
+    if (s.live) head.appendChild(el('span', 'act-live', 'LIVE'));
+    head.appendChild(document.createTextNode(who + ' — ' + (ACT_STAGE[s.stage] || s.stage)));
+    main.appendChild(head);
+    const tags = ['last seen ' + ago(s.last_at)];
+    if (s.receipt) tags.push('order ' + s.receipt + (s.order_status ? ' (' + s.order_status + ')' : ''));
+    if (s.user && s.user.name && s.user.email) tags.push(s.user.email);
+    main.appendChild(el('div', 'cr-what', tags.join(' · ')));
+    if (s.cart.length) main.appendChild(el('p', 'admin-muted', 'In cart: ' + s.cart.map((c) => c.name + ' × ' + c.qty).join(', ')));
+    if (s.viewed.length) main.appendChild(el('p', 'admin-muted', 'Looked at: ' + s.viewed.join(', ')));
+    row.appendChild(main);
+    box.appendChild(row);
+  }
+
+}
+$('activityRefresh')?.addEventListener('click', loadActivity);
+$('activityHours')?.addEventListener('change', loadActivity);

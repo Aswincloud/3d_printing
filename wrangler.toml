@@ -132,6 +132,16 @@ namespace_id = "3005"
   limit = 30
   period = 60
 
+# Shopper activity events (src/activity.js). Public and insert-only; 60/min is
+# far above a real visitor's few events a minute and bounds a script filling the
+# table from one IP.
+[[ratelimits]]
+name = "RL_ACTIVITY"
+namespace_id = "3006"
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
 [vars]
 APP_NAME = "AswinPrints"
 APP_BASE_URL = "https://3d-prints.aswincloud.com"
