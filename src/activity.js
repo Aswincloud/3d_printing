@@ -56,11 +56,16 @@ export async function recordActivity(env, body, userId = null) {
 // the label, so a visitor who opened checkout and went back to browsing still
 // reads as "reached checkout".
 const STEP = { view: 1, cart_add: 2, cart_remove: 2, checkout_open: 3, pay_click: 4 };
+// Money received. A cancelled, failed or refunded order is shown by its own
+// status, never as "paid".
+const PAID = new Set(["paid", "in_production", "ready", "shipped", "delivered"]);
 const LIVE_MS = 15 * 60 * 1000;
 
 export async function adminActivity(env, url) {
   const hours = Math.max(1, Math.min(24 * 30, Number(url.searchParams.get("hours")) || 24));
   const since = now() - hours * 60 * 60 * 1000;
+  // The NEWEST 5000 (DESC + LIMIT), then folded oldest-first. Ascending with the
+  // limit would keep the oldest events and drop the live ones on a busy range.
   const { results } = await env.DB.prepare(
     `SELECT e.sid, e.kind, e.product_id, e.qty, e.user_id, e.receipt, e.created_at,
             p.name AS product_name, u.name AS user_name, u.email AS user_email,
@@ -70,11 +75,12 @@ export async function adminActivity(env, url) {
        LEFT JOIN users u ON u.id = e.user_id
        LEFT JOIN orders o ON o.receipt = e.receipt
       WHERE e.created_at >= ?
-      ORDER BY e.created_at ASC
+      ORDER BY e.created_at DESC, e.id DESC
       LIMIT 5000`).bind(since).all();
+  const events = (results || []).reverse();
 
   const bySid = new Map();
-  for (const r of results || []) {
+  for (const r of events) {
     let s = bySid.get(r.sid);
     if (!s) {
       s = { sid: r.sid, first_at: r.created_at, last_at: r.created_at, step: 0, viewed: [], cart: new Map(),
@@ -93,7 +99,8 @@ export async function adminActivity(env, url) {
   }
 
   const t = now();
-  const label = (s) => s.order_status && s.order_status !== "pending" ? "paid"
+  const label = (s) => PAID.has(s.order_status) ? "paid"
+    : s.order_status && s.order_status !== "pending" ? s.order_status        // cancelled, refunded, failed
     : ["browsing", "browsing", "cart", "checkout", "pressed pay"][s.step] || "browsing";
   const sessions = [...bySid.values()]
     .map((s) => ({

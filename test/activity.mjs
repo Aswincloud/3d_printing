@@ -123,6 +123,11 @@ section("adminActivity — one row per browser, furthest step wins");
   db.exec(`UPDATE orders SET status = 'paid'`);
   const s = (await summary(env)).sessions[0];
   ok("once the order is paid the session reads Paid", s.stage === "paid" && s.receipt === "AP-cccccccc", JSON.stringify(s));
+  for (const [status, want] of [["shipped", "paid"], ["cancelled", "cancelled"], ["refunded", "refunded"]]) {
+    db.prepare("UPDATE orders SET status = ?").run(status);
+    const st = (await summary(env)).sessions[0].stage;
+    ok(`order ${status} reads "${want}"`, st === want, st);
+  }
 }
 
 section("through the worker: the account id is never taken from the request");
@@ -135,6 +140,19 @@ section("through the worker: the account id is never taken from the request");
   }), env, { waitUntil() {}, passThroughOnException() {} });
   ok("accepted", res.status === 200, String(res.status));
   ok("stored without the claimed user_id (no session = guest)", rows(db).length === 1 && rows(db)[0].user_id === null, JSON.stringify(rows(db)));
+}
+
+section("a busy range keeps the newest events, not the oldest");
+{
+  const { db, env } = setup();
+  const ins = db.prepare(`INSERT INTO shopper_events (sid, kind, created_at) VALUES (?, 'view', ?)`);
+  const t0 = Date.now() - 20 * 24 * 60 * 60 * 1000;
+  db.exec("BEGIN");
+  for (let i = 0; i < 5005; i++) ins.run("ffffffffffffffff", t0 + i);
+  db.exec("COMMIT");
+  await recordActivity(env, { sid: "1111111111111111", kind: "checkout_open" });
+  const out = await summary(env, 720);
+  ok("the live visitor still appears past the 5000-row cap", out.sessions.some((s) => s.sid === "1111111111111111" && s.live), JSON.stringify(out.summary));
 }
 
 section("wiring");

@@ -2266,6 +2266,7 @@ $('rvAddForm')?.addEventListener('submit', async (e) => {
 const ACT_STAGE = {
   'browsing': 'Browsing', 'cart': 'Added to cart', 'checkout': 'At checkout',
   'pressed pay': 'Pressed Pay', 'paid': 'Paid',
+  'cancelled': 'Order cancelled', 'refunded': 'Refunded', 'failed': 'Payment failed',
 };
 const ago = (t) => {
   const s = Math.max(0, Math.round((Date.now() - t) / 1000));
@@ -2281,6 +2282,10 @@ async function loadActivity() {
   if (!box) return;
   const hours = $('activityHours')?.value || '24';
   let data;
+  // Rescheduled whether or not this load works: a blip must not stop the
+  // auto-refresh for the rest of the time the tab stays open.
+  clearTimeout(activityTimer);
+  if (!$('activityPanel')?.hidden) activityTimer = setTimeout(loadActivity, 30000);
   try { data = await api('/api/admin/activity?hours=' + encodeURIComponent(hours)); }
   catch (e) { box.innerHTML = ''; box.appendChild(el('p', 'admin-muted', 'Could not load activity: ' + e.message)); return; }
 
@@ -2320,9 +2325,6 @@ async function loadActivity() {
     box.appendChild(row);
   }
 
-  // While the tab is open, refresh every 30 s so "Here now" stays honest.
-  clearTimeout(activityTimer);
-  if (!$('activityPanel')?.hidden) activityTimer = setTimeout(loadActivity, 30000);
 }
 $('activityRefresh')?.addEventListener('click', loadActivity);
 $('activityHours')?.addEventListener('change', loadActivity);
