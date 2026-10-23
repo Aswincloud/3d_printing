@@ -2400,6 +2400,13 @@ async function verifyPayment(response, orderData) {
     // here would delete items the customer was never charged for and did not
     // choose to remove.
     if (!buyNowItems) writeCart([]);
+    // The thank-you page: a real URL after a real purchase, which is what Google
+    // Ads counts a conversion on. replace(), so Back doesn't return to checkout.
+    // Same-origin path from our own server, checked before use.
+    if (typeof out.thanks === 'string' && /^\/thank-you\?t=[0-9a-f]{32}$/.test(out.thanks)) {
+      location.replace(out.thanks);
+      return;
+    }
     setCheckoutBusy(false);
     closeCheckout();
     showReceipt(out.receipt, orderData);
