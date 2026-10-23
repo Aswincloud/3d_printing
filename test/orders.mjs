@@ -113,7 +113,7 @@ function makeDB() {
                             personalisation, pos });
       return { meta: { changes: 1 } };
     }
-    if (s.startsWith("SELECT id, receipt, status, total_paise FROM orders WHERE rzp_order_id")) {
+    if (s.startsWith("SELECT id, receipt, status, total_paise, pay_token FROM orders WHERE rzp_order_id")) {
       return { first: db.orders.find((o) => o.rzp_order_id === args[0]) || null };
     }
     if (s.startsWith("SELECT * FROM orders WHERE rzp_order_id")) {
@@ -459,6 +459,7 @@ section("POST /api/orders/verify");
   ok("200 for a valid signature", status === 200, JSON.stringify(out));
   ok("returns the receipt", out.receipt === env.DB._db.orders[0].receipt);
   ok("records the payment id", env.DB._db.orders[0].rzp_payment_id === paymentId);
+  ok("returns this order's own thank-you link", out.thanks === `/thank-you?t=${env.DB._db.orders[0].pay_token}` && /^[0-9a-f]{32}$/.test(env.DB._db.orders[0].pay_token), out.thanks);
 
   // THE key assertion: the browser's word does not mark an order paid.
   ok("status stays pending — the browser cannot mark it paid (invariant 4)",
@@ -466,7 +467,8 @@ section("POST /api/orders/verify");
 
   // A forged callback must be rejected.
   const bad = { ...vbody, razorpay_signature: sig.slice(0, -1) + "0" };
-  const [bstatus] = await readJson(await verifyOrderHandler(post(bad), env, bad));
+  const [bstatus, bout] = await readJson(await verifyOrderHandler(post(bad), env, bad));
+  ok("a bad signature gets no thank-you link", !("thanks" in bout) || !bout.thanks, JSON.stringify(bout));
   ok("400 for a forged signature", bstatus === 400);
 
   // Signed with the wrong secret.
