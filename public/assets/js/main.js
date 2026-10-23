@@ -763,6 +763,18 @@ function syncCheckoutGate() {
 
 const PROMO_DISMISS_KEY = 'ap_promo_hidden';
 
+// Mirrors FREE_SHIP_BANNER / promoBannerText() in src/seo.js — test/seo.mjs pins
+// the server string, and the two must match or the banner re-flows on load.
+const FREE_SHIP_BANNER = 'Free shipping across India';
+const freeShipOn = () => shipCfg.flat_paise === 0 && shipCfg.loaded === true;
+
+// What the visitor dismissed. Keyed on what the banner said, so a new coupon, or
+// free shipping starting, shows again to someone who closed the last version.
+function promoKey(code, freeShip) {
+  if (!code && !freeShip) return '';
+  return (freeShip ? 'free:' : '') + (code || '');
+}
+
 // The Worker renders the banner into the HTML (rewriteHome in src/seo.js) so it
 // is on screen from the first paint instead of pushing the page down when
 // /api/products lands. Dismissal is only known here, in localStorage, so this
@@ -771,10 +783,10 @@ const PROMO_DISMISS_KEY = 'ap_promo_hidden';
 // closed. renderPromo() then owns it as before once the API answers.
 (function hideDismissedPromo() {
   const bar = document.getElementById('promoBanner');
-  const code = bar?.dataset.promoCode;
-  if (!bar || !code || bar.hidden) return;
+  const key = promoKey(bar?.dataset.promoCode, bar?.dataset.freeShip === '1');
+  if (!bar || !key || bar.hidden) return;
   try {
-    if (localStorage.getItem(PROMO_DISMISS_KEY) === code) bar.hidden = true;
+    if (localStorage.getItem(PROMO_DISMISS_KEY) === key) bar.hidden = true;
   } catch { /* private mode — leave it showing */ }
   // The nav's `top` is --promo-h; set it now rather than after the API call so
   // the header does not sit over the banner for the first few hundred ms. (Not
@@ -783,6 +795,23 @@ const PROMO_DISMISS_KEY = 'ap_promo_hidden';
   syncPromoOffset();
 })();
 
+// The banner's one line. Must equal promoBannerText() in src/seo.js.
+function promoLine(promo, freeShip) {
+  let coupon = '';
+  if (promo && promo.code) {
+    const off = promo.kind === 'percent' ? promo.value + '% off' : rupees(promo.value) + ' off';
+    const caps = [];
+    // Stated up front rather than discovered at checkout. A capped percentage that
+    // only reveals itself on the total is the kind of surprise that costs a sale.
+    if (promo.kind === 'percent' && promo.max_discount_paise) caps.push('up to ' + rupees(promo.max_discount_paise));
+    if (promo.min_order_paise) caps.push('on orders over ' + rupees(promo.min_order_paise));
+    if (promo.once_per_customer) caps.push('one use per customer');
+    coupon = off + (caps.length ? ' — ' + caps.join(', ') : '') + ' with code ' + promo.code;
+  }
+  if (freeShip) return coupon ? FREE_SHIP_BANNER + ' · ' + coupon : FREE_SHIP_BANNER;
+  return coupon;
+}
+
 function renderPromo(promo) {
   const bar = document.getElementById('promoBanner');
   if (!bar) return;
@@ -790,42 +819,33 @@ function renderPromo(promo) {
   // whichever lands second has to be able to redraw the decision.
   if (promo !== undefined) lastPromo = promo;
   promo = lastPromo;
-  if (!promo || !promo.code) { bar.hidden = true; syncPromoOffset(); return; }
 
-  // Already redeemed by THIS customer. Cosmetic — applyCoupon() refuses the
-  // second use regardless — but advertising a discount and then declining it at
-  // checkout is the kind of thing that reads as a bait and switch.
+  // Already redeemed by THIS customer: the coupon part is dropped (applyCoupon()
+  // refuses a second use regardless, and advertising it would read as bait and
+  // switch). Free shipping still applies to them, so it can stay.
   //
   // Only knowable per-session: /api/products is shared and edge-cached, so the
   // flag rides on /api/me instead. See usedFeaturedPromo() in src/customers.js.
-  if (promoUsed) { bar.hidden = true; syncPromoOffset(); return; }
+  if (promo && promo.code && promoUsed) promo = null;
+  const freeShip = freeShipOn();
+  if (!freeShip && (!promo || !promo.code)) { bar.hidden = true; syncPromoOffset(); return; }
 
-  // Dismissed for THIS code. Keyed on the code so a new offer shows again to
-  // someone who closed the last one — a dismissal means "not that one", not
-  // "never show me anything".
+  // Dismissed for what this banner says now. A dismissal means "not that one",
+  // not "never show me anything".
+  const key = promoKey(promo?.code, freeShip);
   try {
-    if (localStorage.getItem(PROMO_DISMISS_KEY) === promo.code) {
+    if (localStorage.getItem(PROMO_DISMISS_KEY) === key) {
       bar.hidden = true; syncPromoOffset(); return;
     }
   } catch { /* private mode — show it */ }
 
-  const off = promo.kind === 'percent' ? promo.value + '% off' : rupees(promo.value) + ' off';
-  const caps = [];
-  // Stated up front rather than discovered at checkout. A capped percentage that
-  // only reveals itself on the total is the kind of surprise that costs a sale.
-  if (promo.kind === 'percent' && promo.max_discount_paise) {
-    caps.push('up to ' + rupees(promo.max_discount_paise));
-  }
-  if (promo.min_order_paise) caps.push('on orders over ' + rupees(promo.min_order_paise));
-  if (promo.once_per_customer) caps.push('one use per customer');
-
   const text = document.getElementById('promoText');
-  if (text) {
-    text.textContent = off + (caps.length ? ' — ' + caps.join(', ') : '') + ' with code ' + promo.code;
-  }
+  if (text) text.textContent = promoLine(promo, freeShip);
 
   const copy = document.getElementById('promoCopy');
-  if (copy) {
+  // No coupon to copy on a free-shipping-only banner.
+  if (copy) copy.hidden = !(promo && promo.code);
+  if (copy && promo && promo.code) {
     copy.onclick = async () => {
       try {
         await navigator.clipboard.writeText(promo.code);
@@ -844,7 +864,7 @@ function renderPromo(promo) {
     close.onclick = () => {
       bar.hidden = true;
       document.documentElement.style.setProperty('--promo-h', '0px');
-      try { localStorage.setItem(PROMO_DISMISS_KEY, promo.code); } catch { /* fine */ }
+      try { localStorage.setItem(PROMO_DISMISS_KEY, key); } catch { /* fine */ }
     };
   }
 
@@ -906,7 +926,9 @@ async function loadProducts() {
     if (!res.ok) throw new Error('Status ' + res.status);
     const data = await res.json();
     catalogue = Array.isArray(data.products) ? data.products : [];
-    if (data.shipping) shipCfg = data.shipping;
+    // `loaded` separates "the shop said flat is 0" (free shipping) from the
+    // placeholder zeros above, which mean "not known yet".
+    if (data.shipping) shipCfg = { ...data.shipping, loaded: true };
     renderPromo(data.promo);
     // Chips before the grid: renderFilters reveals the controls, and doing it
     // first means they never flash in above an empty grid.
@@ -1626,10 +1648,11 @@ function renderProducts() {
 }
 
 function renderShipNote() {
-  if (!shopShipNote || !shipCfg.free_threshold_paise) return;
-  shopShipNote.textContent =
-    '🚚 Shipping India-wide — flat ' + rupees(shipCfg.flat_paise) + ', free over ' +
-    rupees(shipCfg.free_threshold_paise) + '.';
+  if (!shopShipNote || !shipCfg.loaded) return;
+  shopShipNote.textContent = freeShipOn()
+    ? '🚚 Free shipping across India on every order.'
+    : '🚚 Shipping India-wide — flat ' + rupees(shipCfg.flat_paise) + ', free over ' +
+      rupees(shipCfg.free_threshold_paise) + '.';
   shopShipNote.classList.add('show');
 }
 

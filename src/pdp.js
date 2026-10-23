@@ -22,6 +22,7 @@
 // reads as finished rather than unfinished.
 
 import { esc, rupees, percentOff } from "./lib.js";
+import { shippingLine } from "./shop.js";
 
 const CATEGORY_LABEL = {
   figurine: "Figurines",
@@ -109,9 +110,6 @@ export function renderProductPage(env, { product, related, reviews = null, headE
     .filter(Boolean);
   const hasGallery = gallery.length > 1;
 
-  const flatShip = Number(env.FLAT_SHIP_PAISE || 9900);
-  const freeOver = Number(env.FREE_SHIP_THRESHOLD_PAISE || 200000);
-
   const crumbHtml = trail.map((c, i) =>
     i === trail.length - 1
       ? `<span aria-current="page">${esc(c.name)}</span>`
@@ -182,7 +180,7 @@ export function renderProductPage(env, { product, related, reviews = null, headE
     ["Printed on", "Bambu Lab A1"],
     CATEGORY_LABEL[product.category] ? ["Category", CATEGORY_LABEL[product.category]] : null,
     ["Made", "To order, in Pondicherry"],
-    ["Delivery", `India-wide · flat ${price(flatShip)}, free over ${price(freeOver)}`],
+    ["Delivery", shippingLine(env)],
   ].filter(Boolean);
 
   // Reviews: summary, the list, and the form. Between the specs and "More in…".

@@ -5,6 +5,7 @@
 // by JavaScript and there is no sitemap telling a crawler which URLs exist.
 
 import { esc, rupees } from "./lib.js";
+import { shippingConfig, shippingLine } from "./shop.js";
 
 // The five policy pages plus the homepage. Static because they are, and because
 // a crawler discovering /terms is worth almost nothing next to a product page —
@@ -325,7 +326,18 @@ function cardHtml(env, p, resize, overflow = false) {
 // down (a measured 43–85px layout shift on every load while a promo ran).
 // renderPromo() in main.js builds the identical string, and test/seo.mjs pins
 // this one — if the two ever differ the banner would visibly re-flow.
-export function promoBannerText(promo) {
+// FREE_SHIP_BANNER leads when every order ships free; the coupon follows when
+// there is one to show. Either part alone is a valid banner. main.js's
+// promoLine() builds the identical string.
+export const FREE_SHIP_BANNER = "Free shipping across India";
+
+export function promoBannerText(promo, freeShip = false) {
+  const coupon = promo && promo.code ? couponText(promo) : "";
+  if (freeShip) return coupon ? FREE_SHIP_BANNER + " · " + coupon : FREE_SHIP_BANNER;
+  return coupon;
+}
+
+function couponText(promo) {
   const off = promo.kind === "percent" ? promo.value + "% off" : rupees(promo.value) + " off";
   const caps = [];
   if (promo.kind === "percent" && promo.max_discount_paise) {
@@ -343,6 +355,7 @@ export function promoBannerText(promo) {
 const HERO_WIDTHS = [320, 480, 640, 900, 1200];
 
 export function rewriteHome(env, response, products, url, promo = null) {
+  const freeShip = shippingConfig(env).flat_paise === 0;
   const base = baseUrl(env);
   const canonical = base + "/";
 
@@ -398,15 +411,16 @@ export function rewriteHome(env, response, products, url, promo = null) {
     // first paint, and redraws the same text once the API answers.
     .on("#promoBanner", {
       element(el) {
-        if (!promo || !promo.code) return;
+        if (!freeShip && (!promo || !promo.code)) return;
         el.removeAttribute("hidden");
-        el.setAttribute("data-promo-code", promo.code);
+        if (promo && promo.code) el.setAttribute("data-promo-code", promo.code);
+        if (freeShip) el.setAttribute("data-free-ship", "1");
       },
     })
     .on("#promoText", {
       element(el) {
-        if (!promo || !promo.code) return;
-        el.setInnerContent(promoBannerText(promo));
+        const text = promoBannerText(promo, freeShip);
+        if (text) el.setInnerContent(text);
       },
     })
     // Point each hero photo at its product page. Left as the #shop anchor when the
@@ -508,9 +522,11 @@ export function localPageJsonLd(env) {
             name: "Do you deliver outside Pondicherry?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Yes — anywhere in India. Shipping is a flat ₹99 and free on "
-                + "orders over ₹2,000, with a tracking ID emailed when the parcel "
-                + "is dispatched.",
+              text: (shippingConfig(env).flat_paise === 0
+                  ? "Yes — anywhere in India, and shipping is free on every order"
+                  : `Yes — anywhere in India. Shipping is a flat ${rupees(shippingConfig(env).flat_paise)} and free on `
+                    + `orders over ${rupees(shippingConfig(env).free_threshold_paise)}`)
+                + ", with a tracking ID emailed when the parcel is dispatched.",
             },
           },
           {

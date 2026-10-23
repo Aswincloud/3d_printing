@@ -237,7 +237,11 @@ section("local landing page JSON-LD");
   // the visible page is a Search Console violation, not a shortcut.
   const answers = faq.mainEntity.map((q) => q.acceptedAnswer.text).join(" ");
   ok("turnaround answer matches the page", /3.5 days/.test(answers), answers.slice(0, 60));
-  ok("shipping answer matches the page", /₹99/.test(answers) && /₹2,000/.test(answers));
+  // The page says free shipping (public/3d-printing-in-pondicherry.html), and so
+  // must the FAQ under the live setting.
+  const page = readFileSync(new URL("../public/3d-printing-in-pondicherry.html", import.meta.url), "utf8");
+  ok("the page states free shipping", /shipping is\s+free on every order/.test(page));
+  ok("shipping answer matches the page", /shipping is free on every order/.test(answers) && !/₹99/.test(answers), answers);
   ok("bulk orders are covered", /bulk|corporate|favours/i.test(json));
 }
 
@@ -290,6 +294,24 @@ console.log("\npromo banner text matches the client");
                        "'one use per customer'", "' with code '", "' — '"]) {
     ok(`main.js still builds the banner from ${piece}`, main.includes(piece));
   }
+}
+
+console.log("\nfree-shipping banner matches the client");
+{
+  const full = { code: "WELCOME10", kind: "percent", value: 10, once_per_customer: true };
+  ok("free shipping leads, coupon follows",
+     promoBannerText(full, true) === "Free shipping across India · 10% off — one use per customer with code WELCOME10",
+     promoBannerText(full, true));
+  ok("free shipping alone when there is no coupon", promoBannerText(null, true) === "Free shipping across India");
+  ok("coupon alone when shipping isn't free", promoBannerText(full, false) === "10% off — one use per customer with code WELCOME10");
+  ok("nothing at all → empty", promoBannerText(null, false) === "");
+  const main = readFileSync(new URL("../public/assets/js/main.js", import.meta.url), "utf8");
+  ok("main.js uses the same free-shipping words", main.includes("const FREE_SHIP_BANNER = 'Free shipping across India';"));
+  ok("main.js joins them the same way", main.includes("FREE_SHIP_BANNER + ' · ' + coupon"));
+  const faqFree = JSON.stringify(localPageJsonLd({ FLAT_SHIP_PAISE: "0" }));
+  ok("FAQ says free when free", faqFree.includes("shipping is free on every order") && !faqFree.includes("₹99"));
+  const faqFlat = JSON.stringify(localPageJsonLd({ FLAT_SHIP_PAISE: "9900" }));
+  ok("FAQ keeps the flat rate otherwise", faqFlat.includes("flat ₹99") && faqFlat.includes("₹2,000"));
 }
 
 // The shoppable hero is rewritten by rewriteHome(), which uses HTMLRewriter — a

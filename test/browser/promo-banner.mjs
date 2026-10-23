@@ -42,13 +42,19 @@ const PROMO = {
 };
 
 // `delayMs` is the whole point: it lets each response win the race in turn.
-async function stub(page, { me, promoDelay = 0, meDelay = 0 }) {
+// `shipping` defaults to the flat rate. The original fixture sent { flat 0,
+// threshold 0 }, which since free shipping exists genuinely MEANS free shipping —
+// so the "already used" cases kept a banner (rightly) and these checks failed.
+const FLAT = { flat_paise: 9900, free_threshold_paise: 200000 };
+const FREE = { flat_paise: 0, free_threshold_paise: 200000 };
+
+async function stub(page, { me, promoDelay = 0, meDelay = 0, shipping = FLAT, promo = PROMO }) {
   await page.route('**/api/**', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   await page.route('**/api/products', async (r) => {
     if (promoDelay) await new Promise((res) => setTimeout(res, promoDelay));
     return r.fulfill({ status: 200, contentType: 'application/json',
-      body: JSON.stringify({ products: [], shipping: { flat_paise: 0, free_threshold_paise: 0 }, promo: PROMO }) });
+      body: JSON.stringify({ products: [], shipping, promo }) });
   });
   await page.route('**/api/me', async (r) => {
     if (meDelay) await new Promise((res) => setTimeout(res, meDelay));
@@ -101,7 +107,15 @@ async function run(engine, engineName, label, opts, expect) {
     ok(`[${engineName}] ${label}: nav offset reset to 0`,
        s.promoH === '0px' || s.promoH === '0', s.promoH);
   } else {
-    ok(`[${engineName}] ${label}: the code is on screen`, s.text.includes('WELCOME10'), s.text);
+    if (expect.text !== undefined) {
+      ok(`[${engineName}] ${label}: says "${expect.text}"`, s.text === expect.text, s.text);
+    } else {
+      ok(`[${engineName}] ${label}: the code is on screen`, s.text.includes('WELCOME10'), s.text);
+    }
+    if (expect.copy !== undefined) {
+      const copyShown = await page.evaluate(() => !document.getElementById('promoCopy')?.hidden);
+      ok(`[${engineName}] ${label}: Copy button ${expect.copy ? 'shown' : 'hidden'}`, copyShown === expect.copy);
+    }
     ok(`[${engineName}] ${label}: nav offset is non-zero`,
        s.promoH !== '' && s.promoH !== '0px', s.promoH);
   }
@@ -124,6 +138,17 @@ for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
             { me: USED, promoDelay: 400 }, { hidden: true });
   await run(engine, name, 'already used, catalogue lands FIRST',
             { me: USED, meDelay: 400 }, { hidden: true });
+
+  // Free shipping on every order: the banner leads with it, and still shows for
+  // a customer who has used the coupon (free shipping applies to them too) —
+  // just without the code or a Copy button.
+  const F = 'Free shipping across India';
+  await run(engine, name, 'free shipping, guest', { me: GUEST, shipping: FREE },
+            { hidden: false, text: F + ' · 10% off — up to ₹100, one use per customer with code WELCOME10', copy: true });
+  await run(engine, name, 'free shipping, coupon already used', { me: USED, shipping: FREE, meDelay: 400 },
+            { hidden: false, text: F, copy: false });
+  await run(engine, name, 'free shipping, no coupon featured', { me: GUEST, shipping: FREE, promo: null },
+            { hidden: false, text: F, copy: false });
 }
 
 if (skipped.size) console.warn(`\n  skipped: ${[...skipped].join(', ')}`);

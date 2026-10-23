@@ -262,9 +262,19 @@ function shape(r) {
 // at the old, lower threshold on any deploy where the var did not come through.
 export function shippingConfig(env) {
   return {
-    flat_paise: intVar(env.FLAT_SHIP_PAISE, 9900),
+    flat_paise: intVar(env.FLAT_SHIP_PAISE, 0),   // free shipping since 2026-10-23
     free_threshold_paise: intVar(env.FREE_SHIP_THRESHOLD_PAISE, 200000),
   };
+}
+
+// The one sentence every page uses for delivery, so the PDP, the FAQ and the
+// shop note cannot disagree. FLAT_SHIP_PAISE = 0 means every order ships free
+// (since 2026-10-23, when prices went up by ₹100 to absorb it).
+export function shippingLine(env) {
+  const { flat_paise, free_threshold_paise } = shippingConfig(env);
+  const r = (p) => "₹" + (p / 100).toLocaleString("en-IN");
+  if (flat_paise === 0) return "Free shipping across India";
+  return `India-wide · flat ${r(flat_paise)}, free over ${r(free_threshold_paise)}`;
 }
 
 function intVar(v, fallback) {

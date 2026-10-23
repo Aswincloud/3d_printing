@@ -332,5 +332,13 @@ section("the former price, struck through, only when it is a genuine reduction")
      /pdp-was/.test(tiny) && !/pdp-off/.test(tiny));
 }
 
+section("delivery line follows the shipping setting");
+{
+  const flat = render(PRODUCT());
+  ok("flat rate shown while shipping is charged", flat.includes("India-wide · flat ₹99, free over ₹2,000"));
+  const free = renderProductPage({ ...ENV, FLAT_SHIP_PAISE: "0" }, { product: PRODUCT(), related: RELATED, headExtra: "<title>x</title>" });
+  ok("free shipping shown when it is free", free.includes("Free shipping across India") && !free.includes("flat ₹0"));
+}
+
 console.log(`\n  pdp: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
