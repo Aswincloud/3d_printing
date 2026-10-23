@@ -72,5 +72,15 @@ console.log("\nfeed/google.xml");
 ok("inFeed keeps ordinary products", inFeed({ slug: "laughing-buddha", name: "Laughing Buddha" }));
 ok("inFeed keeps the PS5 stand out", !inFeed({ slug: "ps5-horizontal-stand", name: "PS5 Horizontal Stand" }));
 
+console.log("\nfree delivery in the feed");
+{
+  const flat = await (await googleFeed(envWith())).text();
+  ok("no per-item shipping while shipping is charged", !flat.includes("<g:shipping>"));
+  const free = await (await googleFeed({ ...envWith(), FLAT_SHIP_PAISE: "0" })).text();
+  const items = (free.match(/<item>/g) || []).length;
+  const ships = (free.match(/<g:shipping><g:country>IN<\/g:country><g:service>Standard<\/g:service><g:price>0\.00 INR<\/g:price><\/g:shipping>/g) || []).length;
+  ok("every item says free delivery in India when shipping is free", items > 0 && ships === items, `${ships}/${items}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

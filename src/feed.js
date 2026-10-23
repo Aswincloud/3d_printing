@@ -7,6 +7,7 @@
 // item's link must be a live /p/<slug> page, or Merchant Center disapproves it.
 
 import { esc } from "./lib.js";
+import { shippingConfig } from "./shop.js";
 
 const baseUrl = (env) =>
   String(env.APP_BASE_URL || "https://3d-prints.aswincloud.com").replace(/\/$/, "");
@@ -67,6 +68,7 @@ export async function googleFeed(env) {
     throw e;
   }
 
+  const freeShip = shippingConfig(env).flat_paise === 0;
   const items = rows.filter(inFeed).map((p) => {
     const link = `${base}/p/${p.slug}`;
     const extra = String(p.images || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10);
@@ -86,6 +88,10 @@ export async function googleFeed(env) {
       // The selling price only. compare_at is not sent as a sale: Google
       // requires the higher price to have actually been charged, and checks.
       `<g:price>${(p.price_paise / 100).toFixed(2)} INR</g:price>`,
+      // Free delivery, stated per item so Google can label the listing with it.
+      // Only when every order ships free; otherwise Merchant Center's account
+      // shipping settings apply.
+      freeShip ? `<g:shipping><g:country>IN</g:country><g:service>Standard</g:service><g:price>0.00 INR</g:price></g:shipping>` : "",
       `<g:condition>new</g:condition>`,
       `<g:brand>${esc(brand)}</g:brand>`,
       // Own designs, printed in-house: there is no GTIN or MPN to give.

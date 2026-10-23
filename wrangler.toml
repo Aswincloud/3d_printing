@@ -148,6 +148,12 @@ APP_BASE_URL = "https://3d-prints.aswincloud.com"
 RESEND_FROM_EMAIL = "noreply@aswincloud.com"
 OWNER_EMAIL = "aswin@aswincloud.com"
 ACCESS_MODE = "owners"
+# Shipping. "0" = free on every order — on since 2026-10-23, when every product
+# price went up by ₹100 to absorb it (backup of the old prices:
+# ~/backups/prices-2026-10-23). The product page, banner, shop note, FAQ and
+# Google feed all follow this value. Two static pages do NOT and must be edited
+# by hand if it ever goes back above 0: public/shipping.html (Charges) and
+# public/3d-printing-in-pondicherry.html (Delivery and payment).
 FLAT_SHIP_PAISE = "9900"
 FREE_SHIP_THRESHOLD_PAISE = "200000"
 

@@ -267,6 +267,16 @@ export function shippingConfig(env) {
   };
 }
 
+// The one sentence every page uses for delivery, so the PDP, the FAQ and the
+// shop note cannot disagree. FLAT_SHIP_PAISE = 0 means every order ships free
+// (since 2026-10-23, when prices went up by ₹100 to absorb it).
+export function shippingLine(env) {
+  const { flat_paise, free_threshold_paise } = shippingConfig(env);
+  const r = (p) => "₹" + (p / 100).toLocaleString("en-IN");
+  if (flat_paise === 0) return "Free shipping across India";
+  return `India-wide · flat ${r(flat_paise)}, free over ${r(free_threshold_paise)}`;
+}
+
 function intVar(v, fallback) {
   const n = parseInt(v, 10);
   return Number.isFinite(n) && n >= 0 ? n : fallback;

@@ -4,7 +4,7 @@
 // These are the tests that matter most in the whole project: priceCart() is the
 // only thing between a tampered cart and a wrong charge.
 
-import { priceCart, shippingFor, shippingConfig, MAX_QTY, listProducts } from "../src/shop.js";
+import { priceCart, shippingFor, shippingConfig, shippingLine, MAX_QTY, listProducts } from "../src/shop.js";
 import { readFileSync, readdirSync } from "node:fs";
 
 let pass = 0, fail = 0;
@@ -83,6 +83,17 @@ ok("missing vars fall back", d.flat_paise === 9900 && d.free_threshold_paise ===
   ok("junk vars fall back", e.flat_paise === 9900 && e.free_threshold_paise === 200000);
   const z = shippingConfig({ FLAT_SHIP_PAISE: "0" });
   ok("explicit 0 flat rate is honoured, not treated as missing", z.flat_paise === 0);
+}
+
+// ── free shipping (FLAT_SHIP_PAISE = "0") ─────────────────────────
+section("free shipping on every order");
+{
+  const FREE = { ...ENV, FLAT_SHIP_PAISE: "0" };
+  for (const sub of [100, 9900, 34900, 199999, 200000, 5000000]) {
+    ok(`subtotal ${sub} ships free`, shippingFor(sub, "ship", FREE) === 0);
+  }
+  ok("the shared sentence says free", shippingLine(FREE) === "Free shipping across India", shippingLine(FREE));
+  ok("…and the flat-rate sentence otherwise", shippingLine(ENV) === "India-wide · flat ₹99, free over ₹2,000", shippingLine(ENV));
 }
 
 // ── shipping edges ────────────────────────────────────────────────

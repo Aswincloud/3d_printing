@@ -292,6 +292,24 @@ console.log("\npromo banner text matches the client");
   }
 }
 
+console.log("\nfree-shipping banner matches the client");
+{
+  const full = { code: "WELCOME10", kind: "percent", value: 10, once_per_customer: true };
+  ok("free shipping leads, coupon follows",
+     promoBannerText(full, true) === "Free shipping across India · 10% off — one use per customer with code WELCOME10",
+     promoBannerText(full, true));
+  ok("free shipping alone when there is no coupon", promoBannerText(null, true) === "Free shipping across India");
+  ok("coupon alone when shipping isn't free", promoBannerText(full, false) === "10% off — one use per customer with code WELCOME10");
+  ok("nothing at all → empty", promoBannerText(null, false) === "");
+  const main = readFileSync(new URL("../public/assets/js/main.js", import.meta.url), "utf8");
+  ok("main.js uses the same free-shipping words", main.includes("const FREE_SHIP_BANNER = 'Free shipping across India';"));
+  ok("main.js joins them the same way", main.includes("FREE_SHIP_BANNER + ' · ' + coupon"));
+  const faqFree = JSON.stringify(localPageJsonLd({ FLAT_SHIP_PAISE: "0" }));
+  ok("FAQ says free when free", faqFree.includes("shipping is free on every order") && !faqFree.includes("₹99"));
+  const faqFlat = JSON.stringify(localPageJsonLd({}));
+  ok("FAQ keeps the flat rate otherwise", faqFlat.includes("flat ₹99") && faqFlat.includes("₹2,000"));
+}
+
 // The shoppable hero is rewritten by rewriteHome(), which uses HTMLRewriter — a
 // Workers runtime global with no Node equivalent. It is tested over HTTP against a
 // real `wrangler dev` instead (see the hero section of the e2e suite), rather than
