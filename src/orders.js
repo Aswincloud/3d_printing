@@ -266,7 +266,7 @@ export async function verifyOrderHandler(request, env, body) {
   }
 
   const row = await env.DB.prepare(
-    `SELECT id, receipt, status, total_paise FROM orders WHERE rzp_order_id = ?`
+    `SELECT id, receipt, status, total_paise, pay_token FROM orders WHERE rzp_order_id = ?`
   ).bind(orderId).first();
 
   if (!row) {
@@ -280,7 +280,10 @@ export async function verifyOrderHandler(request, env, body) {
     `UPDATE orders SET rzp_payment_id = COALESCE(rzp_payment_id, ?) WHERE id = ?`
   ).bind(paymentId, row.id).run();
 
-  return json({ ok: true, receipt: row.receipt, status: row.status });
+  // pay_token is the thank-you page's key. Returned only here, after Razorpay's
+  // signature over this order and payment has verified — so only the person who
+  // just paid is sent to it.
+  return json({ ok: true, receipt: row.receipt, status: row.status, thanks: row.pay_token ? `/thank-you?t=${row.pay_token}` : null });
 }
 
 // ── GET /api/orders/:receipt ──────────────────────────────────────

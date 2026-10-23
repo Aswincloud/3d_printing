@@ -20,6 +20,9 @@
           const res = await fetch('/api/orders/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ razorpay_payment_id: r.razorpay_payment_id, razorpay_order_id: r.razorpay_order_id, razorpay_signature: r.razorpay_signature }) });
           if (!res.ok) throw new Error();
+          const out = await res.json().catch(() => ({}));
+          // Same thank-you page as a normal checkout (Google Ads counts it).
+          if (typeof out.thanks === 'string' && /^\/thank-you\?t=[0-9a-f]{32}$/.test(out.thanks)) { location.replace(out.thanks); return; }
           btn.hidden = true;
           say('Payment received — thank you! You’ll get a confirmation by email and WhatsApp shortly.', 'ok');
         } catch {

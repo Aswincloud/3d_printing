@@ -8,6 +8,7 @@ import { json, bad, isEmail, sendEmail, ownerCopy, now, rupees } from "./lib.js"
 import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { payPendingPage } from "./paypending.js";
+import { thankYouPage } from "./thankyou.js";
 import { backPage, stopReminders, stopConfirmPage, handleReminderBatch } from "./reminders.js";
 import { waWebhookHandler } from "./waoptout.js";
 import { recordActivity, adminActivity } from "./activity.js";
@@ -120,6 +121,12 @@ export default {
     if (payMatch && (request.method === "GET" || request.method === "HEAD")) {
       try { return withSecurityHeaders(await payPendingPage(env, payMatch[1])); }
       catch (e) { console.error("pay page error", e?.message || e); return Response.redirect(new URL("/", url.origin).toString(), 302); }
+    }
+
+    // After a successful payment — the URL Google Ads counts a purchase on. See thankyou.js.
+    if ((url.pathname === "/thank-you" || url.pathname === "/thank-you/") && (request.method === "GET" || request.method === "HEAD")) {
+      try { return withSecurityHeaders(await thankYouPage(env, url)); }
+      catch (e) { console.error("thank-you page error", e?.message || e); return Response.redirect(new URL("/", url.origin).toString(), 302); }
     }
 
     // A reminder's "Finish my order" link, and its one-click unsubscribe. See reminders.js.
