@@ -148,13 +148,14 @@ APP_BASE_URL = "https://3d-prints.aswincloud.com"
 RESEND_FROM_EMAIL = "noreply@aswincloud.com"
 OWNER_EMAIL = "aswin@aswincloud.com"
 ACCESS_MODE = "owners"
-# Shipping. "0" = free on every order — on since 2026-10-23, when every product
-# price went up by ₹100 to absorb it (backup of the old prices:
-# ~/backups/prices-2026-10-23). The product page, banner, shop note, FAQ and
+# Shipping. "0" = free on every order. Switched on 2026-10-23 in the same
+# release as a +₹100 price rise on every product, which absorbs it (old prices
+# and rollback SQL: ~/backups/prices-2026-10-23). The fallback in
+# shippingConfig() is 0 too, so a missing var can never charge both. The product page, banner, shop note, FAQ and
 # Google feed all follow this value. Two static pages do NOT and must be edited
 # by hand if it ever goes back above 0: public/shipping.html (Charges) and
 # public/3d-printing-in-pondicherry.html (Delivery and payment).
-FLAT_SHIP_PAISE = "9900"
+FLAT_SHIP_PAISE = "0"
 FREE_SHIP_THRESHOLD_PAISE = "200000"
 
 # Kill switch for chat-issued discount codes. Set to "false" and deploy to stop

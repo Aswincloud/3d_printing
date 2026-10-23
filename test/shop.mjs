@@ -78,15 +78,20 @@ section("shippingConfig()");
   const d = shippingConfig({});
   // The fallback must equal the wrangler.toml value, else a deploy where the var
 // did not arrive would quietly ship free from ₹1,500 again.
-ok("missing vars fall back", d.flat_paise === 9900 && d.free_threshold_paise === 200000);
+ok("missing vars fall back", d.flat_paise === 0 && d.free_threshold_paise === 200000);
   const e = shippingConfig({ FLAT_SHIP_PAISE: "abc", FREE_SHIP_THRESHOLD_PAISE: "-5" });
-  ok("junk vars fall back", e.flat_paise === 9900 && e.free_threshold_paise === 200000);
+  ok("junk vars fall back", e.flat_paise === 0 && e.free_threshold_paise === 200000);
   const z = shippingConfig({ FLAT_SHIP_PAISE: "0" });
   ok("explicit 0 flat rate is honoured, not treated as missing", z.flat_paise === 0);
 }
 
 // ── free shipping (FLAT_SHIP_PAISE = "0") ─────────────────────────
 section("free shipping on every order");
+{
+  const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const v = toml.match(/^FLAT_SHIP_PAISE = "(\d+)"/m)?.[1];
+  ok("the code's fallback equals wrangler.toml's FLAT_SHIP_PAISE", Number(v) === shippingConfig({}).flat_paise, `toml ${v} vs fallback ${shippingConfig({}).flat_paise}`);
+}
 {
   const FREE = { ...ENV, FLAT_SHIP_PAISE: "0" };
   for (const sub of [100, 9900, 34900, 199999, 200000, 5000000]) {

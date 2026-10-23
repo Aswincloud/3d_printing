@@ -74,7 +74,7 @@ ok("inFeed keeps the PS5 stand out", !inFeed({ slug: "ps5-horizontal-stand", nam
 
 console.log("\nfree delivery in the feed");
 {
-  const flat = await (await googleFeed(envWith())).text();
+  const flat = await (await googleFeed({ ...envWith(), FLAT_SHIP_PAISE: "9900" })).text();
   ok("no per-item shipping while shipping is charged", !flat.includes("<g:shipping>"));
   const free = await (await googleFeed({ ...envWith(), FLAT_SHIP_PAISE: "0" })).text();
   const items = (free.match(/<item>/g) || []).length;

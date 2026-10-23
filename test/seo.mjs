@@ -237,7 +237,11 @@ section("local landing page JSON-LD");
   // the visible page is a Search Console violation, not a shortcut.
   const answers = faq.mainEntity.map((q) => q.acceptedAnswer.text).join(" ");
   ok("turnaround answer matches the page", /3.5 days/.test(answers), answers.slice(0, 60));
-  ok("shipping answer matches the page", /₹99/.test(answers) && /₹2,000/.test(answers));
+  // The page says free shipping (public/3d-printing-in-pondicherry.html), and so
+  // must the FAQ under the live setting.
+  const page = readFileSync(new URL("../public/3d-printing-in-pondicherry.html", import.meta.url), "utf8");
+  ok("the page states free shipping", /shipping is\s+free on every order/.test(page));
+  ok("shipping answer matches the page", /shipping is free on every order/.test(answers) && !/₹99/.test(answers), answers);
   ok("bulk orders are covered", /bulk|corporate|favours/i.test(json));
 }
 
@@ -306,7 +310,7 @@ console.log("\nfree-shipping banner matches the client");
   ok("main.js joins them the same way", main.includes("FREE_SHIP_BANNER + ' · ' + coupon"));
   const faqFree = JSON.stringify(localPageJsonLd({ FLAT_SHIP_PAISE: "0" }));
   ok("FAQ says free when free", faqFree.includes("shipping is free on every order") && !faqFree.includes("₹99"));
-  const faqFlat = JSON.stringify(localPageJsonLd({}));
+  const faqFlat = JSON.stringify(localPageJsonLd({ FLAT_SHIP_PAISE: "9900" }));
   ok("FAQ keeps the flat rate otherwise", faqFlat.includes("flat ₹99") && faqFlat.includes("₹2,000"));
 }
 

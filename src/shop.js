@@ -262,7 +262,7 @@ function shape(r) {
 // at the old, lower threshold on any deploy where the var did not come through.
 export function shippingConfig(env) {
   return {
-    flat_paise: intVar(env.FLAT_SHIP_PAISE, 9900),
+    flat_paise: intVar(env.FLAT_SHIP_PAISE, 0),   // free shipping since 2026-10-23
     free_threshold_paise: intVar(env.FREE_SHIP_THRESHOLD_PAISE, 200000),
   };
 }
