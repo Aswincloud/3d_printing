@@ -50,6 +50,7 @@ import {
   unlistedImages as adminUnlistedImages,
   batchCreateProducts as adminBatchCreate, hideImages as adminHideImages,
   describeProducts as adminDescribe, setFormerPrices as adminSetFormerPrices,
+  addProductPhotos as adminAddPhotos,
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
   listOrders as adminListOrders, updateOrder as adminUpdateOrder,
   refundOrder as adminRefundOrder, remindPayment as adminRemindPayment, stats as adminStats,
@@ -592,6 +593,9 @@ async function api(request, env, url, ctx) {
     // Same shape again: fills a former price that is BLANK. Its WHERE clause is what
     // stops it overwriting one, or touching the selling price.
     if (p === "/api/admin/products/former-price" && m === "POST") return adminSetFormerPrices(env, body, actor, ctx);
+    // Append extra views to a product's gallery. Agent-callable; append-only by its
+    // WHERE clause, so it cannot remove or reorder what is already there.
+    if (p === "/api/admin/products/add-photos" && m === "POST") return adminAddPhotos(env, body, actor);
     if (p === "/api/admin/products/hide" && m === "POST") return adminHideImages(env, body);
 
     const prod = p.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/);
