@@ -1318,6 +1318,24 @@ function productRow(p) {
   });
   actions.appendChild(save);
 
+  // ── photos ──
+  // The product page has shown a thumbnail rail for extra views since it was
+  // built, but nothing could put a photo there except a hand-written PATCH. This
+  // panel is that missing editor: add, remove, and pick which photo leads.
+  const photos = photoPanel(p, img);
+  const extraCount = String(p.images || '').split(',').filter((x) => x.trim()).length;
+  const photosToggle = el('button', 'admin-btn-ghost pr-desc-toggle',
+                          extraCount ? `Photos (${extraCount + 1})` : 'Add photos');
+  photosToggle.type = 'button';
+  photosToggle.setAttribute('aria-expanded', 'false');
+  photosToggle.addEventListener('click', () => {
+    const open = photos.hidden;
+    photos.hidden = !open;
+    photosToggle.setAttribute('aria-expanded', String(open));
+    photosToggle.classList.toggle('is-open', open);
+  });
+  actions.appendChild(photosToggle);
+
   actions.appendChild(actionBtn('Delete', 'admin-btn-ghost', async () => {
     if (!confirm(`Delete "${p.name}"?\n\nIf it appears in any order it will be hidden instead, so order history survives.`)) return;
     const out = await api(`/api/admin/products/${p.id}`, { method: 'DELETE' });
@@ -1326,9 +1344,131 @@ function productRow(p) {
   }));
 
   row.appendChild(actions);
-  // Last, so it lands on the implicit second grid row underneath everything else.
+  // Last, so they land on implicit grid rows underneath everything else.
   row.appendChild(panel);
+  row.appendChild(photos);
   return row;
+}
+
+/* ── product photos ────────────────────────────────────────────── */
+// Phone photos are 3–8 MB. The product page shows them at 800px, so they are
+// shrunk here before upload: a smaller bucket, and a page that loads on 4G.
+// Anything the browser cannot decode goes up as it is.
+async function shrinkPhoto(file, max = 1600) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
+    return blob && blob.size < file.size ? { blob, ext: 'jpg' } : { blob: file, ext: null };
+  } catch {
+    return { blob: file, ext: null };
+  }
+}
+
+// The upload route refuses a name that already exists, so each photo gets one
+// built from the slug and the moment — readable in the bucket, never a collision.
+async function uploadPhoto(p, file, n) {
+  const { blob, ext } = await shrinkPhoto(file);
+  const own = (file.name.match(/\.(jpe?g|png|webp)$/i) || [, 'jpg'])[1].toLowerCase();
+  const name = `${p.slug || 'product'}-${Date.now().toString(36)}${n}.${ext || own}`;
+  const res = await fetch('/api/admin/gallery/upload', {
+    method: 'POST',
+    headers: { 'x-file-name': name, 'Content-Type': blob.type || 'image/jpeg' },
+    body: blob,
+    cache: 'no-store',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
+  return data.path;
+}
+
+function photoPanel(p, rowImg) {
+  const panel = el('div', 'pr-photos');
+  panel.hidden = true;
+  let main = p.image;
+  let extras = String(p.images || '').split(',').map((x) => x.trim()).filter(Boolean);
+
+  const save = async (nextMain, nextExtras) => {
+    const name = (x) => x.replace(/^.*\//, '');
+    const out = await api(`/api/admin/products/${p.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ image: name(nextMain), images: nextExtras.map(name).join(',') }),
+    });
+    main = out.product.image;
+    extras = String(out.product.images || '').split(',').filter(Boolean);
+    const cached = allProducts.find((x) => x.id === p.id);
+    if (cached) Object.assign(cached, out.product);
+    rowImg.src = main;
+    draw();
+  };
+
+  const grid = el('div', 'pr-photo-grid');
+  const draw = () => {
+    grid.replaceChildren();
+    [main, ...extras].forEach((path, i) => {
+      const tile = el('div', 'pr-photo' + (i === 0 ? ' is-main' : ''));
+      const im = document.createElement('img');
+      im.src = '/' + path.replace(/^\//, '');
+      im.alt = '';
+      im.loading = 'lazy';
+      tile.appendChild(im);
+      if (i === 0) {
+        tile.appendChild(el('span', 'pr-photo-tag', 'Main'));
+      } else {
+        const btns = el('div', 'pr-photo-btns');
+        btns.appendChild(actionBtn('Make main', 'admin-btn-ghost', async () => {
+          await save(path, [main, ...extras.filter((x) => x !== path)]);
+          flash(`Main photo changed for ${p.name}.`);
+        }));
+        btns.appendChild(actionBtn('Remove', 'admin-btn-ghost', async () => {
+          await save(main, extras.filter((x) => x !== path));
+          flash(`Photo removed from ${p.name}. It stays in the photo library.`);
+        }));
+        tile.appendChild(btns);
+      }
+      grid.appendChild(tile);
+    });
+  };
+  draw();
+
+  const picker = document.createElement('input');
+  picker.type = 'file';
+  picker.accept = 'image/jpeg,image/png,image/webp';
+  picker.multiple = true;
+  picker.hidden = true;
+  const addBtn = actionBtn('Upload photos', 'admin-btn', async () => { picker.click(); });
+  picker.addEventListener('change', async () => {
+    const files = [...picker.files];
+    picker.value = '';
+    if (!files.length) return;
+    addBtn.disabled = true;
+    addBtn.textContent = `Uploading 0/${files.length}…`;
+    try {
+      const added = [];
+      for (const [i, f] of files.entries()) {
+        added.push(await uploadPhoto(p, f, i));
+        addBtn.textContent = `Uploading ${i + 1}/${files.length}…`;
+      }
+      await save(main, [...extras, ...added]);
+      flash(`${added.length} photo${added.length === 1 ? '' : 's'} added to ${p.name}.`);
+    } catch (e) {
+      flash(e.message, true);
+    } finally {
+      addBtn.disabled = false;
+      addBtn.textContent = 'Upload photos';
+    }
+  });
+
+  const hint = el('p', 'pr-photo-hint',
+    'The main photo leads the shop card and the product page; the rest show as thumbnails. ' +
+    'Good extras: in hand for size, close-up of the detail, back view, in a room, packed.');
+  panel.append(grid, el('div', 'pr-photo-actions'), hint);
+  panel.querySelector('.pr-photo-actions').append(addBtn, picker);
+  return panel;
 }
 
 
