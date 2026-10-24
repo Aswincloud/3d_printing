@@ -17,6 +17,9 @@ const baseUrl = (env) =>
 // policy, so one Spider-Man figurine can take the other ninety products down
 // with it. Same reasoning, and nearly the same list, as the Amazon catalogue.
 //
+// Real people (footballers, cricketers, film stars) go too: a likeness sold
+// without consent is the same kind of IP strike as a licensed character.
+//
 // Two layers, because a slug list only knows today's products: the keyword
 // pattern catches the next licensed character added from the dashboard without
 // anyone remembering to update this file.
@@ -26,8 +29,10 @@ const EXCLUDED_SLUGS = new Set([
   "desert-eagle-replica", "katana-display-sword",
   // The national emblem (Ashoka Chakra) — State Emblem Act, as on Amazon.
   "india-tricolor-map",
+  // A real person's likeness — right of publicity, same rule as Amazon.
+  "ronaldo-celebration-figurine",
 ]);
-const EXCLUDED_WORDS = /spider-?man|marvel|avenger|iron.?man|hulk|venom|captain.?america|batman|superman|joker|cyclops|x-?men|pok[eé]mon|pikachu|charizard|goku|dragon.?ball|naruto|luffy|one.?piece|disney|tinker.?bell|care.?bear|gta|playstation|\bps[45]?\b|sony|nintendo|mario|star.?wars|harry.?potter|replica|gun|pistol|rifle|sword|katana|knife/i;
+const EXCLUDED_WORDS = /spider-?man|marvel|avenger|iron.?man|hulk|venom|captain.?america|batman|superman|joker|cyclops|x-?men|pok[eé]mon|pikachu|charizard|goku|dragon.?ball|naruto|luffy|one.?piece|disney|tinker.?bell|care.?bear|gta|playstation|\bps[45]?\b|sony|nintendo|mario|star.?wars|harry.?potter|replica|gun|pistol|rifle|sword|katana|knife|ronaldo|\bcr7\b|\bmessi\b|neymar|mbapp[eé]|kohli|dhoni|tendulkar|rajinikanth|\bmodi\b/i;
 
 export const inFeed = (p) =>
   !EXCLUDED_SLUGS.has(p.slug) && !EXCLUDED_WORDS.test(`${p.slug} ${p.name}`);
