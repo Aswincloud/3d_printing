@@ -328,6 +328,23 @@ ok("the guard is not weakened to a JS-only check",
 ok("it reports what the DATABASE changed, not what was asked",
    /meta\?\.changes/.test(desc), "a race would be reported as success");
 
+console.log("\nthe add-photos route: append only");
+ok("POST /api/admin/products/add-photos → agent",
+   await verdict("/api/admin/products/add-photos") === "agent");
+ok("PATCH on it → forbidden",
+   await verdict("/api/admin/products/add-photos", { method: "PATCH" }) === "forbidden");
+{
+  const ap = adm.slice(adm.indexOf("export async function addProductPhotos"),
+                       adm.indexOf("// POST /api/admin/products/hide"));
+  const st = ap.indexOf("UPDATE products");
+  const stmt = ap.slice(st, ap.indexOf("`)", st));
+  ok("the handler exists", ap.length > 0 && st > 0);
+  ok("it SETs only images and the stamp", /SET images = \?, updated_at = \? WHERE/.test(stmt));
+  ok("compare-and-swap on the list it read: AND images = ?", /AND images = \?/.test(stmt),
+     "without it a stale request could drop photos added in between");
+  ok("the primary image is not assignable", !/\bimage =/.test(stmt));
+}
+
 console.log("\nthe former-price guards are in the SQL, not just the validation");
 // Same principle as the describe assertions above: checkFormerPriceEntries only runs
 // for actor === "agent" and the pass-one checks can be raced; the WHERE clause cannot.
