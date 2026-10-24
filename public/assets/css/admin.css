@@ -581,6 +581,27 @@
 
 .pr-actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
 
+/* Product photos: a second panel under the row, like the description. */
+.pr-photos { grid-column: 1 / -1; border-top: 1px solid var(--dark-4); padding-top: 0.8rem; }
+.pr-photos[hidden] { display: none; }
+.pr-photo-grid { display: flex; flex-wrap: wrap; gap: 0.7rem; }
+.pr-photo {
+  position: relative;
+  width: 120px;
+  display: flex; flex-direction: column; gap: 0.35rem;
+}
+.product-row .pr-photo img { width: 120px; height: 120px; border-radius: 8px; }
+.pr-photo.is-main img { outline: 2px solid var(--orange); outline-offset: 1px; }
+.pr-photo-tag {
+  position: absolute; top: 6px; left: 6px;
+  background: var(--orange); color: var(--white);
+  font-size: 0.68rem; font-weight: 600; padding: 0.1rem 0.45rem; border-radius: 6px;
+}
+.pr-photo-btns { display: flex; gap: 0.3rem; }
+.pr-photo-btns button { flex: 1; font-size: 0.7rem; padding: 0.3rem 0.2rem; }
+.pr-photo-actions { margin-top: 0.8rem; }
+.pr-photo-hint { font-size: 0.76rem; color: var(--text-muted); margin: 0.6rem 0 0; }
+
 .toggle {
   display: inline-flex;
   align-items: center;
@@ -611,6 +632,9 @@
   .product-row .price-input.was { grid-area: was; }
   .product-row .pr-visible { grid-area: vis; }
   .product-row .pr-actions { grid-area: act; justify-content: flex-start; }
+  .product-row .pr-photos { grid-column: 1 / -1; }
+  .pr-photo, .product-row .pr-photo img { width: 96px; }
+  .product-row .pr-photo img { height: 96px; }
 }
 
 /* ── customer login ────────────────────────────────────────────── */
