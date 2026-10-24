@@ -80,6 +80,10 @@ export const AGENT_ROUTES = new Set([
   // enough to be a bare prefix of other admin routes is the failure mode that
   // guard exists to catch, and the name should not be the exception to it.
   "POST /api/admin/gallery/upload",
+  // Hang an uploaded photo off a product as an extra view. Append-only: the UPDATE
+  // binds the list it read into its WHERE clause, so it can extend a gallery but
+  // never remove, reorder, or replace the primary image. See addProductPhotos().
+  "POST /api/admin/products/add-photos",
 ]);
 
 // The shop's filter sidebar is built from whatever categories exist in the table, so
