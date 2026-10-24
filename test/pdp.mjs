@@ -340,5 +340,22 @@ section("delivery line follows the shipping setting");
   ok("free shipping shown when it is free", free.includes("Free shipping across India") && !free.includes("flat ₹0"));
 }
 
+section("trust lines and devotional related row");
+{
+  const { isDevotional } = await import("../src/pdp.js");
+  const h = render(PRODUCT());
+  ok("shows dispatch time near the buy button", h.includes("Dispatched in 2–5 working days"));
+  ok("shows secure payment", h.includes("Secure payment"));
+  ok("does not mention GST", !/\bGST\b/.test(h));
+  const q = render(PRODUCT({ price_paise: 0 }));
+  ok("quote-only page has no trust block", !q.includes("pdp-trust"));
+  ok("Ayyappan is devotional", isDevotional({ slug: "ayyappan-1ft-gold-idol", name: "Ayyappan 1ft Gold Idol" }));
+  ok("a temple gopuram is devotional", isDevotional({ slug: "mini-temple-gopuram-10cm", name: "Mini Temple Gopuram" }));
+  ok("Venom is not", !isDevotional({ slug: "venom", name: "Venom" }));
+  ok("a velociraptor is not caught by 'vel'", !isDevotional({ slug: "velociraptor", name: "Velociraptor" }));
+  const idol = render(PRODUCT({ slug: "ayyappan-gold-idol", name: "Ayyappan Gold Idol" }));
+  ok("idol page heads the row as idols", idol.includes("More idols &amp; pooja pieces"));
+}
+
 console.log(`\n  pdp: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

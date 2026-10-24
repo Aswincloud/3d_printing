@@ -238,6 +238,33 @@
 .pdp-note { font-size: 0.82rem; color: var(--text-muted); margin: 0 0 1.4rem; }
 .pdp-note a { color: var(--orange); }
 
+.pdp-trust {
+  list-style: none;
+  margin: -0.4rem 0 1.4rem;
+  padding: 0.85rem 1rem;
+  background: var(--dark-2);
+  border: 1px solid var(--dark-4);
+  border-radius: 12px;
+  display: grid;
+  gap: 0.45rem;
+  max-width: 460px;
+}
+.pdp-trust li {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  padding-left: 1.3rem;
+  position: relative;
+}
+.pdp-trust li::before {
+  content: "✓";
+  position: absolute; left: 0;
+  color: #3fb67a;
+  font-weight: 700;
+}
+.pdp-trust b { color: var(--text); font-weight: 600; }
+.pdp-trust a { color: var(--orange); }
+
 .pdp-desc {
   border-top: 1px solid var(--dark-4);
   padding-top: 1.2rem;

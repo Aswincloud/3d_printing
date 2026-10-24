@@ -95,6 +95,16 @@ export function breadcrumbJsonLd(env, product) {
 }
 
 // ── the page ──────────────────────────────────────────────────────
+// Gods, temples and other pieces bought for a pooja room or as a religious gift.
+// Matched on slug and name because the catalogue has no such category: idols are
+// filed under figurine or decor beside superheroes.
+const DEVOTIONAL_RE = /\b(ganesh|ganesha|ganapathi|vinayagar|murugan|ayyappan?|krishna|lakshmi|mahalakshmi|hanuman|shiva|lingam|nataraja|varahi|amman|karuppasamy|padmanabha|perumal|balaji|buddha|gopuram|temple|vel|christ|jesus|mother mary)\b/i;
+
+export function isDevotional(p) {
+  const text = `${p?.slug || ""} ${p?.name || ""}`.replace(/-/g, " ");
+  return DEVOTIONAL_RE.test(text);
+}
+
 export function renderProductPage(env, { product, related, reviews = null, headExtra = "" }) {
   const base = baseUrl(env);
   const trail = breadcrumbs(env, product);
@@ -171,7 +181,18 @@ export function renderProductPage(env, { product, related, reviews = null, headE
          </div>
        </div>
 
-       <p class="pdp-note"><a href="${base}/#quote" ${quoteAttrs}>Want it in another colour or size? Ask for a quote</a></p>`;
+       <p class="pdp-note"><a href="${base}/#quote" ${quoteAttrs}>Want it in another colour or size? Ask for a quote</a></p>
+
+       <!-- The answers a first-time buyer looks for before paying a shop they have
+            never heard of: when it arrives, whether the payment is safe, what
+            happens if it breaks, and whether there is a real business behind it.
+            All four were true before this, but only in the footer's policy pages. -->
+       <ul class="pdp-trust">
+         <li><b>Dispatched in 2–5 working days</b>, delivered 3–7 days after that</li>
+         <li><b>Secure payment</b> via Razorpay — UPI, cards, net banking</li>
+         <li><b>Free replacement</b> if it arrives damaged — <a href="${base}/shipping.html">see policy</a></li>
+         <li><b>Made in Pondicherry</b> · <a href="${base}/udyam.html">Udyam (MSME) registered</a></li>
+       </ul>`;
 
   // Always present, for every product. This is what stops a page with one photo
   // and one line of text from looking unfinished.
@@ -224,7 +245,8 @@ export function renderProductPage(env, { product, related, reviews = null, headE
 
   const relatedHtml = related.length
     ? `<section class="pdp-related">
-         <h2>${CATEGORY_LABEL[product.category] ? `More in ${esc(CATEGORY_LABEL[product.category])}` : "More prints"}</h2>
+         <h2>${isDevotional(product) ? "More idols &amp; pooja pieces"
+           : CATEGORY_LABEL[product.category] ? `More in ${esc(CATEGORY_LABEL[product.category])}` : "More prints"}</h2>
          <div class="pdp-related-grid">` +
        related.map((r) => `
            <a class="pdp-rel-card" href="${base}/p/${esc(r.slug)}">

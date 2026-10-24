@@ -648,6 +648,81 @@ export function agentFormerPriceEmail(rows, site) {
   };
 }
 
+// POST /api/admin/products/add-photos — append extra views to a product's gallery.
+//
+// {items:[{slug, files:["a.jpg", ...]}]}. The agent's companion to gallery/upload:
+// that route puts a photo in the bucket, this one hangs it off a product so the
+// product page shows it as a thumbnail. Before this, every extra view Aswin sent
+// had nowhere to go — the column existed and only the dashboard's PATCH could
+// write it, which the agent is deliberately not allowed to call.
+//
+// Append-only, on the same terms as describe and former-price: the UPDATE binds the
+// value it read in pass one into its WHERE clause, so it can only ever extend the
+// list it saw. It cannot remove a photo, reorder one, or touch the primary image —
+// those stay dashboard actions. Every file must already exist (manifest or R2).
+export const MAX_EXTRA_IMAGES = 8;
+
+export async function addProductPhotos(env, body, actor = "owner") {
+  const items = body?.items;
+  if (!Array.isArray(items) || items.length === 0) return bad("No products given.");
+  if (items.length > 20) return bad("At most 20 products per request.");
+
+  const manifest = await readManifest(env);
+  if (!manifest) return bad("Image manifest unavailable — run `npm run images` and deploy.", 503);
+  const known = new Set(manifest.images.map((i) => i.file));
+
+  const { results } = await env.DB.prepare(`SELECT slug, image, images FROM products`).all();
+  const bySlug = new Map((results || []).map((r) => [r.slug, r]));
+
+  const plans = [];
+  const seen = new Set();
+  for (const it of items) {
+    const slug = clip(it?.slug, MAXLEN.slug);
+    if (!slug) return bad("An entry has no slug.");
+    if (seen.has(slug)) return bad(`"${slug}" appears twice in this request.`);
+    seen.add(slug);
+    const row = bySlug.get(slug);
+    if (!row) return bad(`"${slug}" is not a product.`, 404);
+    const files = Array.isArray(it?.files) ? it.files : [];
+    if (!files.length) return bad(`"${slug}": no files given.`);
+
+    const before = String(row.images || "");
+    const list = before.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const raw of files) {
+      const f = String(raw || "").trim().replace(/^.*\//, "");
+      if (!known.has(f)) return bad(`"${f}" is not in the photo library. Upload it first.`);
+      const path = `assets/images/${f}`;
+      // Already shown is not an error — a retry after a timeout should succeed.
+      if (path === row.image || list.includes(path)) continue;
+      list.push(path);
+    }
+    if (list.length > MAX_EXTRA_IMAGES) {
+      return bad(`"${slug}" would have ${list.length} extra photos; the limit is ${MAX_EXTRA_IMAGES}.`);
+    }
+    const after = list.join(",");
+    if (after.length > MAXLEN.images) return bad(`"${slug}": too many photos.`);
+    if (after !== before) plans.push({ slug, before, after });
+  }
+
+  if (!plans.length) return json({ ok: true, updated: 0, note: "Every photo was already on its product." });
+
+  const stmt = env.DB.prepare(
+    `UPDATE products SET images = ?, updated_at = ? WHERE slug = ? AND images = ?`);
+  const ts = now();
+  const res = await env.DB.batch(plans.map((p) => stmt.bind(p.after, ts, p.slug, p.before)));
+  const changed = res.reduce((n, r) => n + (r?.meta?.changes || 0), 0);
+  console.log(`${actor} added photos ${changed}/${plans.length}: ` + plans.map((p) => p.slug).join(" "));
+
+  return json({
+    ok: true,
+    updated: changed,
+    products: plans.map((p) => ({ slug: p.slug, images: p.after.split(",") })),
+    ...(changed < plans.length
+      ? { note: "Some rows changed between the check and the write — re-read and retry." }
+      : {}),
+  });
+}
+
 // POST /api/admin/products/hide — take photos out of the shop without deleting
 // the files.
 //
