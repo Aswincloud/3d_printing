@@ -71,6 +71,8 @@ console.log("\nfeed/google.xml");
 }
 ok("inFeed keeps ordinary products", inFeed({ slug: "laughing-buddha", name: "Laughing Buddha" }));
 ok("inFeed keeps the PS5 stand out", !inFeed({ slug: "ps5-horizontal-stand", name: "PS5 Horizontal Stand" }));
+ok("inFeed keeps real people out", !inFeed({ slug: "cr7-statue", name: "Cristiano Ronaldo Statue" }) && !inFeed({ slug: "dhoni-bust", name: "MS Dhoni Bust" }));
+ok("inFeed name match is not too eager", inFeed({ slug: "commodity-tray", name: "Commodity Tray" }));
 
 console.log("\nfree delivery in the feed");
 {
