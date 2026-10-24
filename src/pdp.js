@@ -190,7 +190,6 @@ export function renderProductPage(env, { product, related, reviews = null, headE
        <ul class="pdp-trust">
          <li><b>Dispatched in 2–5 working days</b>, delivered 3–7 days after that</li>
          <li><b>Secure payment</b> via Razorpay — UPI, cards, net banking</li>
-         <li><b>Free replacement</b> if it arrives damaged — <a href="${base}/shipping.html">see policy</a></li>
          <li><b>Made in Pondicherry</b> · <a href="${base}/udyam.html">Udyam (MSME) registered</a></li>
        </ul>`;
 
