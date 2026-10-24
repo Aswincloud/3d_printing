@@ -17,7 +17,7 @@
 import { listForProduct } from "./reviews.js";
 import { esc, trimSlashes } from "./lib.js";
 import { productJsonLd, jsonLdScript } from "./seo.js";
-import { renderProductPage, breadcrumbJsonLd } from "./pdp.js";
+import { renderProductPage, breadcrumbJsonLd, isDevotional } from "./pdp.js";
 
 // Slugs are lowercase words and dashes — see slugify() in admin.js. Anything else
 // cannot be a real slug, so it is rejected before the query rather than becoming
@@ -118,22 +118,41 @@ export async function productPage(request, env, url) {
   const imageUrl = absolute(env, product.image, url);
   const ld = productJsonLd(env, product, { pageUrl, imageUrl, reviews });
 
+  // A god idol's "More in…" row used to be the first four figurines by sort
+  // order — Spider-Man, Venom, Batman — next to Ayyappan. Someone buying for a
+  // pooja room wants the other idols, so devotional pieces show each other.
+  let related = [];
+  if (isDevotional(product)) {
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT slug, name, price_paise, image FROM products
+          WHERE visible = 1 AND price_paise > 0 AND slug != ?
+            AND slug IS NOT NULL AND slug != ''
+          ORDER BY sort ASC`
+      ).bind(product.slug).all();
+      related = (results || []).filter(isDevotional).slice(0, 4);
+    } catch (e) {
+      console.error("devotional related failed", product.slug, e?.message || e);
+    }
+  }
+
   // Other products in the same category, for the "More in…" row.
   //
   // Excludes this product and anything hidden. Wrapped: a related-products query
   // failing must not take down the page someone was actually trying to see — the
   // row simply does not render.
-  let related = [];
-  try {
-    const { results } = await env.DB.prepare(
-      `SELECT slug, name, price_paise, image FROM products
-        WHERE visible = 1 AND slug != ? AND slug IS NOT NULL AND slug != ''
-          AND category = ?
-        ORDER BY sort ASC LIMIT 4`
-    ).bind(product.slug, product.category || "").all();
-    related = results || [];
-  } catch (e) {
-    console.error("related products failed", product.slug, e?.message || e);
+  if (!related.length) {
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT slug, name, price_paise, image FROM products
+          WHERE visible = 1 AND slug != ? AND slug IS NOT NULL AND slug != ''
+            AND category = ?
+          ORDER BY sort ASC LIMIT 4`
+      ).bind(product.slug, product.category || "").all();
+      related = results || [];
+    } catch (e) {
+      console.error("related products failed", product.slug, e?.message || e);
+    }
   }
 
   // A product with no category, or the only one in its category, would get an
