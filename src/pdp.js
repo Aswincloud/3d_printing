@@ -184,13 +184,11 @@ export function renderProductPage(env, { product, related, reviews = null, headE
        <p class="pdp-note"><a href="${base}/#quote" ${quoteAttrs}>Want it in another colour or size? Ask for a quote</a></p>
 
        <!-- The answers a first-time buyer looks for before paying a shop they have
-            never heard of: when it arrives, whether the payment is safe, what
-            happens if it breaks, and whether there is a real business behind it.
-            All four were true before this, but only in the footer's policy pages. -->
+            never heard of: when it arrives, whether the payment is safe, and
+            whether there is a real business behind it. All three were true before this, but only in the footer's policy pages. -->
        <ul class="pdp-trust">
          <li><b>Dispatched in 2–5 working days</b>, delivered 3–7 days after that</li>
          <li><b>Secure payment</b> via Razorpay — UPI, cards, net banking</li>
-         <li><b>Free replacement</b> if it arrives damaged — <a href="${base}/shipping.html">see policy</a></li>
          <li><b>Made in Pondicherry</b> · <a href="${base}/udyam.html">Udyam (MSME) registered</a></li>
        </ul>`;
 
