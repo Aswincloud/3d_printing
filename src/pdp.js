@@ -357,6 +357,7 @@ export function renderProductPage(env, { product, related, reviews = null, headE
 <footer class="pdp-footer">
   <div class="pdp-footer-links">
     <a href="/3d-printing-in-pondicherry">3D Printing in Pondicherry</a>
+    <a href="/track">Track your order</a>
     <a href="/shipping">Shipping &amp; Exchange</a>
     <a href="/refunds">Cancellation &amp; Refunds</a>
     <a href="/contact">Contact Us</a>

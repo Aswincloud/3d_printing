@@ -2,7 +2,7 @@
 // authenticated by the positional gate in index.js — these functions never
 // check auth themselves, so the gate must stay above them in the router.
 
-import { json, bad, uid, now, sendEmail, ownerCopy, statusLabel, percentOff } from "./lib.js";
+import { json, bad, uid, now, sendEmail, ownerCopy, statusLabel, percentOff, trackingUrlFor } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
 import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail } from "./emails.js";
 import { sendOrderShipment, sendPaymentReminder } from "./invoicing.js";
@@ -1375,30 +1375,6 @@ export async function updateOrder(env, id, body, ctx = null) {
 // A direct tracking link where the courier is one we can recognise, otherwise
 // nothing — the email falls back to the receipt button.
 //
-// Deliberately a small allowlist rather than a guess at a url pattern: a wrong
-// link is worse than none, because the customer clicks it, gets an error page,
-// and concludes the parcel is lost. Matched loosely so "Blue Dart", "bluedart"
-// and "BLUEDART courier" all resolve.
-function trackingUrlFor(courier, tracking) {
-  if (!courier || !tracking) return "";
-  const key = String(courier).toLowerCase().replace(/[^a-z]/g, "");
-  const id = encodeURIComponent(String(tracking).trim());
-  if (key.includes("bluedart")) return `https://www.bluedart.com/tracking?trackingNo=${id}`;
-  if (key.includes("delhivery")) return `https://www.delhivery.com/track/package/${id}`;
-  if (key.includes("dtdc")) return `https://www.dtdc.in/tracking.asp?strCnno=${id}`;
-  if (key.includes("indiapost") || key.includes("speedpost")) {
-    return `https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx`;
-  }
-  if (key.includes("xpressbees")) return `https://www.xpressbees.com/shipment/tracking?awb=${id}`;
-  if (key.includes("ecom")) return `https://ecomexpress.in/tracking/?awb_field=${id}`;
-  // The carriers ShipTrack tracks that have no clean public tracking URL of their
-  // own. Sent to ShipTrack so the shipped EMAIL's button opens live tracking, the
-  // same page the WhatsApp's Track button opens — the two channels should agree.
-  if (key.includes("shiprocket")) return `https://shiptrack.aswincloud.com/track/shiprocket/${id}`;
-  if (key.includes("stcourier")) return `https://shiptrack.aswincloud.com/track/stcourier/${id}`;
-  if (key === "tpc" || key.includes("professional")) return `https://shiptrack.aswincloud.com/track/tpc/${id}`;
-  return "";
-}
 
 // ── refunds ───────────────────────────────────────────────────────
 // Real money. Guarded accordingly: only a paid/shipped order, only up to what

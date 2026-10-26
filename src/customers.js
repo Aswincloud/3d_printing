@@ -27,7 +27,7 @@ import {
   upsertOtp, getOtp, incrementOtpAttempts, deleteOtp,
   otpEmail,
 } from "@aswincloud/auth/d1";
-import { json, bad, uid, now, isEmail, sendEmail, hmacHex, statusLabel, stageTimeline } from "./lib.js";
+import { json, bad, uid, now, isEmail, sendEmail, hmacHex, statusLabel, stageTimeline, trackingUrlFor } from "./lib.js";
 
 const USER_COOKIE = "ap_user";
 const USER_PURPOSE = "customer_session";
@@ -364,7 +364,7 @@ export async function myOrders(env, user) {
   const { results: orders } = await env.DB.prepare(
     `SELECT id, receipt, status, subtotal_paise, shipping_paise, total_paise,
             delivery, notes, created_at, paid_at, production_at, ready_at,
-            shipped_at, delivered_at
+            shipped_at, delivered_at, courier, tracking_id
        FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`
   ).bind(user.id).all();
 
@@ -398,6 +398,11 @@ export async function myOrders(env, user) {
       // Null for a cancelled, refunded or failed order — the caller's signal to
       // draw the plain badge instead of a progress bar with a dead end in it.
       stages: stageTimeline(o),
+      // Same rule as /track: tracking only once it has shipped, and only a link
+      // from the allowlist in trackingUrlFor().
+      ...(["shipped", "delivered"].includes(o.status)
+        ? { courier: o.courier || null, tracking_id: o.tracking_id || null, tracking_url: trackingUrlFor(o.courier, o.tracking_id) || null }
+        : { courier: null, tracking_id: null, tracking_url: null }),
     })),
   });
 }

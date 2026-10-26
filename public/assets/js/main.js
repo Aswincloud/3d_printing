@@ -3227,6 +3227,21 @@ function orderTracker(stages) {
     wrap.appendChild(orderTracker(o.stages));
   }
 
+  // Courier and tracking number, once shipped. The WhatsApp for a courier
+  // ShipTrack can't follow sends customers here for exactly this.
+  if (o.tracking_id) {
+    const ship = document.createElement('div');
+    ship.className = 'my-order-ship';
+    ship.textContent = 'Shipped' + (o.courier ? ' with ' + o.courier : '') + ' · Tracking ' + o.tracking_id;
+    if (typeof o.tracking_url === 'string' && /^https:\/\//.test(o.tracking_url)) {
+      const a = document.createElement('a');
+      a.href = o.tracking_url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = 'Track parcel';
+      ship.append(' ', a);
+    }
+    wrap.appendChild(ship);
+  }
+
   const ul = document.createElement('ul');
   ul.className = 'my-order-items';
   for (const it of o.items || []) {
