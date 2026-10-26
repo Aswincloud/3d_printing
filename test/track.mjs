@@ -113,6 +113,17 @@ section("the emails' View Order button");
   }
 }
 
+section("security headers keep a page's stricter referrer policy");
+{
+  const { withSecurityHeaders } = await import("../src/security.js");
+  const page = await trackPage(env, new URL("https://x/track?t=" + T("b")));
+  ok("an order page keeps no-referrer after the site headers", withSecurityHeaders(page).headers.get("referrer-policy") === "no-referrer");
+  const loose = withSecurityHeaders(new Response("x", { headers: { "referrer-policy": "unsafe-url", "content-security-policy": "default-src *" } }));
+  ok("a page cannot weaken it", loose.headers.get("referrer-policy") === "strict-origin-when-cross-origin");
+  ok("…nor any other header", loose.headers.get("content-security-policy") !== "default-src *");
+  ok("an ordinary page gets the site default", withSecurityHeaders(new Response("x")).headers.get("referrer-policy") === "strict-origin-when-cross-origin");
+}
+
 section("wiring");
 {
   const sec = readFileSync(new URL("../src/security.js", import.meta.url), "utf8");

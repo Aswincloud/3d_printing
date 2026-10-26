@@ -144,7 +144,12 @@ const HEADERS = {
 // returned from the assets binding.
 export function withSecurityHeaders(response) {
   const h = new Headers(response.headers);
+  // A page carrying a private token in its URL (/thank-you, /track?t=, /o/, /back/)
+  // sets referrer-policy: no-referrer. That is stricter than the site default, so
+  // it is kept; nothing else may be weakened, and every other header is forced.
+  const strict = h.get("referrer-policy") === "no-referrer";
   for (const [k, v] of Object.entries(HEADERS)) h.set(k, v);
+  if (strict) h.set("referrer-policy", "no-referrer");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
