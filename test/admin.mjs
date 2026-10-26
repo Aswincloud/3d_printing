@@ -1466,7 +1466,7 @@ section("marking shipped emails the customer");
   ok("unknown courier still named in the email", html.includes("Ramesh Transport"));
   // The email always has a button; with no recognised courier it must fall back
   // to the receipt on our own domain rather than a guessed courier url.
-  ok("falls back to the receipt link", /href="https:\/\/3d-prints[^"]*receipt=/.test(html));
+  ok("falls back to our own tracking page", /href="https:\/\/3d-prints\.aswincloud\.com\/track(\?t=[0-9a-f]{32})?"/.test(html), html.match(/href="[^"]*track[^"]*"/)?.[0]);
   ok("no guessed courier tracking url", !/bluedart|delhivery|dtdc|xpressbees|ecomexpress/i.test(html));
 }
 {

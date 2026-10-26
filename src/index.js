@@ -9,6 +9,7 @@ import { withSecurityHeaders, rateLimit } from "./security.js";
 import { isProductPath, productPage } from "./productpage.js";
 import { payPendingPage } from "./paypending.js";
 import { thankYouPage } from "./thankyou.js";
+import { trackPage, trackLookup } from "./track.js";
 import { backPage, stopReminders, stopConfirmPage, handleReminderBatch } from "./reminders.js";
 import { waWebhookHandler } from "./waoptout.js";
 import { recordActivity, adminActivity } from "./activity.js";
@@ -122,6 +123,12 @@ export default {
     if (payMatch && (request.method === "GET" || request.method === "HEAD")) {
       try { return withSecurityHeaders(await payPendingPage(env, payMatch[1])); }
       catch (e) { console.error("pay page error", e?.message || e); return Response.redirect(new URL("/", url.origin).toString(), 302); }
+    }
+
+    // Track an order — guests included. See track.js.
+    if ((url.pathname === "/track" || url.pathname === "/track/") && (request.method === "GET" || request.method === "HEAD")) {
+      try { return withSecurityHeaders(await trackPage(env, url)); }
+      catch (e) { console.error("track page error", e?.message || e); return Response.redirect(new URL("/", url.origin).toString(), 302); }
     }
 
     // After a successful payment — the URL Google Ads counts a purchase on. See thankyou.js.
@@ -459,6 +466,9 @@ async function api(request, env, url, ctx) {
     return createOrderHandler(request, env, body, buyer?.id || null, ctx);
   }
   if (p === "/api/orders/verify" && m === "POST") return verifyOrderHandler(request, env, body);
+
+  // Order lookup by number + email/phone, for guests. Rate limited (RL_TRACK).
+  if (p === "/api/track" && m === "POST") return trackLookup(env, body);
 
   // Shopper activity for the dashboard (src/activity.js). Public, insert-only,
   // rate limited; the account id comes from the session cookie, never the body.

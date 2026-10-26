@@ -37,6 +37,14 @@ const safeHref = (href) => {
   return /^(https:\/\/|mailto:)[^\s"'<>]+$/i.test(h) ? h : "";
 };
 
+// "View Order" opens this order's own tracking page. The pay_token is the order's
+// private key (see src/track.js); an order without one (made from a quote, or
+// before tokens existed) gets the lookup form instead. It used to be
+// the homepage with a receipt query string, which nothing on the site read.
+const orderLink = (base, order) => /^[0-9a-f]{32}$/.test(String(order?.pay_token || ""))
+  ? `${base}/track?t=${order.pay_token}`
+  : `${base}/track`;
+
 const button = (href, label) => {
   const safe = safeHref(href);
   if (!safe) return "";
@@ -157,7 +165,7 @@ export function orderCustomerEmail(env, order, items) {
     `<div style="background:${CARD};border-radius:10px;padding:20px;margin-bottom:8px">` +
     `<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Shipping To</p>` +
     address + `</div>` +
-    button(base + "/?receipt=" + encodeURIComponent(order.receipt), "View Order") +
+    button(orderLink(base, order), "View Order") +
     `</div>` + footer()
   );
 }
@@ -212,7 +220,7 @@ export function orderShippedEmail(env, order, { courier, tracking, trackingUrl }
     // url degrades to no button rather than a broken or dangerous link.
     (trackingUrl
       ? button(trackingUrl, "Track your parcel")
-      : button(base + "/?receipt=" + encodeURIComponent(order.receipt), "View Order")) +
+      : button(orderLink(base, order), "View Order")) +
     `</div>` + footer()
   );
 }
@@ -235,7 +243,7 @@ export function orderInProductionEmail(env, order) {
     `Your pieces are being printed now. I'll email you again when they're packed ` +
     `and on the way.</p>` +
     `<p style="margin:0 0 24px;font-size:14px;color:${MUTED}">Order reference <strong style="color:${ORANGE}">${esc(order.receipt)}</strong></p>` +
-    button(base + "/?receipt=" + encodeURIComponent(order.receipt), "View Order") +
+    button(orderLink(base, order), "View Order") +
     `</div>` + footer()
   );
 }

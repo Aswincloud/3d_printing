@@ -212,6 +212,9 @@ const RULES = [
   // Shopper activity: public and insert-only. Bounds how fast one client can
   // fill the table; a real visitor sends a few events a minute at most.
   { test: (p, m) => p === "/api/activity" && m === "POST", limiter: "RL_ACTIVITY" },
+  // Order lookup needs a receipt AND the matching email or phone; this bounds how
+  // fast one IP can guess either. 10/min is plenty for a person retyping.
+  { test: (p, m) => p === "/api/track" && m === "POST", limiter: "RL_TRACK" },
 ];
 
 export async function rateLimit(request, env, url) {

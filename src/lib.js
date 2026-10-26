@@ -276,3 +276,30 @@ export function trimSlashes(value) {
   while (out.endsWith("/")) out = out.slice(0, -1);
   return out;
 }
+
+// The courier's own tracking page for an order, or "" when there isn't a
+// reliable one. Shared by the shipped email, My Orders and /track.
+// Deliberately a small allowlist rather than a guess at a url pattern: a wrong
+// link is worse than none, because the customer clicks it, gets an error page,
+// and concludes the parcel is lost. Matched loosely so "Blue Dart", "bluedart"
+// and "BLUEDART courier" all resolve.
+export function trackingUrlFor(courier, tracking) {
+  if (!courier || !tracking) return "";
+  const key = String(courier).toLowerCase().replace(/[^a-z]/g, "");
+  const id = encodeURIComponent(String(tracking).trim());
+  if (key.includes("bluedart")) return `https://www.bluedart.com/tracking?trackingNo=${id}`;
+  if (key.includes("delhivery")) return `https://www.delhivery.com/track/package/${id}`;
+  if (key.includes("dtdc")) return `https://www.dtdc.in/tracking.asp?strCnno=${id}`;
+  if (key.includes("indiapost") || key.includes("speedpost")) {
+    return `https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx`;
+  }
+  if (key.includes("xpressbees")) return `https://www.xpressbees.com/shipment/tracking?awb=${id}`;
+  if (key.includes("ecom")) return `https://ecomexpress.in/tracking/?awb_field=${id}`;
+  // The carriers ShipTrack tracks that have no clean public tracking URL of their
+  // own. Sent to ShipTrack so the shipped EMAIL's button opens live tracking, the
+  // same page the WhatsApp's Track button opens — the two channels should agree.
+  if (key.includes("shiprocket")) return `https://shiptrack.aswincloud.com/track/shiprocket/${id}`;
+  if (key.includes("stcourier")) return `https://shiptrack.aswincloud.com/track/stcourier/${id}`;
+  if (key === "tpc" || key.includes("professional")) return `https://shiptrack.aswincloud.com/track/tpc/${id}`;
+  return "";
+}
