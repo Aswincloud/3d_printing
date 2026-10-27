@@ -142,6 +142,13 @@
 }
 
 .stat-card .stat-value { font-size: 1.5rem; font-weight: 800; }
+/* On a phone the 150px minimum left one wide column that still overflowed by
+   ~100px; two even columns fit the four cards in a 2x2 without a sideways scroll. */
+@media (max-width: 520px) {
+  .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+  .stat-card { padding: 0.8rem 0.9rem; min-width: 0; }
+  .stat-card .stat-value { font-size: 1.25rem; overflow-wrap: anywhere; }
+}
 .stat-card.accent .stat-value { color: var(--orange); }
 
 .admin-tabs {
@@ -149,7 +156,14 @@
   gap: 0.5rem;
   border-bottom: 1px solid var(--dark-4);
   margin-bottom: 1.5rem;
+  /* Seven tabs are ~600px; on a phone the row scrolls by itself instead of
+     widening the whole page into a sideways scroll. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
+.admin-tabs::-webkit-scrollbar { display: none; }
+.admin-tab { flex: 0 0 auto; white-space: nowrap; }
 
 .admin-tab {
   background: none;
@@ -1222,3 +1236,11 @@
 .act-stat span { font-size: 12.5px; color: var(--muted, #a1a1aa); }
 .act-row.is-live { border-color: #16a34a; }
 .act-live { display: inline-block; margin-right: 8px; padding: 1px 7px; border-radius: 999px; background: #16a34a; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .5px; vertical-align: middle; }
+
+/* Ship together */
+.ship-together { display: grid; gap: 10px; }
+.st-list { display: grid; gap: 8px; }
+.st-row { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; padding: 10px; border: 1px solid var(--line, #22222e); border-radius: 10px; }
+.st-row input[type=checkbox] { width: 18px; height: 18px; }
+.st-addr { grid-column: 2; font-size: 12.5px; color: var(--muted, #a1a1aa); overflow-wrap: anywhere; }
+.st-shipto { grid-column: 2; font-size: 13px; display: flex; align-items: center; gap: 6px; min-height: 32px; }

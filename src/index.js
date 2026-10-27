@@ -53,7 +53,7 @@ import {
   describeProducts as adminDescribe, setFormerPrices as adminSetFormerPrices,
   addProductPhotos as adminAddPhotos,
   updateProduct as adminUpdateProduct, deleteProduct as adminDeleteProduct,
-  listOrders as adminListOrders, updateOrder as adminUpdateOrder,
+  listOrders as adminListOrders, updateOrder as adminUpdateOrder, shipTogether as adminShipTogether,
   refundOrder as adminRefundOrder, remindPayment as adminRemindPayment, stats as adminStats,
   bulkUpdateProducts as adminBulkUpdateProducts,
 } from "./admin.js";
@@ -625,6 +625,7 @@ async function api(request, env, url, ctx) {
     if (remind && m === "POST") return adminRemindPayment(env, remind[1]);
 
     if (p === "/api/admin/reviews" && m === "GET") return adminListReviews(env);
+    if (p === "/api/admin/orders/ship-together" && m === "POST") return adminShipTogether(env, body, ctx);
     if (p === "/api/admin/activity" && m === "GET") return adminActivity(env, url);
     if (p === "/api/admin/reviews" && m === "POST") return adminAddReview(env, body);
     const rev = p.match(/^\/api\/admin\/reviews\/([0-9a-f-]{36})$/);
