@@ -1136,14 +1136,14 @@ export async function listOrders(env, url) {
     `SELECT id, receipt, status, cust_email, cust_phone, addr_line, addr_pin, total_paise, created_at
        FROM orders WHERE status IN ('paid','in_production','ready') ORDER BY created_at`
   ).all();
-  const custKey = (o) => [String(o.cust_email || "").trim().toLowerCase(), phoneTail(o.cust_phone)];
+  // One identifier for the whole group, as shipTogether requires: everyone with
+  // this order's email, or (if that is just this order) everyone with its phone.
   const together = (o) => {
     if (!SHIPPABLE.has(o.status)) return [];
-    const [e, ph] = custKey(o);
-    const group = (open || []).filter((x) => {
-      const [xe, xph] = custKey(x);
-      return (e && xe === e) || (ph.length === 10 && xph === ph);
-    });
+    const e = emailKey(o.cust_email), ph = phoneTail(o.cust_phone);
+    const byEmail = e ? (open || []).filter((x) => emailKey(x.cust_email) === e) : [];
+    const byPhone = ph.length === 10 ? (open || []).filter((x) => phoneTail(x.cust_phone) === ph) : [];
+    const group = byEmail.length >= byPhone.length ? byEmail : byPhone;
     if (group.length < 2) return [];
     // The street line is a hint for choosing ship_to; the full address is already
     // on each card.
@@ -1175,6 +1175,16 @@ export async function listOrders(env, url) {
 // whether two orders are the same customer's (see shipTogether).
 const SHIPPABLE = new Set(["paid", "in_production", "ready"]);
 const phoneTail = (s) => String(s || "").replace(/\D/g, "").slice(-10);
+const emailKey = (s) => String(s || "").trim().toLowerCase();
+// True when EVERY order shares one email, or EVERY order shares one valid phone.
+// Not "each matches the first": A~B by email and C~B by phone would pass that
+// while A and C share nothing, and C's items would be mailed to A's address.
+function oneCustomer(orders) {
+  const e = emailKey(orders[0]?.cust_email);
+  const ph = phoneTail(orders[0]?.cust_phone);
+  return (e !== "" && orders.every((o) => emailKey(o.cust_email) === e))
+      || (ph.length === 10 && orders.every((o) => phoneTail(o.cust_phone) === ph));
+}
 
 const ALLOWED_TRANSITIONS = {
   pending: ["cancelled"],
@@ -1334,13 +1344,7 @@ export async function shipTogether(env, body, ctx = null) {
   if (notShippable.length) {
     return bad(`${notShippable.map((o) => o.receipt).join(", ")} can't be shipped from "${notShippable[0].status}".`, 409);
   }
-  const first = orders[0];
-  const email = String(first.cust_email || "").trim().toLowerCase();
-  const phone = phoneTail(first.cust_phone);
-  const sameCustomer = orders.every((o) =>
-    (email && String(o.cust_email || "").trim().toLowerCase() === email) ||
-    (phone.length === 10 && phoneTail(o.cust_phone) === phone));
-  if (!sameCustomer) return bad("Those orders are from different customers — they can't share a parcel.", 409);
+  if (!oneCustomer(orders)) return bad("Those orders are from different customers — they can't share a parcel.", 409);
 
   const t = now();
   const moved = [];
@@ -1353,13 +1357,14 @@ export async function shipTogether(env, body, ctx = null) {
   }
   if (!moved.length) return json({ ok: true, shipped: [], emailed: false, whatsapp: "off", note: "Already shipped." });
 
-  // The order the parcel went to leads, so the email's address and the WhatsApp's
-  // name are that order's; it must be among the ones that moved for the address
-  // to be stated, otherwise the first moved order speaks for the parcel.
-  const ship = moved.find((o) => o.id === shipTo) || moved[0];
-  const ordered = [ship, ...moved.filter((o) => o.id !== ship.id)];
+  // The parcel's destination is the order the owner chose, as loaded — even if
+  // that order itself did not move (shipped elsewhere in a race): the address is
+  // where the box went. The list of orders is only those that actually moved.
+  const ship = orders.find((o) => o.id === shipTo);
+  const ordered = [...moved.filter((o) => o.id === shipTo), ...moved.filter((o) => o.id !== shipTo)];
 
   const iph = ordered.map(() => "?").join(",");
+  // `ship` may not be in `ordered` (see above); it only lends its name and address.
   const { results: items } = await env.DB.prepare(
     `SELECT order_id, name, qty FROM order_items WHERE order_id IN (${iph}) ORDER BY pos`).bind(...ordered.map((o) => o.id)).all();
   for (const o of ordered) o.items = (items || []).filter((i) => i.order_id === o.id);

@@ -476,7 +476,9 @@ function shipTogetherForm(o, group, { onCancel, onDone }) {
   for (const g of group) {
     const row = el('div', 'st-row');
     const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.checked = true; cb.id = 'st-' + g.id;
+    // Per card: two cards of one group can have their forms open at once, and a
+    // shared id would make one form's labels tick the other form's boxes.
+    cb.type = 'checkbox'; cb.checked = true; cb.id = `st-${o.id}-${g.id}`;
     const lab = el('label', 'st-label');
     lab.htmlFor = cb.id;
     lab.append(el('strong', null, g.receipt), document.createTextNode(` · ${rupees(g.total_paise)} · ${g.status}`));

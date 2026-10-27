@@ -54,7 +54,7 @@ section("three orders, one parcel");
   const { db, env, calls } = setup();
   order(db, "d815a79e", { item: "Shiva Lingam", addr: "Short St" });
   order(db, "d47ad3de", { item: "Seven Horses", email: "HITESH@example.com", addr: "Flat 4, MG Road, near the long landmark" });
-  order(db, "a9fb0429", { item: "Balaji Idol", status: "in_production", phone: "09876547837", email: "other@x.com" });
+  order(db, "a9fb0429", { item: "Balaji Idol", status: "in_production", phone: "09876547837" });
   const [st, out] = await ship(env, { ids: ["d815a79e", "d47ad3de", "a9fb0429"], ship_to: "d47ad3de", courier: "The Professional Couriers", tracking_id: "PON7004549" });
   ok("200, all three shipped", st === 200 && out.shipped.length === 3, JSON.stringify(out));
   ok("the chosen address's order leads", out.shipped[0] === "AP-d47ad3de", out.shipped.join(","));
@@ -103,6 +103,26 @@ section("what is refused");
   ok("none of those changed an order or sent anything", ["aaaa0001", "aaaa0002", "bbbb0001"].every((id) => status(db, id).status === "paid") && calls.mail.length === 0 && calls.invoicer.length === 0);
 }
 
+section("one identifier must be shared by ALL the orders");
+{
+  const { db, env, calls } = setup();
+  // B is the OLDEST and bridges: A shares B's email, C shares B's phone, A and C
+  // share nothing. "Each matches the first" would pass this; one shared
+  // identifier for all does not.
+  order(db, "kkkk0002", { email: "alice@example.com", phone: "9222222222" });
+  order(db, "kkkk0001", { email: "alice@example.com", phone: "9111111111" });
+  order(db, "kkkk0003", { email: "carol@example.com", phone: "9222222222", name: "Carol", item: "Carol's private item" });
+  const [s] = await ship(env, { ids: ["kkkk0001", "kkkk0002", "kkkk0003"], ship_to: "kkkk0001", tracking_id: "T" });
+  ok("a chain (email for one pair, phone for another) is refused", s === 409 && calls.mail.length === 0, String(s));
+  const data = await (await listOrders(env, new URL("https://x/api/admin/orders"))).json();
+  const g = data.orders.find((o) => o.id === "kkkk0001").ship_together.map((x) => x.id).sort();
+  ok("…and the dashboard never groups A with C", JSON.stringify(g) === '["kkkk0001","kkkk0002"]', JSON.stringify(g));
+  const gb = data.orders.find((o) => o.id === "kkkk0002").ship_together.map((x) => x.id).sort();
+  ok("…not even from the bridging order's card", gb.length === 2 && !(gb.includes("kkkk0001") && gb.includes("kkkk0003")), JSON.stringify(gb));
+  const [s2] = await ship(env, { ids: ["kkkk0002", "kkkk0003"], ship_to: "kkkk0002", tracking_id: "T" });
+  ok("B and C, sharing a phone, may ship together", s2 === 200, String(s2));
+}
+
 section("two strangers with the same junk phone are not one customer");
 {
   const { db, env, calls } = setup();
@@ -133,6 +153,25 @@ section("a race: an order ships between the read and the write");
   ok("the invoicer is told only those two", JSON.stringify(calls.invoicer[0].body.receipts) === '["AP-rrrr0001","AP-rrrr0003"]');
 }
 
+section("the chosen address stands even if that order shipped elsewhere");
+{
+  const { db, env, calls } = setup();
+  order(db, "ssss0001", { addr: "Chosen Lane 1" }); order(db, "ssss0002", { addr: "Other Road 2" }); order(db, "ssss0003", { addr: "Third St 3" });
+  const real = env.DB;
+  env.DB = { ...real, prepare(sql) {
+    const st = real.prepare(sql);
+    if (/SELECT \* FROM orders WHERE id IN/.test(sql)) {
+      return { bind: (...a) => ({ all: async () => { const r = await st.bind(...a).all();
+        db.prepare("UPDATE orders SET status = 'shipped' WHERE id = 'ssss0001'").run(); return r; } }) };
+    }
+    return st;
+  } };
+  const [st, out] = await ship(env, { ids: ["ssss0001", "ssss0002", "ssss0003"], ship_to: "ssss0001", courier: "Blue Dart", tracking_id: "BD9" });
+  ok("only the two that moved are reported", st === 200 && JSON.stringify(out.shipped) === '["AP-ssss0002","AP-ssss0003"]', JSON.stringify(out));
+  ok("the email still shows the CHOSEN address", calls.mail[0].html.includes("Chosen Lane 1") && !calls.mail[0].html.includes("Other Road 2"));
+  ok("…and does not list the order that shipped elsewhere", !calls.mail[0].html.includes("AP-ssss0001"));
+}
+
 section("the dashboard offers it only where it applies");
 {
   const { db, env } = setup();
@@ -147,6 +186,12 @@ section("the dashboard offers it only where it applies");
   const filtered = await (await listOrders(env, new URL("https://x/api/admin/orders?status=ready"))).json();
   ok("still offered under a status filter (group read from all orders)", filtered.orders.find((o) => o.id === "eeee0002")?.ship_together.length === 2);
   ok("the group carries no email or phone", !JSON.stringify(by.eeee0001).match(/@|9876/));
+}
+
+section("dashboard form ids are unique per card");
+{
+  const js = readFileSync(new URL("../public/assets/js/admin.js", import.meta.url), "utf8");
+  ok("checkbox id includes the card's own order id", js.includes("cb.id = `st-${o.id}-${g.id}`;"));
 }
 
 section("wiring");
