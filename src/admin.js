@@ -4,8 +4,8 @@
 
 import { json, bad, uid, now, sendEmail, ownerCopy, statusLabel, percentOff, trackingUrlFor } from "./lib.js";
 import { refundPayment, paymentsConfigured } from "./razorpay.js";
-import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail } from "./emails.js";
-import { sendOrderShipment, sendPaymentReminder } from "./invoicing.js";
+import { orderShippedEmail, orderInProductionEmail, orderDeliveredEmail, ordersShippedTogetherEmail } from "./emails.js";
+import { sendOrderShipment, sendPaymentReminder, sendCombinedShipment } from "./invoicing.js";
 import { randToken, trimSlashes } from "./lib.js";
 import { checkAgentEntries, checkDescribeEntries, checkFormerPriceEntries } from "./agent.js";
 import { galleryImages } from "./gallery.js";
@@ -1129,6 +1129,28 @@ export async function listOrders(env, url) {
     `SELECT status, COUNT(*) AS n, SUM(total_paise) AS total FROM orders GROUP BY status`
   ).all();
 
+  // For "Ship together": every order still to ship, grouped by customer (email,
+  // or phone by its last 10 digits — the same rule shipTogether enforces). Read
+  // from ALL orders, not the filtered page, so the button is right under any filter.
+  const { results: open } = await env.DB.prepare(
+    `SELECT id, receipt, status, cust_email, cust_phone, addr_line, addr_pin, total_paise, created_at
+       FROM orders WHERE status IN ('paid','in_production','ready') ORDER BY created_at`
+  ).all();
+  // One identifier for the whole group, as shipTogether requires: everyone with
+  // this order's email, or (if that is just this order) everyone with its phone.
+  const together = (o) => {
+    if (!SHIPPABLE.has(o.status)) return [];
+    const e = emailKey(o.cust_email), ph = phoneTail(o.cust_phone);
+    const byEmail = e ? (open || []).filter((x) => emailKey(x.cust_email) === e) : [];
+    const byPhone = ph.length === 10 ? (open || []).filter((x) => phoneTail(x.cust_phone) === ph) : [];
+    const group = byEmail.length >= byPhone.length ? byEmail : byPhone;
+    if (group.length < 2) return [];
+    // The street line is a hint for choosing ship_to; the full address is already
+    // on each card.
+    return group.map((x) => ({ id: x.id, receipt: x.receipt, status: x.status, total_paise: x.total_paise,
+      addr_line: x.addr_line || "", addr_pin: x.addr_pin || "" }));
+  };
+
   return json({
     orders: list.map((o) => ({
       ...o,
@@ -1140,6 +1162,7 @@ export async function listOrders(env, url) {
       status_label: statusLabel(o.status),
       next_stages: ALLOWED_TRANSITIONS[o.status] || [],
       can_refund: REFUNDABLE.includes(o.status) && Boolean(o.rzp_payment_id),
+      ship_together: together(o),
     })),
     counts: counts || [],
   });
@@ -1148,6 +1171,21 @@ export async function listOrders(env, url) {
 // Status transitions are restricted. 'paid' is deliberately NOT settable here:
 // it's written by the webhook from Razorpay's confirmation, and letting the
 // dashboard set it by hand would mean an unpaid order could be marked paid.
+// Orders that can still go into a parcel, and the phone comparison used to tell
+// whether two orders are the same customer's (see shipTogether).
+const SHIPPABLE = new Set(["paid", "in_production", "ready"]);
+const phoneTail = (s) => String(s || "").replace(/\D/g, "").slice(-10);
+const emailKey = (s) => String(s || "").trim().toLowerCase();
+// True when EVERY order shares one email, or EVERY order shares one valid phone.
+// Not "each matches the first": A~B by email and C~B by phone would pass that
+// while A and C share nothing, and C's items would be mailed to A's address.
+function oneCustomer(orders) {
+  const e = emailKey(orders[0]?.cust_email);
+  const ph = phoneTail(orders[0]?.cust_phone);
+  return (e !== "" && orders.every((o) => emailKey(o.cust_email) === e))
+      || (ph.length === 10 && orders.every((o) => phoneTail(o.cust_phone) === ph));
+}
+
 const ALLOWED_TRANSITIONS = {
   pending: ["cancelled"],
   // Skipping forward stays legal. Something already on the shelf still ships in
@@ -1270,6 +1308,90 @@ export async function applyStageFromInvoicer(env, { receipt, kind, courier, trac
   }
   console.log("shipment sync from invoicer", receipt, order.status, "->", kind, emailed ? "emailed" : "silent");
   return json({ ok: true, status: kind, emailed });
+}
+
+// ── POST /api/admin/orders/ship-together ──────────────────────────
+// Several orders from one customer, packed in one parcel: marked shipped together
+// with one courier and tracking number, and the customer gets ONE email and ONE
+// WhatsApp listing them all, instead of one of each per order.
+//
+// Body: { ids: [order id…], ship_to: <one of ids>, courier, tracking_id }
+//   - 2 to 10 orders, every one paid / in production / ready;
+//   - all from the same customer — same email, or same phone by its last 10
+//     digits — so two strangers' orders can never be sent each other's details;
+//   - ship_to picks whose address the parcel went to, because a repeat
+//     customer's orders can carry differently typed addresses;
+//   - a tracking number is required: it is the point of the message.
+// Each order moves with an UPDATE guarded on the status read, and only the ones
+// that actually moved are notified — a double click cannot send twice.
+
+export async function shipTogether(env, body, ctx = null) {
+  const ids = [...new Set((Array.isArray(body?.ids) ? body.ids : []).map((x) => clip(x, 64)).filter(Boolean))];
+  if (ids.length < 2) return bad("Pick at least two orders to ship together.");
+  if (ids.length > 10) return bad("At most ten orders in one parcel.");
+  const shipTo = clip(body?.ship_to, 64);
+  if (!ids.includes(shipTo)) return bad("Choose which order's address the parcel went to.");
+  const courier = clip(body?.courier, MAXLEN.courier);
+  const tracking = clip(body?.tracking_id, MAXLEN.tracking);
+  if (!tracking) return bad("A tracking number is needed to ship orders together.");
+
+  const ph = ids.map(() => "?").join(",");
+  // Oldest first, so the email and WhatsApp list them in the order they were placed.
+  const { results } = await env.DB.prepare(`SELECT * FROM orders WHERE id IN (${ph}) ORDER BY created_at`).bind(...ids).all();
+  const orders = results || [];
+  if (orders.length !== ids.length) return bad("One of those orders no longer exists.", 404);
+  const notShippable = orders.filter((o) => !SHIPPABLE.has(o.status));
+  if (notShippable.length) {
+    return bad(`${notShippable.map((o) => o.receipt).join(", ")} can't be shipped from "${notShippable[0].status}".`, 409);
+  }
+  if (!oneCustomer(orders)) return bad("Those orders are from different customers — they can't share a parcel.", 409);
+
+  const t = now();
+  const moved = [];
+  for (const o of orders) {
+    const r = await env.DB.prepare(
+      `UPDATE orders SET status = 'shipped', shipped_at = COALESCE(shipped_at, ?), courier = ?, tracking_id = ?
+        WHERE id = ? AND status = ?`
+    ).bind(t, courier || null, tracking, o.id, o.status).run();
+    if (r.meta?.changes) moved.push({ ...o, status: "shipped", shipped_at: o.shipped_at || t, courier: courier || null, tracking_id: tracking });
+  }
+  if (!moved.length) return json({ ok: true, shipped: [], emailed: false, whatsapp: "off", note: "Already shipped." });
+
+  // The parcel's destination is the order the owner chose, as loaded — even if
+  // that order itself did not move (shipped elsewhere in a race): the address is
+  // where the box went. The list of orders is only those that actually moved.
+  const ship = orders.find((o) => o.id === shipTo);
+  const ordered = [...moved.filter((o) => o.id === shipTo), ...moved.filter((o) => o.id !== shipTo)];
+
+  const iph = ordered.map(() => "?").join(",");
+  // `ship` may not be in `ordered` (see above); it only lends its name and address.
+  const { results: items } = await env.DB.prepare(
+    `SELECT order_id, name, qty FROM order_items WHERE order_id IN (${iph}) ORDER BY pos`).bind(...ordered.map((o) => o.id)).all();
+  for (const o of ordered) o.items = (items || []).filter((i) => i.order_id === o.id);
+
+  let emailed = false;
+  if (env.RESEND_API_KEY && ship.cust_email) {
+    emailed = true;
+    const receipts = ordered.map((o) => o.receipt).join(", ");
+    const send = sendEmail(env, {
+      to: ship.cust_email,
+      bcc: ownerCopy(env),
+      replyTo: env.OWNER_EMAIL || "aswin@aswincloud.com",
+      subject: `Your ${ordered.length} orders have shipped — ${receipts}`,
+      html: ordersShippedTogetherEmail(env, ship, ordered, { courier, tracking, trackingUrl: trackingUrlFor(courier, tracking) }),
+      text: `Your orders ${receipts} have shipped together in one parcel.\n`
+        + (courier ? `Courier: ${courier}\n` : "") + `Tracking: ${tracking}\n`,
+    }).then((r) => { if (!r.ok) console.error("combined shipped email failed", receipts, r.status, r.error); });
+    if (ctx?.waitUntil) ctx.waitUntil(send); else await send;
+  }
+
+  let whatsapp = "off";
+  if (String(env.INVOICE_ENABLED ?? "").toLowerCase() === "true") {
+    whatsapp = "queued";
+    const notify = sendCombinedShipment(env, ordered, { courier, tracking });
+    if (ctx?.waitUntil) ctx.waitUntil(notify); else await notify;
+  }
+  return json({ ok: true, shipped: ordered.map((o) => o.receipt), emailed, whatsapp });
 }
 
 export async function updateOrder(env, id, body, ctx = null) {

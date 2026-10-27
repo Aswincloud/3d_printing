@@ -225,6 +225,49 @@ export function orderShippedEmail(env, order, { courier, tracking, trackingUrl }
   );
 }
 
+// ── several orders, one parcel → customer ─────────────────────────
+//
+// For a customer who ordered more than once and gets everything in one box. One
+// email instead of one per order, listing every order and its items, with the
+// single tracking number. `ship` is the order whose address the parcel went to —
+// chosen by the owner, because a repeat customer's orders can carry differently
+// typed addresses, and the email must show where it actually went.
+export function ordersShippedTogetherEmail(env, ship, orders, { courier, tracking, trackingUrl } = {}) {
+  const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
+  const detail = [
+    courier ? ["Courier", esc(courier)] : null,
+    tracking ? ["Tracking", `<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${esc(tracking)}</span>`] : null,
+  ].filter(Boolean);
+  const list = orders.map((o) =>
+    `<div style="padding:12px 0;border-bottom:1px solid ${LINE}">` +
+    `<p style="margin:0 0 6px;font-size:14px"><strong style="color:${ORANGE}">${esc(o.receipt)}</strong></p>` +
+    (o.items || []).map((it) => `<p style="margin:0;font-size:14px;color:${TEXT}">${esc(it.name)} × ${Number(it.qty) || 1}</p>`).join("") +
+    `</div>`).join("");
+
+  return shell(
+    header(env.APP_NAME || "AswinPrints", "On its way 📦") +
+    `<div style="padding:32px">` +
+    `<h2 style="margin:0 0 8px;font-size:20px">Your ${orders.length} orders have shipped, ${esc(ship.cust_name)}</h2>` +
+    `<p style="color:${MUTED};margin:0 0 20px;line-height:1.6">They're packed together in one parcel` +
+    (tracking ? ", so there's a single tracking number for all of them." : ".") + `</p>` +
+    (detail.length
+      ? `<div style="background:${CARD};border-radius:10px;padding:20px;margin-bottom:20px">` +
+        `<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Tracking</p>` +
+        rows(detail) + `</div>`
+      : "") +
+    `<div style="background:${CARD};border-radius:10px;padding:8px 20px 12px;margin-bottom:20px">` +
+    `<p style="margin:12px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">In this parcel</p>` +
+    list + `</div>` +
+    `<div style="background:${CARD};border-radius:10px;padding:20px;margin-bottom:8px">` +
+    `<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Shipping To</p>` +
+    `<p style="margin:0;font-size:14px;line-height:1.6">${esc(ship.cust_name)}<br>` +
+    `${esc(ship.addr_line)}<br>${esc(ship.addr_city)}, ${esc(ship.addr_state)} ${esc(ship.addr_pin)}</p>` +
+    `</div>` +
+    (trackingUrl ? button(trackingUrl, "Track your parcel") : button(orderLink(base, ship), "View Order")) +
+    `</div>` + footer()
+  );
+}
+
 // ── in production → customer ──────────────────────────────────────
 //
 // The gap this fills. An order used to go from "paid" straight to "shipped",

@@ -358,6 +358,22 @@ function orderCard(o) {
     }));
   }
 
+  // Ship together: this customer has other orders still to ship. One parcel, one
+  // tracking number, one email and one WhatsApp. The server re-checks every rule
+  // (same customer, shippable, tracking present) — this only offers the button.
+  const group = Array.isArray(o.ship_together) ? o.ship_together : [];
+  if (group.length >= 2) {
+    actions.appendChild(actionBtn(`Ship together (${group.length})`, 'admin-btn', async () => {
+      openDrawer(shipTogetherForm(o, group, {
+        onCancel: closeDrawer,
+        onDone: async (out) => {
+          flash(`Shipped together: ${out.shipped.join(', ')}` + (out.emailed ? ` — ${o.cust_email} notified once.` : '.'));
+          await Promise.all([loadOrders(), loadStats()]);
+        },
+      }));
+    }));
+  }
+
   // A shipped or delivered order can have its courier and tracking corrected —
   // a typo'd tracking number used to be permanent, because the only way to set
   // one was the transition to shipped, which happens once. PATCH without a
@@ -448,7 +464,56 @@ function matchCarrier(text) {
   return SHIPTRACK_CARRIERS.find((c) => c.toLowerCase().replace(/[^a-z]/g, '') === key) || '';
 }
 
-function shipForm(o, { courier, tracking, submitLabel, onSubmit, onCancel }) {
+// The orders to put in one parcel (all ticked), whose address it went to, then
+// the usual courier + tracking fields. Tracking is required here: one shared
+// number is the whole point, and the server refuses without it.
+function shipTogetherForm(o, group, { onCancel, onDone }) {
+  const wrap = el('div', 'ship-together');
+  wrap.appendChild(el('p', 'admin-muted', `${o.cust_name || 'This customer'} has ${group.length} orders to ship. Untick any that aren't in this parcel.`));
+  const list = el('div', 'st-list');
+  const picks = new Map();
+  const radios = [];
+  for (const g of group) {
+    const row = el('div', 'st-row');
+    const cb = document.createElement('input');
+    // Per card: two cards of one group can have their forms open at once, and a
+    // shared id would make one form's labels tick the other form's boxes.
+    cb.type = 'checkbox'; cb.checked = true; cb.id = `st-${o.id}-${g.id}`;
+    const lab = el('label', 'st-label');
+    lab.htmlFor = cb.id;
+    lab.append(el('strong', null, g.receipt), document.createTextNode(` · ${rupees(g.total_paise)} · ${g.status}`));
+    const addr = el('span', 'st-addr', (g.addr_line || '—') + (g.addr_pin ? ' · ' + g.addr_pin : ''));
+    const rb = document.createElement('input');
+    rb.type = 'radio'; rb.name = 'st-shipto-' + o.id; rb.value = g.id; rb.checked = g.id === o.id;
+    rb.setAttribute('aria-label', `Parcel went to ${g.receipt}'s address`);
+    const rlab = el('label', 'st-shipto');
+    rlab.append(rb, document.createTextNode(' ship to this address'));
+    cb.addEventListener('change', () => { rb.disabled = !cb.checked; if (!cb.checked && rb.checked) { const alt = radios.find((r) => !r.disabled); if (alt) alt.checked = true; } });
+    picks.set(g.id, cb); radios.push(rb);
+    row.append(cb, lab, addr, rlab);
+    list.appendChild(row);
+  }
+  wrap.appendChild(list);
+  wrap.appendChild(shipForm(o, {
+    courier: '', tracking: '',
+    trackingRequired: true,
+    submitLabel: 'Ship together & notify once',
+    onCancel,
+    onSubmit: async (fields) => {
+      const ids = [...picks].filter(([, cb]) => cb.checked).map(([id]) => id);
+      if (ids.length < 2) throw new Error('Pick at least two orders, or use Mark shipped for one.');
+      if (!fields.tracking_id) throw new Error('Enter the tracking number for the parcel.');
+      const shipTo = radios.find((r) => r.checked && !r.disabled)?.value;
+      const out = await api('/api/admin/orders/ship-together', {
+        method: 'POST', body: JSON.stringify({ ids, ship_to: shipTo, ...fields }),
+      });
+      await onDone(out);
+    },
+  }));
+  return wrap;
+}
+
+function shipForm(o, { courier, tracking, submitLabel, onSubmit, onCancel, trackingRequired = false }) {
   const form = el('form', 'ship-form');
   form.setAttribute('aria-label', `Courier and tracking for ${o.receipt}`);
 
@@ -509,7 +574,8 @@ function shipForm(o, { courier, tracking, submitLabel, onSubmit, onCancel }) {
   cWrap.append(cSel, cIn);
   // What the form submits: the carrier's name, the typed text for Other, or "".
   const courierValue = () => cSel.value === OTHER ? cIn.value.trim() : cSel.value;
-  const [tWrap, tIn] = field(`tracking-${o.id}`, 'Tracking number (optional)', tracking, 'e.g. EK123456789IN', 80);
+  const [tWrap, tIn] = field(`tracking-${o.id}`, trackingRequired ? 'Tracking number' : 'Tracking number (optional)', tracking, 'e.g. EK123456789IN', 80);
+  if (trackingRequired) tIn.required = true;
 
   const row = el('div', 'ship-row');
   const submit = el('button', 'admin-btn', submitLabel);

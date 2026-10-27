@@ -359,6 +359,11 @@ function makeDB(seed = {}) {
       const want = new Set(a);
       return { results: db.order_items.filter((i) => want.has(i.order_id)) };
     }
+    // listOrders' ship-together grouping: the orders still to ship, oldest first.
+    if (s.startsWith("SELECT id, receipt, status, cust_email, cust_phone, addr_line, addr_pin, total_paise, created_at FROM orders WHERE status IN ('paid','in_production','ready')")) {
+      return { results: db.orders.filter((o) => ["paid", "in_production", "ready"].includes(o.status))
+        .sort((x, y) => (x.created_at || 0) - (y.created_at || 0)) };
+    }
     if (s.startsWith("SELECT status, COUNT(*) AS n, SUM(total_paise) AS total FROM orders GROUP BY status")) {
       const m = new Map();
       for (const o of db.orders) {

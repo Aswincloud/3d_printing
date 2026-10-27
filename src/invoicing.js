@@ -160,6 +160,18 @@ export async function sendOrderShipment(env, order, kind) {
   }
 }
 
+// Several orders shipped in one parcel (shipTogether in admin.js): the invoicer
+// records the courier and tracking on every order's invoice and sends ONE
+// WhatsApp — the orders_shipped_together template, listing the receipts. The
+// first receipt is the order whose address and name the parcel went to.
+export async function sendCombinedShipment(env, orders, { courier, tracking }) {
+  const r = await postSigned(env, "/api/ingest/shipment-combined", {
+    receipts: orders.map((o) => o.receipt), courier: courier || "", tracking: tracking || "",
+  });
+  if (!r.ok) console.error("combined shipment notify", orders.map((o) => o.receipt).join(","), r.whatsapp || "", r.error || "");
+  return r;
+}
+
 // Ask the invoicer to send the customer the "payment pending" WhatsApp for an
 // unpaid order (the owner pressed the button). The invoicer holds the Meta
 // credentials and the template; the shop sends only what the message needs.
