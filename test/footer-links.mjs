@@ -16,7 +16,9 @@ console.log("\nfooter links on every customer page");
 for (const [name, html] of pages) {
   const foot = html.slice(html.lastIndexOf("<footer"));
   ok(`${name}: Track your order`, foot.includes('href="/track"'));
-  const a = foot.match(new RegExp(`<a href="${AMZ.replace(/[.?]/g, "\\$&")}"[^>]*>`));
+  // Plain string search, no regex built from the URL: find the tag, read to its ">".
+  const at = foot.indexOf(`<a href="${AMZ}"`);
+  const a = at < 0 ? null : [foot.slice(at, foot.indexOf(">", at) + 1)];
   ok(`${name}: Amazon storefront, new tab, noopener`, a && /target="_blank"/.test(a[0]) && /rel="noopener"/.test(a[0]), a?.[0]);
 }
 const dash = readFileSync(new URL("../public/shop.html", import.meta.url), "utf8");
