@@ -362,6 +362,7 @@ export function renderProductPage(env, { product, related, reviews = null, headE
     <a href="/refunds">Cancellation &amp; Refunds</a>
     <a href="/contact">Contact Us</a>
     <a href="/udyam">Udyam (MSME) Registration</a>
+    <a href="https://www.amazon.in/storefront?me=AB6RDVHBOORX4" target="_blank" rel="noopener">Also on Amazon</a>
   </div>
   <p>© 2026 AswinPrints · Pondicherry, India</p>
 </footer>
