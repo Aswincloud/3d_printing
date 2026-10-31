@@ -289,7 +289,9 @@ export function trackingUrlFor(courier, tracking) {
   const id = encodeURIComponent(String(tracking).trim());
   if (key.includes("bluedart")) return `https://www.bluedart.com/tracking?trackingNo=${id}`;
   if (key.includes("delhivery")) return `https://www.delhivery.com/track/package/${id}`;
-  if (key.includes("dtdc")) return `https://www.dtdc.in/tracking.asp?strCnno=${id}`;
+  // dtdc.in/tracking.asp now just redirects to DTDC's homepage, dropping the
+  // number. The current page reads the AWB from ?awb=.
+  if (key.includes("dtdc")) return `https://www.dtdc.com/track-your-shipment/?awb=${id}`;
   if (key.includes("indiapost") || key.includes("speedpost")) {
     return `https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx`;
   }

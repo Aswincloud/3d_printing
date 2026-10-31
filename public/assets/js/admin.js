@@ -448,14 +448,15 @@ function orderCard(o) {
 // Courier + tracking, as labelled fields. Shared by "Mark shipped" (where it
 // also fires the transition and the email) and "Edit tracking" (where it only
 // saves the two columns).
-// The couriers ShipTrack tracks, by display name. These are what the shipped
-// WhatsApp's Track button can open live; anything else still ships and is named,
-// but the button lands on ShipTrack's unknown-carrier page. Kept in step with
-// CARRIERS in the invoicer's src/shipment.js — five names, no ids.
-const SHIPTRACK_CARRIERS = ['Blue Dart', 'Delhivery', 'Shiprocket', 'ST Courier', 'The Professional Couriers'];
+// The couriers ShipTrack knows, by display name. These are what the shipped
+// WhatsApp's Track button can open; anything else still ships and is named,
+// but the button lands on ShipTrack's unknown-carrier page. DTDC's button opens
+// DTDC's own tracking page (via ShipTrack's /track/dtdc/), with no live status.
+// Kept in step with CARRIERS in the invoicer's src/shipment.js — names, no ids.
+const SHIPTRACK_CARRIERS = ['Blue Dart', 'Delhivery', 'DTDC', 'Shiprocket', 'ST Courier', 'The Professional Couriers'];
 
-// A stored courier string → the list entry it means, or "" if it is not one of
-// the five. Letters only, so "bluedart", "Blue-Dart" and "BLUE DART" all match,
+// A stored courier string → the list entry it means, or "" if it is not in the
+// list. Letters only, so "bluedart", "Blue-Dart" and "BLUE DART" all match,
 // and "TPC" reaches The Professional Couriers.
 function matchCarrier(text) {
   const key = String(text || '').toLowerCase().replace(/[^a-z]/g, '');
