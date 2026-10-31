@@ -3,7 +3,7 @@
 // WHY THIS EXISTS. Until this file the dashboard (shop.html + admin.js) had no
 // browser coverage at all — every other browser suite drives index.html. The
 // ship form is where a courier is chosen, and that choice now decides whether the
-// customer's WhatsApp gets a live Track button (ShipTrack's five carriers) or an
+// customer's WhatsApp gets a working Track button (ShipTrack's carriers) or an
 // honest "we can't track this one" (anything typed under Other…).
 //
 // What is pinned, and why each matters:
@@ -52,9 +52,10 @@ const ORDER = (o) => ({
 const ORDERS = [
   ORDER({ key: 'ready', status: 'ready', next: ['shipped', 'cancelled'] }),
   ORDER({ key: 'oldid', status: 'shipped', next: ['delivered', 'cancelled'], courier: 'bluedart', tracking: 'BD1' }),
-  ORDER({ key: 'dtdc', status: 'shipped', next: ['delivered', 'cancelled'], courier: 'DTDC', tracking: 'D2' }),
+  ORDER({ key: 'post', status: 'shipped', next: ['delivered', 'cancelled'], courier: 'India Post', tracking: 'D2' }),
+  ORDER({ key: 'dtdc', status: 'shipped', next: ['delivered', 'cancelled'], courier: 'dtdc', tracking: 'C5000946201' }),
 ];
-const CARRIERS = ['Blue Dart', 'Delhivery', 'Shiprocket', 'ST Courier', 'The Professional Couriers'];
+const CARRIERS = ['Blue Dart', 'Delhivery', 'DTDC', 'Shiprocket', 'ST Courier', 'The Professional Couriers'];
 
 async function run(engine, name) {
   const b = await launch(engine, name);
@@ -102,7 +103,7 @@ async function run(engine, name) {
   await load();
   await open('AP-READY', ['Mark shipped']);
   let s = await read();
-  ok(`[${name}] the picker lists None, ShipTrack's five carriers, and Other…`,
+  ok(`[${name}] the picker lists None, ShipTrack's carriers, and Other…`,
      JSON.stringify(s.options) === JSON.stringify(['None', ...CARRIERS, 'Other…']), JSON.stringify(s.options));
   ok(`[${name}] a fresh order starts at None with the text box hidden`, s.selected === 'None' && s.textHidden, JSON.stringify(s));
   ok(`[${name}] focus lands on the select`, s.focused);
@@ -125,8 +126,13 @@ async function run(engine, name) {
   await load();
   await open('AP-DTDC', ['Edit tracking', 'Add tracking']);
   s = await read();
+  ok(`[${name}] a stored "dtdc" pre-selects DTDC`, s.selected === 'DTDC' && s.textHidden, JSON.stringify(s));
+
+  await load();
+  await open('AP-POST', ['Edit tracking', 'Add tracking']);
+  s = await read();
   ok(`[${name}] a stored free-text courier pre-selects Other… with the text shown`,
-     s.selected === 'Other…' && !s.textHidden && s.textValue === 'DTDC', JSON.stringify(s));
+     s.selected === 'Other…' && !s.textHidden && s.textValue === 'India Post', JSON.stringify(s));
   await p.selectOption('form.ship-form select.ship-select', '');
   await submit();
   ok(`[${name}] None submits an empty courier`, patched.at(-1)?.courier === '', JSON.stringify(patched.at(-1)));

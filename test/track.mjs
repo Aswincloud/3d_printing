@@ -3,6 +3,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { trackLookup, trackByToken, trackPage, orderHtml } from "../src/track.js";
+import { trackingUrlFor } from "../src/lib.js";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -132,6 +133,15 @@ section("wiring");
   const home = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   ok("homepage footer and menu link to /track", (home.match(/href="\/track"/g) || []).length === 2);
   ok("emails no longer use the dead ?receipt= link", !readFileSync(new URL("../src/emails.js", import.meta.url), "utf8").includes("?receipt="));
+}
+
+{
+  // DTDC's old dtdc.in/tracking.asp link now redirects to its homepage and
+  // drops the number, so the customer lands nowhere. The current page reads ?awb=.
+  ok("DTDC links to its current tracking page with the AWB",
+     trackingUrlFor("DTDC", "C5000946201") === "https://www.dtdc.com/track-your-shipment/?awb=C5000946201",
+     trackingUrlFor("DTDC", "C5000946201"));
+  ok("…matched loosely", trackingUrlFor("dtdc courier", "C1") === "https://www.dtdc.com/track-your-shipment/?awb=C1");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
