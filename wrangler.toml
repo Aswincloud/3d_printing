@@ -180,11 +180,12 @@ CHAT_COUPONS_ENABLED = "true"
 # different one is an edit here — and clearing it takes the banner down without
 # touching the coupon, which stays usable for anyone who already has it.
 PROMO_CODE = "DIWALI26"
-# A short occasion label shown before the coupon in the banner ("Diwali deals").
-# It appears only while PROMO_CODE's coupon is usable, so it ends with the code.
+# A short occasion label shown before the coupon in the banner, as
+# "CODE:label". It shows only while that exact code is the featured, usable
+# coupon — so it ends with the code, and never follows a different one.
 # DIWALI26 (26% off, max ₹100, once per customer) expires 30 Nov 2026 23:59 IST;
 # WELCOME10 was paused for it and should be reactivated and featured again then.
-PROMO_LABEL = "🪔 Diwali deals"
+PROMO_LABEL = "DIWALI26:🪔 Diwali deals"
 
 # Google Search Console HTML-file verification. Paste the token from the
 # verification file's NAME (google<TOKEN>.html) — not the whole filename — and
