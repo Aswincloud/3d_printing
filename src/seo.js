@@ -357,7 +357,12 @@ export function offerParts(promo) {
   ].filter(Boolean).join(", ");
   const short = `${off}${cap} with ${promo.code}` + (limits ? ` · ${limits}` : "")
     + (ends ? ` · ${ends.replace(/^Ends/, "ends")}` : "");
-  return { kicker: promo.label, title: `${off} everything in the shop`, terms: terms.join(" · "), code: promo.code, ends, short };
+  // The sale's free gift, if it has one: "🎁 Order above ₹999 and get …".
+  const gift = promo.gift && promo.gift.min_paise > 0 && promo.gift.text
+    // "₹999 and above" because the rule is >= (an order of exactly ₹999 qualifies).
+    ? `🎁 Orders of ${rupees(promo.gift.min_paise)} and above get ${promo.gift.text}`
+    : "";
+  return { kicker: promo.label, title: `${off} everything in the shop`, terms: terms.join(" · "), code: promo.code, ends, short, gift };
 }
 
 export function promoBannerText(promo, freeShip = false) {
@@ -447,6 +452,8 @@ export function rewriteHome(env, response, products, url, promo = null) {
     .on("#offerTerms", { element(el) { if (offer) el.setInnerContent(offer.terms); } })
     .on("#offerCode", { element(el) { if (offer) el.setInnerContent(offer.code); } })
     .on("#offerEnds", { element(el) { if (offer) el.setInnerContent(offer.ends); } })
+    .on("#offerGift", { element(el) { if (offer && offer.gift) { el.removeAttribute("hidden"); el.setInnerContent(offer.gift); } } })
+    .on("#heroOfferGift", { element(el) { if (offer && offer.gift) { el.removeAttribute("hidden"); el.setInnerContent(offer.gift); } } })
     // The compact phone card in the hero: same promo, same gate.
     .on("#heroOffer", { element(el) { if (offer) { el.removeAttribute("hidden"); el.setAttribute("data-promo-code", offer.code); } } })
     .on("#heroOfferKicker", { element(el) { if (offer) el.setInnerContent(offer.kicker); } })

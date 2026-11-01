@@ -162,6 +162,7 @@ export function orderCustomerEmail(env, order, items) {
     totalRow(order.shipping_paise === 0 ? "Shipping (free)" : "Shipping", rupees(order.shipping_paise)) +
     totalRow("Total paid", rupees(order.total_paise), true) +
     `</table></div>` +
+    (order.gift ? `<div style="background:${CARD};border:1px solid ${ORANGE};border-radius:10px;padding:16px 20px;margin-bottom:16px;font-size:15px">🎁 <strong style="color:${ORANGE}">Your free gift:</strong> ${esc(order.gift)} is coming with this order.</div>` : "") +
     `<div style="background:${CARD};border-radius:10px;padding:20px;margin-bottom:8px">` +
     `<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:${MUTED}">Shipping To</p>` +
     address + `</div>` +
@@ -430,6 +431,8 @@ export function orderOwnerEmail(env, order, items) {
     `<div style="padding:32px 32px 0"><div style="border-bottom:2px solid ${ORANGE};padding-bottom:16px;margin-bottom:24px">` +
     `<h1 style="color:${ORANGE};margin:0;font-size:24px">💰 New Paid Order</h1>` +
     `<p style="color:${MUTED};margin:4px 0 0">${esc(order.receipt)} · ${rupees(order.total_paise)}</p></div>` +
+    // A gift is a packing instruction: put it where it can't be missed.
+    (order.gift ? `<div style="background:#3a2408;border:1px solid ${ORANGE};border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:15px;font-weight:700;color:#ffd08a">🎁 Include ${esc(order.gift)} in this parcel</div>` : "") +
     `<table style="width:100%;border-collapse:collapse;margin-bottom:20px">${lines}</table>` +
     rows([
       ["Customer", esc(order.cust_name)],

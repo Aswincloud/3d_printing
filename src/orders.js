@@ -14,7 +14,7 @@
 // callback. And if only the browser could, a closed tab would lose the order.
 
 import { json, bad, uid, now, randToken, isEmail, sendEmail, ownerCopy } from "./lib.js";
-import { priceCart } from "./shop.js";
+import { priceCart, saleGift } from "./shop.js";
 import { recordRedemption } from "./coupons.js";
 import { scheduleUnpaidReminder } from "./reminders.js";
 import {
@@ -101,6 +101,7 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
   if (priced.error) return bad(priced.error, 400);
 
   const waOffers = body?.customer?.wa_offers === true ? 1 : 0;
+  const gift = await saleGift(env, priced.total_paise).catch(() => null);
 
   const receipt = makeReceipt();
   const orderId = uid();
@@ -148,8 +149,8 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       `INSERT INTO orders (id, receipt, rzp_order_id, status, subtotal_paise,
          shipping_paise, total_paise, currency, delivery, cust_name, cust_email,
          cust_phone, addr_line, addr_city, addr_state, addr_pin, notes, created_at,
-         user_id, coupon_code, discount_paise, pay_token, wa_offers)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         user_id, coupon_code, discount_paise, pay_token, wa_offers, gift)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       orderId, receipt, rzp.order.id, "pending",
       priced.subtotal_paise, priced.shipping_paise, priced.total_paise, "INR", delivery,
@@ -166,6 +167,9 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       // Only a literal true counts as consent to WhatsApp offers — the box is
       // unticked by default and nothing else in the body can switch it on.
       waOffers,
+      // The sale's free gift, if this order's amount paid earns it — decided here
+      // from the server's own total, never from anything the browser sent.
+      gift,
     ),
   ];
 
