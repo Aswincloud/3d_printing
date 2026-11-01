@@ -134,24 +134,35 @@
 <main id="main" tabindex="-1">
 
 <!-- ===== HERO ===== -->
+<!-- ===== OFFER =====
+     The live sale, first thing on the page (above the hero), in full: headline,
+     terms, gift, code, Copy, Shop the deals, deadline. A seasonal section for
+     the featured sale (Diwali now). Hidden unless the
+     coupon is live AND has an occasion label (PROMO_LABEL): the Worker fills
+     the headline and terms from the coupon row and un-hides it, so it can never
+     advertise an expired code or terms the checkout would not honour. Text is
+     set with setInnerContent / textContent — never parsed as HTML. -->
+<section class="offer" id="offer" aria-labelledby="offerTitle" hidden>
+  <div class="offer-inner">
+    <p class="offer-kicker" id="offerKicker"></p>
+    <h2 class="offer-title" id="offerTitle"></h2>
+    <p class="offer-terms" id="offerTerms"></p>
+    <p class="offer-gift" id="offerGift" hidden></p>
+    <div class="offer-actions">
+      <span class="offer-code" id="offerCode"></span>
+      <button type="button" class="offer-copy" id="offerCopy">Copy code</button>
+      <a class="offer-cta" href="#shop">Shop the deals</a>
+    </div>
+    <p class="offer-ends" id="offerEnds"></p>
+  </div>
+</section>
+
 <section class="hero" id="home">
   <div class="hero-bg"></div>
   <div class="hero-grid"></div>
   <div class="hero-content">
     <div class="hero-badge">Bambu Lab A1 · Pondicherry, India</div>
     <h1>Your Ideas,<br><span class="accent">Printed in 3D</span></h1>
-    <!-- Phones only: the seasonal offer in the first screen. The full #offer
-         section sits ~1,100px down on a phone, below the tall hero. Filled and
-         un-hidden by the Worker exactly like #offer (offerParts in src/seo.js),
-         so it can never show an expired or unlabelled code. -->
-    <a class="hero-offer" id="heroOffer" href="#offer" hidden>
-      <span class="hero-offer-text">
-        <strong id="heroOfferKicker"></strong>
-        <span id="heroOfferLine"></span>
-        <span class="hero-offer-gift" id="heroOfferGift" hidden></span>
-      </span>
-      <span class="hero-offer-go" aria-hidden="true">Get code ›</span>
-    </a>
     <p>From intricate figurines to functional prototypes — printed with precision, shipped fast, and priced fairly.</p>
     <div class="hero-actions">
       <a href="#quote" class="btn-primary">
@@ -216,26 +227,6 @@
   </div>
 </section>
 
-<!-- ===== OFFER =====
-     A seasonal section for the featured coupon (Diwali now). Hidden unless the
-     coupon is live AND has an occasion label (PROMO_LABEL): the Worker fills
-     the headline and terms from the coupon row and un-hides it, so it can never
-     advertise an expired code or terms the checkout would not honour. Text is
-     set with setInnerContent / textContent — never parsed as HTML. -->
-<section class="offer" id="offer" aria-labelledby="offerTitle" hidden>
-  <div class="offer-inner">
-    <p class="offer-kicker" id="offerKicker"></p>
-    <h2 class="offer-title" id="offerTitle"></h2>
-    <p class="offer-terms" id="offerTerms"></p>
-    <p class="offer-gift" id="offerGift" hidden></p>
-    <div class="offer-actions">
-      <span class="offer-code" id="offerCode"></span>
-      <button type="button" class="offer-copy" id="offerCopy">Copy code</button>
-      <a class="offer-cta" href="#shop">Shop the deals</a>
-    </div>
-    <p class="offer-ends" id="offerEnds"></p>
-  </div>
-</section>
 
 <!-- ===== SHOP ===== -->
 <!-- Cards are rendered by assets/js/main.js from GET /api/products.
