@@ -824,6 +824,9 @@ function syncOffer(promo) {
   const code = sec.dataset.promoCode || '';
   const live = promo && promo.code && promo.code.toUpperCase() === code.toUpperCase();
   sec.hidden = !live || (promoUsed && promo.once_per_customer);
+  // The phone card in the hero follows the section exactly.
+  const card = document.getElementById('heroOffer');
+  if (card && card.dataset.promoCode) card.hidden = sec.hidden;
   const copy = document.getElementById('offerCopy');
   if (copy && !copy.dataset.bound) {
     copy.dataset.bound = '1';

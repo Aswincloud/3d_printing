@@ -129,6 +129,17 @@
   <div class="hero-content">
     <div class="hero-badge">Bambu Lab A1 · Pondicherry, India</div>
     <h1>Your Ideas,<br><span class="accent">Printed in 3D</span></h1>
+    <!-- Phones only: the seasonal offer in the first screen. The full #offer
+         section sits ~1,100px down on a phone, below the tall hero. Filled and
+         un-hidden by the Worker exactly like #offer (offerParts in src/seo.js),
+         so it can never show an expired or unlabelled code. -->
+    <a class="hero-offer" id="heroOffer" href="#offer" hidden>
+      <span class="hero-offer-text">
+        <strong id="heroOfferKicker"></strong>
+        <span id="heroOfferLine"></span>
+      </span>
+      <span class="hero-offer-go" aria-hidden="true">Get code ›</span>
+    </a>
     <p>From intricate figurines to functional prototypes — printed with precision, shipped fast, and priced fairly.</p>
     <div class="hero-actions">
       <a href="#quote" class="btn-primary">

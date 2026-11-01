@@ -343,6 +343,16 @@ console.log("\nthe homepage offer section");
   ok("it sits between the hero and the shop", html.indexOf('id="home"') < html.indexOf('id="offer"') && html.indexOf('id="offer"') < html.indexOf('id="shop"'));
   const main = readFileSync(new URL("../public/assets/js/main.js", import.meta.url), "utf8");
   ok("the browser hides it for a customer who has used the code", main.includes("sec.hidden = !live || (promoUsed && promo.once_per_customer);"));
+
+  // The phone card in the hero.
+  ok("card line: offer, cap, code, deadline", o.short === "26% off (up to ₹100) with DIWALI26 · ends 30 Nov", o.short);
+  ok("card line without an expiry has no deadline", offerParts({ ...diwali, expires_at: null }).short === "26% off (up to ₹100) with DIWALI26");
+  ok("the card ships hidden and links to the section", /<a class="hero-offer" id="heroOffer" href="#offer" hidden>/.test(html));
+  ok("the card sits in the hero, under the headline", html.indexOf("<h1>Your Ideas") < html.indexOf('id="heroOffer"') && html.indexOf('id="heroOffer"') < html.indexOf('id="offer"'));
+  ok("the card follows the section (used code → both hidden)", main.includes("if (card && card.dataset.promoCode) card.hidden = sec.hidden;"));
+  const css = readFileSync(new URL("../public/assets/css/style.css", import.meta.url), "utf8");
+  ok("the card is phones-only", /\.hero-offer \{ display: none; \}/.test(css) && /@media \(max-width: 768px\) \{\s*\.hero-offer:not\(\[hidden\]\)/.test(css));
+  ok("on phones the top strip steps aside only while the card shows", css.includes("body:has(#heroOffer:not([hidden])) #promoBanner { display: none; }"));
 }
 
 // The shoppable hero is rewritten by rewriteHome(), which uses HTMLRewriter — a
