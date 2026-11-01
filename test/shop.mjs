@@ -86,6 +86,16 @@ ok("missing vars fall back", d.flat_paise === 0 && d.free_threshold_paise === 20
 }
 
 // ── free shipping (FLAT_SHIP_PAISE = "0") ─────────────────────────
+section("PROMO_LABEL");
+{
+  const { promoLabel } = await import("../src/shop.js");
+  ok("trimmed and one line", promoLabel({ PROMO_LABEL: "  Diwali\n   deals  " }) === "Diwali deals");
+  ok("capped at 40 characters", promoLabel({ PROMO_LABEL: "x".repeat(90) }).length === 40);
+  ok("unset → empty", promoLabel({}) === "");
+  const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  ok("DIWALI26 is featured with its label", /^PROMO_CODE = "DIWALI26"/m.test(toml) && /^PROMO_LABEL = "🪔 Diwali deals"/m.test(toml));
+}
+
 section("free shipping on every order");
 {
   const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");

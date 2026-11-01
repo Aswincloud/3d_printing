@@ -808,8 +808,9 @@ function promoLine(promo, freeShip) {
     if (promo.once_per_customer) caps.push('one use per customer');
     coupon = off + (caps.length ? ' — ' + caps.join(', ') : '') + ' with code ' + promo.code;
   }
-  if (freeShip) return coupon ? FREE_SHIP_BANNER + ' · ' + coupon : FREE_SHIP_BANNER;
-  return coupon;
+  // The occasion label leads, and only with its coupon (see promoLabel in src/shop.js).
+  const label = promo && promo.code && promo.label ? promo.label : '';
+  return [label, freeShip ? FREE_SHIP_BANNER : '', coupon].filter(Boolean).join(' · ');
 }
 
 function renderPromo(promo) {

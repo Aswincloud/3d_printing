@@ -307,7 +307,13 @@ console.log("\nfree-shipping banner matches the client");
   ok("nothing at all → empty", promoBannerText(null, false) === "");
   const main = readFileSync(new URL("../public/assets/js/main.js", import.meta.url), "utf8");
   ok("main.js uses the same free-shipping words", main.includes("const FREE_SHIP_BANNER = 'Free shipping across India';"));
-  ok("main.js joins them the same way", main.includes("FREE_SHIP_BANNER + ' · ' + coupon"));
+  ok("main.js joins them the same way", main.includes("[label, freeShip ? FREE_SHIP_BANNER : '', coupon].filter(Boolean).join(' · ')"));
+  const diwali = { code: "DIWALI26", kind: "percent", value: 26, max_discount_paise: 10000, once_per_customer: true, label: "🪔 Diwali deals" };
+  ok("the occasion label leads",
+     promoBannerText(diwali, true) === "🪔 Diwali deals · Free shipping across India · 26% off — up to ₹100, one use per customer with code DIWALI26",
+     promoBannerText(diwali, true));
+  ok("no label → unchanged", promoBannerText({ ...diwali, label: "" }, true).startsWith("Free shipping across India · 26% off"));
+  ok("a label never shows without its coupon", promoBannerText({ label: "🪔 Diwali deals" }, true) === "Free shipping across India");
   const faqFree = JSON.stringify(localPageJsonLd({ FLAT_SHIP_PAISE: "0" }));
   ok("FAQ says free when free", faqFree.includes("shipping is free on every order") && !faqFree.includes("₹99"));
   const faqFlat = JSON.stringify(localPageJsonLd({ FLAT_SHIP_PAISE: "9900" }));

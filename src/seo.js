@@ -333,8 +333,9 @@ export const FREE_SHIP_BANNER = "Free shipping across India";
 
 export function promoBannerText(promo, freeShip = false) {
   const coupon = promo && promo.code ? couponText(promo) : "";
-  if (freeShip) return coupon ? FREE_SHIP_BANNER + " · " + coupon : FREE_SHIP_BANNER;
-  return coupon;
+  const label = promo && promo.code && promo.label ? promo.label : "";
+  const parts = [label, freeShip ? FREE_SHIP_BANNER : "", coupon].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function couponText(promo) {

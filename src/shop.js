@@ -127,7 +127,17 @@ export async function featuredPromo(env) {
     // A display hint, so the banner can say "one use per customer" rather than
     // the customer discovering it at checkout.
     once_per_customer: Boolean(row.once_per_customer),
+    // A short occasion label from PROMO_LABEL ("Diwali deals"), shown before the
+    // terms. It rides on the promo so it can only ever appear WITH the coupon it
+    // was written for: when the code expires or is paused, the label goes too.
+    label: promoLabel(env),
   };
+}
+
+// PROMO_LABEL, cleaned: one line, short, plain text (it is set with
+// textContent / setInnerContent, never parsed as HTML).
+export function promoLabel(env) {
+  return String(env.PROMO_LABEL || "").replace(/\s+/g, " ").trim().slice(0, 40);
 }
 
 // Photos with no product row, as quote-only cards.
