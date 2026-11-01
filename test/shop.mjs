@@ -431,6 +431,9 @@ function catalogueEnv({ products = [], manifest = null } = {}) {
             if (s.includes("WHERE visible = 0")) {
               return { results: products.filter((p) => p.visible === 0) };
             }
+            // The sales calendar (featuredPromo / salesCalendar): no sales here.
+            // Their behaviour is tested against real SQLite in test/sales.mjs.
+            if (s.includes("FROM coupons WHERE occasion IS NOT NULL")) return { results: [] };
             throw new Error("unhandled SQL in catalogue fake: " + s.slice(0, 70));
           },
         };

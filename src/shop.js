@@ -78,6 +78,8 @@ export async function listProducts(env) {
     // Absent when there is nothing live to advertise, so the banner has nothing
     // to render rather than rendering something stale.
     promo: await featuredPromo(env),
+    // Live and upcoming sales, for the "Offers" menu.
+    sales: await salesCalendar(env),
   });
 }
 
@@ -95,47 +97,87 @@ export async function listProducts(env) {
 // Every reason a code could fail is checked here rather than trusted: paused,
 // expired, or out of uses. Aswin pausing WELCOME10 in the dashboard takes the
 // banner down on its own, with nothing else to remember.
-export async function featuredPromo(env) {
-  const code = String(env.PROMO_CODE || "").trim();
-  if (!code) return null;
+const PROMO_COLUMNS = `id, code, kind, value, min_order_paise, max_discount_paise, expires_at,
+  max_uses, uses, active, once_per_customer, starts_at, occasion`;
 
-  const row = await env.DB.prepare(
-    `SELECT id, code, kind, value, min_order_paise, max_discount_paise, expires_at,
-            max_uses, uses, active, once_per_customer
-       FROM coupons WHERE code = ?`
-  ).bind(code).first();
-
-  if (!row) return null;
-  if (!row.active) return null;
-  if (row.expires_at && row.expires_at <= now()) return null;
-  if (row.max_uses !== null && row.uses >= row.max_uses) return null;
-
+// Usable right now, as a storewide percent/fixed code: the same conditions
+// applyCoupon() enforces, so nothing is advertised that checkout would refuse.
+async function promoUsable(env, row, t) {
+  if (!row || !row.active) return false;
+  if (row.starts_at && row.starts_at > t) return false;
+  if (row.expires_at && row.expires_at <= t) return false;
+  if (row.max_uses !== null && row.uses >= row.max_uses) return false;
   // Only percentage and fixed codes have terms worth putting on a banner; a
   // shipping code's value is already covered by the free-shipping note.
-  if (row.kind !== "percent" && row.kind !== "fixed") return null;
-
+  if (row.kind !== "percent" && row.kind !== "fixed") return false;
   // A code limited to certain products is not a storewide promise, and the
   // banner has no room to say which products. It simply does not run for one.
-  if ((await couponScope(env, row.id)).length) return null;
-
-  return {
-    code: row.code,
-    kind: row.kind,
-    value: row.value,
-    max_discount_paise: row.max_discount_paise ?? null,
-    min_order_paise: row.min_order_paise || 0,
-    // A display hint, so the banner can say "one use per customer" rather than
-    // the customer discovering it at checkout.
-    once_per_customer: Boolean(row.once_per_customer),
-    // A short occasion label from PROMO_LABEL ("Diwali deals"), shown before the
-    // terms. It rides on the promo so it can only ever appear WITH the coupon it
-    // was written for: when the code expires or is paused, the label goes too.
-    label: promoLabel(env, row.code),
-    // For the homepage offer section's "Ends 30 Nov". Null for a code that never
-    // expires, in which case no deadline is shown.
-    expires_at: row.expires_at || null,
-  };
+  return !(await couponScope(env, row.id)).length;
 }
+
+const promoShape = (row, label) => ({
+  code: row.code,
+  kind: row.kind,
+  value: row.value,
+  max_discount_paise: row.max_discount_paise ?? null,
+  min_order_paise: row.min_order_paise || 0,
+  // A display hint, so the banner can say "one use per customer" rather than
+  // the customer discovering it at checkout.
+  once_per_customer: Boolean(row.once_per_customer),
+  // The occasion ("🪔 Diwali deals"), shown before the terms and as the homepage
+  // offer's kicker. A promo with one is a SALE and gets the full offer section.
+  label,
+  // "Ends 30 Nov". Null for a code that never expires: no deadline is shown.
+  expires_at: row.expires_at || null,
+  starts_at: row.starts_at || null,
+});
+
+// The promo to feature right now:
+//   1. a live SALE — a coupon with an occasion whose dates cover now. Sales
+//      follow the calendar on their own (DIWALI26 → NEWYEAR27 → PONGAL27); the
+//      one ending soonest wins if two overlap;
+//   2. otherwise PROMO_CODE (an always-on code like WELCOME10), labelled only by
+//      PROMO_LABEL if that names it.
+export async function featuredPromo(env) {
+  const t = now();
+  const { results } = await env.DB.prepare(
+    `SELECT ${PROMO_COLUMNS} FROM coupons
+      WHERE occasion IS NOT NULL AND occasion != '' AND active = 1
+        AND (starts_at IS NULL OR starts_at <= ?) AND (expires_at IS NULL OR expires_at > ?)
+      ORDER BY COALESCE(expires_at, 9e15), code`
+  ).bind(t, t).all();
+  for (const row of results || []) {
+    if (await promoUsable(env, row, t)) return promoShape(row, cleanLabel(row.occasion));
+  }
+
+  const code = String(env.PROMO_CODE || "").trim();
+  if (!code) return null;
+  const row = await env.DB.prepare(`SELECT ${PROMO_COLUMNS} FROM coupons WHERE code = ?`).bind(code).first();
+  if (!(await promoUsable(env, row, t))) return null;
+  return promoShape(row, cleanLabel(row.occasion) || promoLabel(env, row.code));
+}
+
+// Every sale that is live or still to come, soonest first, for the "Offers"
+// menu. Only coupons the owner gave an occasion — announced on purpose, codes
+// and all. Ended, paused or product-scoped ones are left out.
+export async function salesCalendar(env) {
+  const t = now();
+  const { results } = await env.DB.prepare(
+    `SELECT ${PROMO_COLUMNS} FROM coupons
+      WHERE occasion IS NOT NULL AND occasion != '' AND active = 1
+        AND (expires_at IS NULL OR expires_at > ?)
+      ORDER BY COALESCE(starts_at, 0), code LIMIT 12`
+  ).bind(t).all();
+  const out = [];
+  for (const row of results || []) {
+    // Usable at its own start (or now): same rules, judged when it begins.
+    if (!(await promoUsable(env, row, Math.max(t, row.starts_at || 0)))) continue;
+    out.push({ ...promoShape(row, cleanLabel(row.occasion)), live: !row.starts_at || row.starts_at <= t });
+  }
+  return out;
+}
+
+const cleanLabel = (s) => String(s || "").replace(/\s+/g, " ").trim().slice(0, 40);
 
 // PROMO_LABEL is "CODE:label" — the label names the coupon it was written for,
 // and shows only while THAT coupon is featured. Re-featuring another code later

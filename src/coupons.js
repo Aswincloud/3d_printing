@@ -75,7 +75,7 @@ export async function applyCoupon(env, rawCode, subtotalPaise, email, items = nu
 
   const c = await env.DB.prepare(
     `SELECT id, code, kind, value, min_order_paise, max_discount_paise,
-            expires_at, max_uses, uses, once_per_customer, active
+            expires_at, max_uses, uses, once_per_customer, active, starts_at
        FROM coupons WHERE code = ?`
   ).bind(code).first();
 
@@ -83,6 +83,12 @@ export async function applyCoupon(env, rawCode, subtotalPaise, email, items = nu
   // "this code is no longer active" would confirm the code exists, which turns
   // this endpoint into an oracle for guessing real codes.
   if (!c || !c.active) return { error: "That promo code isn't valid." };
+
+  // Not started yet: the SAME message as an unknown code. "Starts on 1 Dec"
+  // would let anyone confirm an upcoming code before it is announced. (The
+  // Offers menu does announce upcoming sales — deliberately, with their codes —
+  // but only the ones the owner labelled for it; this guards every other code.)
+  if (c.starts_at && now() < c.starts_at) return { error: "That promo code isn't valid." };
 
   if (c.expires_at && now() > c.expires_at) {
     return { error: "That promo code has expired." };
