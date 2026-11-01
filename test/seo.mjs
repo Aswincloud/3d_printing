@@ -354,7 +354,7 @@ console.log("\nthe homepage offer section");
   ok("the card sits in the hero, under the headline", html.indexOf("<h1>Your Ideas") < html.indexOf('id="heroOffer"') && html.indexOf('id="heroOffer"') < html.indexOf('id="offer"'));
   ok("the card follows the section (used code → both hidden)", main.includes("if (card && card.dataset.promoCode) card.hidden = sec.hidden;"));
   const css = readFileSync(new URL("../public/assets/css/style.css", import.meta.url), "utf8");
-  ok("the card is phones-only", /\.hero-offer \{ display: none; \}/.test(css) && /@media \(max-width: 768px\) \{\s*\.hero-offer:not\(\[hidden\]\)/.test(css));
+  ok("the card shows on every screen size once the Worker un-hides it", /\.hero-offer \{ display: none; \}/.test(css) && /@media all \{\s*\.hero-offer:not\(\[hidden\]\)/.test(css));
   ok("the top strip steps aside, on every screen, while the offer section shows", css.includes("body:has(#offer:not([hidden])) #promoBanner { display: none; }"));
   ok("…and not only on phones", !/@media[^{]*\{\s*body:has\(#offer/.test(css));
 }

@@ -838,6 +838,75 @@ function syncOffer(promo) {
   }
 }
 
+// ── the Offers menu ───────────────────────────────────────────────
+// Live and upcoming sales from /api/products (salesCalendar in src/shop.js):
+// only coupons the owner labelled as a sale, announced with their codes and
+// dates on purpose. Everything is set with textContent.
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+const offerDate = (ms) => new Date(Number(ms)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+function saleTerms(s) {
+  const off = s.kind === 'percent' ? s.value + '% off' : rupees(s.value) + ' off';
+  const bits = [off + (s.kind === 'percent' && s.max_discount_paise ? ' (up to ' + rupees(s.max_discount_paise) + ')' : '')];
+  if (s.min_order_paise) bits.push('on orders over ' + rupees(s.min_order_paise));
+  if (s.once_per_customer) bits.push('1 per customer');
+  return bits.join(' · ');
+}
+function renderOffersMenu(sales) {
+  const wrap = document.getElementById('navOffers');
+  const panel = document.getElementById('offersPanel');
+  const btn = document.getElementById('offersBtn');
+  if (!wrap || !panel || !btn) return;
+  wrap.hidden = !sales.length;
+  if (!sales.length) return;
+  document.getElementById('offersDot').hidden = !sales.some((x) => x.live);
+
+  panel.replaceChildren();
+  const group = (title, list) => {
+    if (!list.length) return;
+    panel.append(el('p', 'offers-head', title));
+    for (const x of list) {
+      const card = el('div', 'offers-item' + (x.live ? ' is-live' : ''));
+      card.append(el('p', 'offers-name', x.label || x.code), el('p', 'offers-terms', saleTerms(x)));
+      const when = x.live
+        ? (x.expires_at ? 'Ends ' + offerDate(x.expires_at) : 'On now')
+        : offerDate(x.starts_at) + (x.expires_at ? ' – ' + offerDate(x.expires_at) : ' onwards');
+      const row = el('div', 'offers-row');
+      row.append(el('span', 'offers-code', x.code), el('span', 'offers-when', when));
+      if (x.live) {
+        const copy = el('button', 'offers-copy', 'Copy');
+        copy.type = 'button';
+        copy.addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(x.code); copy.textContent = 'Copied'; }
+          catch { copy.textContent = x.code; }
+          setTimeout(() => { copy.textContent = 'Copy'; }, 2000);
+        });
+        row.append(copy);
+      }
+      card.append(row);
+      panel.append(card);
+    }
+  };
+  group('Now on', sales.filter((x) => x.live));
+  group('Coming up', sales.filter((x) => !x.live));
+
+  if (btn.dataset.bound) return;
+  btn.dataset.bound = '1';
+  const close = () => { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = panel.hidden;
+    panel.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('click', (e) => { if (!panel.hidden && !e.target.closest('#navOffers')) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) { close(); btn.focus(); } });
+}
+
 function renderPromo(promo) {
   const bar = document.getElementById('promoBanner');
   if (!bar) return;
@@ -957,6 +1026,7 @@ async function loadProducts() {
     // placeholder zeros above, which mean "not known yet".
     if (data.shipping) shipCfg = { ...data.shipping, loaded: true };
     renderPromo(data.promo);
+    renderOffersMenu(Array.isArray(data.sales) ? data.sales : []);
     // Chips before the grid: renderFilters reveals the controls, and doing it
     // first means they never flash in above an empty grid.
     renderFilters();

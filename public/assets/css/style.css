@@ -3458,10 +3458,11 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 }
 
 /* ===== Hero offer card (index.html #heroOffer) =====
-   Phones only: the seasonal offer inside the first screen. Desktop already sees
-   the full #offer section near the top, so the card is never shown there. */
+   The seasonal offer inside the first screen, on every screen size: the full
+   #offer section sits below the hero, out of view until the visitor scrolls. */
 .hero-offer { display: none; }
-@media (max-width: 768px) {
+.hero-offer:not([hidden]) { max-width: 520px; }
+@media all {
   .hero-offer:not([hidden]) {
     display: flex; align-items: center; gap: 12px;
     margin: 0 0 18px; padding: 12px 14px; min-height: 56px;
@@ -3487,3 +3488,36 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
    offsetHeight 0, which syncPromoOffset() reads, so the fixed menu sits flush at
    the top with no script change. */
 body:has(#offer:not([hidden])) #promoBanner { display: none; }
+
+/* ===== Offers menu (index.html #navOffers) ===== */
+.nav-offers { position: relative; }
+.nav-offers[hidden] { display: none; }
+.nav-offers-btn { gap: 6px; width: auto; padding: 0 12px; }
+.nav-offers-label { font-size: 0.85rem; font-weight: 700; }
+.nav-offers-dot { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 0 rgba(255, 107, 0, 0.6); animation: offersPulse 2s infinite; }
+@keyframes offersPulse { 0% { box-shadow: 0 0 0 0 rgba(255,107,0,.6); } 70% { box-shadow: 0 0 0 8px rgba(255,107,0,0); } 100% { box-shadow: 0 0 0 0 rgba(255,107,0,0); } }
+@media (prefers-reduced-motion: reduce) { .nav-offers-dot { animation: none; } }
+.offers-panel {
+  position: absolute; top: calc(100% + 10px); right: 0; z-index: 60;
+  width: min(340px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+  padding: 14px; border-radius: 14px; border: 1px solid var(--dark-4);
+  background: var(--dark-2); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+.offers-panel[hidden] { display: none; }
+.offers-head { margin: 4px 2px 8px; font-size: 0.72rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
+.offers-head:not(:first-child) { margin-top: 14px; }
+.offers-item { padding: 12px; border-radius: 12px; border: 1px solid var(--dark-4); background: var(--dark-3); }
+.offers-item + .offers-item { margin-top: 8px; }
+.offers-item.is-live { border-color: rgba(255, 140, 56, 0.6); background: radial-gradient(140% 160% at 0% 0%, rgba(255,170,60,.22), transparent 60%), var(--dark-3); }
+.offers-name { margin: 0 0 2px; font-weight: 800; color: var(--text); }
+.offers-item.is-live .offers-name { color: var(--orange-light); }
+.offers-terms { margin: 0 0 8px; font-size: 0.85rem; color: var(--text-muted); }
+.offers-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.offers-code { padding: 3px 8px; border: 1.5px dashed var(--orange-light); border-radius: 8px; font-weight: 800; letter-spacing: 1px; font-size: 0.85rem; color: #ffd08a; }
+.offers-when { font-size: 0.8rem; color: var(--text-muted); }
+.offers-copy { margin-left: auto; min-height: 36px; padding: 0 12px; border-radius: 8px; border: 0; font: inherit; font-weight: 700; font-size: 0.85rem; cursor: pointer; background: linear-gradient(135deg, var(--orange), var(--orange-light)); color: var(--on-orange); }
+@media (max-width: 520px) {
+  .nav-offers-label { display: none; }
+  .nav-offers-btn { width: 44px; padding: 0; }
+  .offers-panel { position: fixed; top: 64px; right: 16px; left: 16px; width: auto; }
+}

@@ -179,13 +179,14 @@ CHAT_COUPONS_ENABLED = "true"
 # The coupon featured in the homepage banner. A var, not code, so featuring a
 # different one is an edit here — and clearing it takes the banner down without
 # touching the coupon, which stays usable for anyone who already has it.
-PROMO_CODE = "DIWALI26"
-# A short occasion label shown before the coupon in the banner, as
-# "CODE:label". It shows only while that exact code is the featured, usable
-# coupon — so it ends with the code, and never follows a different one.
-# DIWALI26 (26% off, max ₹100, once per customer) expires 30 Nov 2026 23:59 IST;
-# WELCOME10 was paused for it and should be reactivated and featured again then.
-PROMO_LABEL = "DIWALI26:🪔 Diwali deals"
+PROMO_CODE = "WELCOME10"
+# Seasonal SALES are scheduled in the coupons table, not here: a coupon with an
+# `occasion` and `starts_at` / `expires_at` (migration 0031) is featured in the
+# banner and homepage offer while live, and listed under "Offers" while live or
+# upcoming — switching over by date on its own (DIWALI26 Nov, NEWYEAR27 Dec,
+# PONGAL27 Jan 2027). PROMO_CODE above is only the fallback between sales; it is
+# shown only while usable, so WELCOME10 (paused for these sales) stays off the
+# banner until it is reactivated in the dashboard.
 
 # Google Search Console HTML-file verification. Paste the token from the
 # verification file's NAME (google<TOKEN>.html) — not the whole filename — and
