@@ -3479,11 +3479,11 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
   }
   .hero-offer:focus-visible { outline: 2px solid #ffd08a; outline-offset: 2px; }
 }
-/* On a phone, when the hero card is showing the offer, the top strip would only
-   repeat it in three cramped lines above the menu. The card carries the same
-   offer, cap, code and deadline and links to the full section, so the strip
-   steps aside. display:none gives it offsetHeight 0, which syncPromoOffset()
-   reads, so the fixed menu sits flush at the top with no script change. */
-@media (max-width: 768px) {
-  body:has(#heroOffer:not([hidden])) #promoBanner { display: none; }
-}
+/* While the seasonal offer section is showing (#offer, and on phones the hero
+   card that follows it), the top strip would only repeat it — so it steps aside
+   on every screen size. The section states the offer, cap, limits, deadline and
+   free shipping. When the section hides (code expired, or this customer already
+   used it), the strip comes back on its own. display:none gives the strip
+   offsetHeight 0, which syncPromoOffset() reads, so the fixed menu sits flush at
+   the top with no script change. */
+body:has(#offer:not([hidden])) #promoBanner { display: none; }
