@@ -343,6 +343,16 @@ section("POST /api/orders — the sale's free gift is recorded from the server's
   b = { items: [{ product_id: "p-small", qty: 1 }], customer: { ...CUSTOMER, gift: "a gold bar" }, gift: "a gold bar" };
   await createOrderHandler(post(b), env, b);
   ok("a gift in the request body is ignored", env.DB._db.orders[0].gift === null);
+  // The gift lookup itself fails: the order still goes through, flagged.
+  env = ENV(); stubFetch();
+  { const real = env.DB; env.DB = { ...real, _db: real._db, prepare(sql) {
+      if (/FROM coupons\s+WHERE occasion IS NOT NULL/.test(sql)) return { bind: () => ({ all: async () => { throw new Error("D1 blip"); } }) };
+      return real.prepare(sql);
+    } }; }
+  b = { items: [{ product_id: "p-small", qty: 3 }], customer: CUSTOMER };
+  const [stFail] = await readJson(await createOrderHandler(post(b), env, b));
+  ok("a failed gift lookup does not block the order", stFail === 200, String(stFail));
+  ok("…and flags it for the owner instead of dropping it", /gift check failed/.test(String(env.DB._db.orders[0].gift)), String(env.DB._db.orders[0].gift));
   // Judged on what is PAID (after any coupon, with shipping) — priceCart's
   // total_paise — never the pre-discount subtotal. The fake here cannot apply a
   // coupon, so the call itself is pinned.

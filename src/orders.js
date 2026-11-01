@@ -60,6 +60,10 @@ function validateCustomer(c, delivery) {
   return { customer: out, errors };
 }
 
+// Stored as the order's gift when the lookup itself failed. Reads naturally in
+// the owner's "Include … in this parcel" box and the dashboard's Free gift row.
+export const GIFT_CHECK_FAILED = "the sale gift if this order qualifies (the gift check failed — confirm the total is ₹999+)";
+
 // 'AP-' + 8 hex. Unguessable enough to act as the receipt-page key, and well
 // under Razorpay's 40-char receipt cap.
 const makeReceipt = () => "AP-" + randToken(4);
@@ -101,7 +105,14 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
   if (priced.error) return bad(priced.error, 400);
 
   const waOffers = body?.customer?.wa_offers === true ? 1 : 0;
-  const gift = await saleGift(env, priced.total_paise).catch(() => null);
+  // Resolved before the payment order exists, so it is part of the snapshot. A
+  // failed lookup must neither block the sale nor silently drop a gift the
+  // customer was promised: the order goes through, flagged for the owner to
+  // check by hand (it shows in the paid-order email and on the dashboard).
+  const gift = await saleGift(env, priced.total_paise).catch((e) => {
+    console.error("gift lookup failed — order flagged", e?.message || e);
+    return GIFT_CHECK_FAILED;
+  });
 
   const receipt = makeReceipt();
   const orderId = uid();
