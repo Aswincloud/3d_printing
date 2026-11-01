@@ -86,6 +86,18 @@ ok("missing vars fall back", d.flat_paise === 0 && d.free_threshold_paise === 20
 }
 
 // ── free shipping (FLAT_SHIP_PAISE = "0") ─────────────────────────
+section("PROMO_LABEL — tied to the code it was written for");
+{
+  const { promoLabel } = await import("../src/shop.js");
+  const env = { PROMO_LABEL: "DIWALI26:  🪔 Diwali\n   deals  " };
+  ok("shown for its own code, cleaned to one line", promoLabel(env, "DIWALI26") === "🪔 Diwali deals", promoLabel(env, "DIWALI26"));
+  ok("…in any case", promoLabel(env, "diwali26") === "🪔 Diwali deals");
+  ok("never for another code (WELCOME10 after Diwali)", promoLabel(env, "WELCOME10") === "");
+  ok("a label without a code shows nowhere", promoLabel({ PROMO_LABEL: "Diwali deals" }, "DIWALI26") === "");
+  ok("capped at 40 characters", promoLabel({ PROMO_LABEL: "X:" + "y".repeat(90) }, "X").length === 40);
+  ok("unset → empty", promoLabel({}, "DIWALI26") === "");
+}
+
 section("free shipping on every order");
 {
   const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
