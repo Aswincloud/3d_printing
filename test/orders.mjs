@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 // Integration tests for the order lifecycle, with the Razorpay API stubbed at
 // the fetch boundary and D1 replaced by a small in-memory SQL-ish fake.
 //
@@ -91,12 +92,12 @@ function makeDB() {
       const [id, receipt, rzp_order_id, status, subtotal_paise, shipping_paise,
         total_paise, currency, delivery, cust_name, cust_email, cust_phone,
         addr_line, addr_city, addr_state, addr_pin, notes, created_at,
-        user_id, coupon_code, discount_paise, pay_token, wa_offers] = args;
+        user_id, coupon_code, discount_paise, pay_token, wa_offers, gift] = args;
       db.orders.push({ id, receipt, rzp_order_id, rzp_payment_id: null, status,
         subtotal_paise, shipping_paise, total_paise, currency, delivery,
         cust_name, cust_email, cust_phone, addr_line, addr_city, addr_state,
         addr_pin, notes, created_at, paid_at: null,
-        user_id, coupon_code, discount_paise, pay_token, wa_offers });
+        user_id, coupon_code, discount_paise, pay_token, wa_offers, gift });
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("INSERT INTO order_items (id, order_id, product_id, name, price_paise, qty, personalisation, pos) VALUES (?,?,NULL,")) {
@@ -312,6 +313,52 @@ section("POST /api/orders — the 30-minute unpaid reminder, and WhatsApp-offer 
   const e4 = { ...ENV(), REMINDERS_ENABLED: "true", REMINDERS: { async send() { throw new Error("queue down"); } } }; stubFetch();
   const [st4] = await readJson(await createOrderHandler(post(body), e4, body));
   ok("a queue failure never fails the checkout", st4 === 200, String(st4));
+}
+
+section("POST /api/orders — the sale's free gift is recorded from the server's own total");
+{
+  // Fake D1 answers the sales query with a live Diwali sale (gift at ₹999).
+  const sale = { id: "c1", code: "DIWALI26", kind: "percent", value: 26, min_order_paise: 0, max_discount_paise: 10000,
+    expires_at: Date.now() + 86400000, max_uses: null, uses: 0, active: 1, once_per_customer: 1, starts_at: null,
+    occasion: "🪔 Diwali deals", gift_min_paise: 99900, gift_text: "a free 3D-printed surprise gift" };
+  const withSale = (env) => {
+    const real = env.DB;
+    env.DB = { ...real, _db: real._db, prepare(sql) {
+      if (/FROM coupons\s+WHERE occasion IS NOT NULL/.test(sql)) return { bind: () => ({ all: async () => ({ results: [sale] }) }) };
+      if (/FROM coupon_products/.test(sql)) return { bind: () => ({ all: async () => ({ results: [] }) }) };
+      return real.prepare(sql);
+    } };
+    return env;
+  };
+  // p-small is ₹349 in this fixture; 3 of them = ₹1,047, free shipping off here (flat ₹99) → ₹1,146.
+  let env = withSale(ENV()); stubFetch();
+  let b = { items: [{ product_id: "p-small", qty: 3 }], customer: CUSTOMER };
+  await createOrderHandler(post(b), env, b);
+  ok("an order over ₹999 records the gift", env.DB._db.orders[0].gift === "a free 3D-printed surprise gift", String(env.DB._db.orders[0].gift));
+  env = withSale(ENV()); stubFetch();
+  b = { items: [{ product_id: "p-small", qty: 1 }], customer: CUSTOMER };
+  await createOrderHandler(post(b), env, b);
+  ok("a smaller order records none", env.DB._db.orders[0].gift === null, String(env.DB._db.orders[0].gift));
+  env = withSale(ENV()); stubFetch();
+  b = { items: [{ product_id: "p-small", qty: 1 }], customer: { ...CUSTOMER, gift: "a gold bar" }, gift: "a gold bar" };
+  await createOrderHandler(post(b), env, b);
+  ok("a gift in the request body is ignored", env.DB._db.orders[0].gift === null);
+  // The gift lookup itself fails: the order still goes through, flagged.
+  env = ENV(); stubFetch();
+  { const real = env.DB; env.DB = { ...real, _db: real._db, prepare(sql) {
+      if (/FROM coupons\s+WHERE occasion IS NOT NULL/.test(sql)) return { bind: () => ({ all: async () => { throw new Error("D1 blip"); } }) };
+      return real.prepare(sql);
+    } }; }
+  b = { items: [{ product_id: "p-small", qty: 3 }], customer: CUSTOMER };
+  const [stFail] = await readJson(await createOrderHandler(post(b), env, b));
+  ok("a failed gift lookup does not block the order", stFail === 200, String(stFail));
+  ok("…and flags it for the owner instead of dropping it", /gift check failed/.test(String(env.DB._db.orders[0].gift)), String(env.DB._db.orders[0].gift));
+  // Judged on what is PAID (after any coupon, with shipping) — priceCart's
+  // total_paise — never the pre-discount subtotal. The fake here cannot apply a
+  // coupon, so the call itself is pinned.
+  const src = readFileSync(new URL("../src/orders.js", import.meta.url), "utf8");
+  ok("the gift is judged on the amount paid (total), not the subtotal",
+     src.includes("saleGift(env, priced.total_paise)") && !src.includes("saleGift(env, priced.subtotal_paise)"));
 }
 
 section("POST /api/orders — the client cannot set the price (invariant 1)");

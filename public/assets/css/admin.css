@@ -1244,3 +1244,6 @@
 .st-row input[type=checkbox] { width: 18px; height: 18px; }
 .st-addr { grid-column: 2; font-size: 12.5px; color: var(--muted, #a1a1aa); overflow-wrap: anywhere; }
 .st-shipto { grid-column: 2; font-size: 13px; display: flex; align-items: center; gap: 6px; min-height: 32px; }
+
+/* A sale's free gift on an order card. */
+.badge-gift { background: rgba(255, 140, 56, 0.18); color: #ffd08a; border: 1px solid rgba(255, 140, 56, 0.5); }

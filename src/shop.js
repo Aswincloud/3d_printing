@@ -98,7 +98,7 @@ export async function listProducts(env) {
 // expired, or out of uses. Aswin pausing WELCOME10 in the dashboard takes the
 // banner down on its own, with nothing else to remember.
 const PROMO_COLUMNS = `id, code, kind, value, min_order_paise, max_discount_paise, expires_at,
-  max_uses, uses, active, once_per_customer, starts_at, occasion`;
+  max_uses, uses, active, once_per_customer, starts_at, occasion, gift_min_paise, gift_text`;
 
 // Usable right now, as a storewide percent/fixed code: the same conditions
 // applyCoupon() enforces, so nothing is advertised that checkout would refuse.
@@ -130,7 +130,21 @@ const promoShape = (row, label) => ({
   // "Ends 30 Nov". Null for a code that never expires: no deadline is shown.
   expires_at: row.expires_at || null,
   starts_at: row.starts_at || null,
+  // The sale's free gift: { min_paise, text } or null. Applies to ANY order whose
+  // amount paid reaches min_paise while the sale is live — the banner promises it
+  // for "orders above ₹999", not for using the code. See saleGift().
+  gift: row.gift_min_paise > 0 && String(row.gift_text || "").trim()
+    ? { min_paise: row.gift_min_paise, text: String(row.gift_text).replace(/\s+/g, " ").trim().slice(0, 80) }
+    : null,
 });
+
+// The gift an order of `totalPaise` (what the customer pays) earns right now,
+// or null. The live sale's gift only — featuredPromo decides which sale is live.
+export async function saleGift(env, totalPaise) {
+  const promo = await featuredPromo(env);
+  const g = promo?.label ? promo.gift : null;
+  return g && Number(totalPaise) >= g.min_paise ? g.text : null;
+}
 
 // The promo to feature right now:
 //   1. a live SALE — a coupon with an occasion whose dates cover now. Sales

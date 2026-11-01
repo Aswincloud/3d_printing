@@ -251,6 +251,12 @@ function orderCard(o) {
   ref.append(document.createTextNode(o.receipt));
   const badge = el('span', 'badge badge-' + o.status, o.status_label || o.status);
   ref.appendChild(badge);
+  // A sale's free gift: a packing instruction, so it sits by the receipt.
+  if (o.gift) {
+    const g = el('span', 'badge badge-gift', '🎁 Gift');
+    g.title = 'Include ' + o.gift;
+    ref.appendChild(g);
+  }
   ref.appendChild(el('span', 'order-date', when(o.created_at)));
   top.append(ref, el('div', 'order-amount', rupees(o.total_paise)));
   card.appendChild(top);
@@ -301,6 +307,7 @@ function orderCard(o) {
   pair('Delivered at', o.delivered_at ? when(o.delivered_at) : null);
   // Shown here because this is where you look when a customer asks "where is my
   // parcel?" a week later — the email that carried it was sent once.
+  pair('Free gift', o.gift ? 'Include ' + o.gift : null);
   pair('Courier', o.courier);
   pair('Tracking', o.tracking_id);
   pair('Notes', o.notes);

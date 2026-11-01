@@ -3,7 +3,8 @@
 // the clock is moved with Date.now so the dates are exercised, not assumed.
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
-import { featuredPromo, salesCalendar } from "../src/shop.js";
+import { featuredPromo, salesCalendar, saleGift } from "../src/shop.js";
+import { offerParts } from "../src/seo.js";
 import { applyCoupon } from "../src/coupons.js";
 
 let pass = 0, fail = 0;
@@ -146,6 +147,30 @@ section("the Offers menu lists live and upcoming sales, labelled ones only");
   ok("a paused sale is not listed", !codes.includes("PONGAL27"));
   ok("a product-scoped sale is not listed (not storewide)", !codes.includes("NEWYEAR27"), codes.join(","));
 }
+section("the Diwali free gift: amount paid of ₹999 and above, only while the sale is live");
+{
+  const { db, env } = setup();
+  db.exec("UPDATE coupons SET gift_min_paise = 99900, gift_text = 'a free 3D-printed surprise gift' WHERE code = 'DIWALI26'");
+  at(IST("2026-11-15T12:00:00"));
+  ok("₹999 exactly earns it", (await saleGift(env, 99900)) === "a free 3D-printed surprise gift");
+  ok("₹998 does not", (await saleGift(env, 99800)) === null);
+  ok("₹12,099 does", (await saleGift(env, 1209900)) === "a free 3D-printed surprise gift");
+  const p = await featuredPromo(env);
+  ok("the featured promo carries the gift", p.gift?.min_paise === 99900 && p.gift?.text === "a free 3D-printed surprise gift", JSON.stringify(p.gift));
+  ok("homepage gift line", offerParts(p).gift === "🎁 Orders of ₹999 and above get a free 3D-printed surprise gift", offerParts(p).gift);
+  ok("the Offers menu lists it with the sale", (await salesCalendar(env))[0].gift?.min_paise === 99900);
+  at(IST("2026-12-01T00:00:30"));
+  ok("1 Dec: Diwali is over, so no gift (New Year has none)", (await saleGift(env, 500000)) === null);
+  ok("…and no gift line", offerParts(await featuredPromo(env)).gift === "");
+  db.exec("UPDATE coupons SET gift_text = '   ' WHERE code = 'DIWALI26'");
+  at(IST("2026-11-15T12:00:00"));
+  ok("a blank gift text is no gift", (await saleGift(env, 500000)) === null);
+  // A gift on a plain fallback code (no occasion) is not a sale's gift.
+  db.exec("UPDATE coupons SET gift_text = 'a free 3D-printed surprise gift', active = 0 WHERE code = 'DIWALI26'");
+  db.exec("UPDATE coupons SET active = 1, gift_min_paise = 99900, gift_text = 'a mug' WHERE code = 'WELCOME10'");
+  ok("WELCOME10 (featured, but not a sale) gives no gift", (await featuredPromo(env))?.code === "WELCOME10" && (await saleGift(env, 500000)) === null);
+}
+
 Date.now = realNow;
 
 console.log(`\n${pass} passed, ${fail} failed`);

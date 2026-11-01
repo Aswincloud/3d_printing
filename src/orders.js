@@ -14,7 +14,7 @@
 // callback. And if only the browser could, a closed tab would lose the order.
 
 import { json, bad, uid, now, randToken, isEmail, sendEmail, ownerCopy } from "./lib.js";
-import { priceCart } from "./shop.js";
+import { priceCart, saleGift } from "./shop.js";
 import { recordRedemption } from "./coupons.js";
 import { scheduleUnpaidReminder } from "./reminders.js";
 import {
@@ -60,6 +60,10 @@ function validateCustomer(c, delivery) {
   return { customer: out, errors };
 }
 
+// Stored as the order's gift when the lookup itself failed. Reads naturally in
+// the owner's "Include … in this parcel" box and the dashboard's Free gift row.
+export const GIFT_CHECK_FAILED = "the sale gift if this order qualifies (the gift check failed — confirm the total is ₹999+)";
+
 // 'AP-' + 8 hex. Unguessable enough to act as the receipt-page key, and well
 // under Razorpay's 40-char receipt cap.
 const makeReceipt = () => "AP-" + randToken(4);
@@ -101,6 +105,14 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
   if (priced.error) return bad(priced.error, 400);
 
   const waOffers = body?.customer?.wa_offers === true ? 1 : 0;
+  // Resolved before the payment order exists, so it is part of the snapshot. A
+  // failed lookup must neither block the sale nor silently drop a gift the
+  // customer was promised: the order goes through, flagged for the owner to
+  // check by hand (it shows in the paid-order email and on the dashboard).
+  const gift = await saleGift(env, priced.total_paise).catch((e) => {
+    console.error("gift lookup failed — order flagged", e?.message || e);
+    return GIFT_CHECK_FAILED;
+  });
 
   const receipt = makeReceipt();
   const orderId = uid();
@@ -148,8 +160,8 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       `INSERT INTO orders (id, receipt, rzp_order_id, status, subtotal_paise,
          shipping_paise, total_paise, currency, delivery, cust_name, cust_email,
          cust_phone, addr_line, addr_city, addr_state, addr_pin, notes, created_at,
-         user_id, coupon_code, discount_paise, pay_token, wa_offers)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         user_id, coupon_code, discount_paise, pay_token, wa_offers, gift)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       orderId, receipt, rzp.order.id, "pending",
       priced.subtotal_paise, priced.shipping_paise, priced.total_paise, "INR", delivery,
@@ -166,6 +178,9 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
       // Only a literal true counts as consent to WhatsApp offers — the box is
       // unticked by default and nothing else in the body can switch it on.
       waOffers,
+      // The sale's free gift, if this order's amount paid earns it — decided here
+      // from the server's own total, never from anything the browser sent.
+      gift,
     ),
   ];
 

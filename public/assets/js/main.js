@@ -872,6 +872,7 @@ function renderOffersMenu(sales) {
     for (const x of list) {
       const card = el('div', 'offers-item' + (x.live ? ' is-live' : ''));
       card.append(el('p', 'offers-name', x.label || x.code), el('p', 'offers-terms', saleTerms(x)));
+      if (x.gift && x.gift.min_paise > 0) card.append(el('p', 'offers-gift', '🎁 Orders of ' + rupees(x.gift.min_paise) + ' and above get ' + x.gift.text));
       const when = x.live
         ? (x.expires_at ? 'Ends ' + offerDate(x.expires_at) : 'On now')
         : offerDate(x.starts_at) + (x.expires_at ? ' – ' + offerDate(x.expires_at) : ' onwards');
@@ -1960,9 +1961,9 @@ function renderCart() {
   const hint = document.getElementById('cartShipHint');
   if (hint) {
     const short = shipCfg.free_threshold_paise - subtotal;
-    hint.textContent = shipping > 0 && short > 0
-      ? 'Add ' + rupees(short) + ' more for free shipping'
-      : '';
+    // The sale's free gift takes this slot; free shipping needs no nudge now.
+    hint.textContent = giftNudge(subtotal + shipping)
+      || (shipping > 0 && short > 0 ? 'Add ' + rupees(short) + ' more for free shipping' : '');
   }
 
   if (cartFoot) cartFoot.hidden = false;
@@ -2070,6 +2071,27 @@ function validateCheckout() {
 }
 
 /* ── summary ───────────────────────────────────────────────────── */
+// The live sale's free gift (lastPromo.gift, from /api/products), as a nudge on
+// the amount the customer will pay. Display only: whether an order earns the
+// gift is decided by the server from its own total (saleGift in src/shop.js).
+function giftNudge(totalPaise) {
+  const g = lastPromo && lastPromo.label && lastPromo.gift;
+  if (!g || !(g.min_paise > 0)) return '';
+  const short = g.min_paise - Number(totalPaise || 0);
+  return short > 0
+    ? '🎁 Add ' + rupees(short) + ' more to get ' + g.text
+    : '🎁 You get ' + g.text + ' with this order!';
+}
+function addGiftRow(totalPaise) {
+  const box = document.getElementById('coSummary');
+  const text = giftNudge(totalPaise);
+  if (!box || !text) return;
+  const row = document.createElement('p');
+  row.className = 'co-gift' + (text.startsWith('🎁 You get') ? ' is-earned' : '');
+  row.textContent = text;
+  box.appendChild(row);
+}
+
 function renderCoSummary() {
   const el = document.getElementById('coSummary');
   if (!el) return;
@@ -2122,12 +2144,14 @@ function renderCoSummary() {
     const ship = appliedCoupon.shipping_paise;
     addRow(ship === 0 ? 'Shipping (free)' : 'Shipping', rupees(ship));
     addRow('Total', rupees(appliedCoupon.total_paise), 'co-line-total');
+    addGiftRow(appliedCoupon.total_paise);
     return;
   }
 
   const shipping = shippingForDisplay(subtotal);
   addRow(shipping === 0 ? 'Shipping (free)' : 'Shipping', rupees(shipping));
   addRow('Total', rupees(subtotal + shipping), 'co-line-total');
+  addGiftRow(subtotal + shipping);
 
   syncCheckoutGate();
 }

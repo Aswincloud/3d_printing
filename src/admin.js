@@ -1102,7 +1102,7 @@ export async function listOrders(env, url) {
             discount_paise, coupon_code, shipping_paise, total_paise, delivery,
             cust_name, cust_email, cust_phone, addr_line, addr_city, addr_state,
             addr_pin, notes, created_at, paid_at, production_at, ready_at,
-            shipped_at, delivered_at, courier, tracking_id, pay_reminder_at
+            shipped_at, delivered_at, courier, tracking_id, pay_reminder_at, gift
        FROM orders ${where} ORDER BY created_at DESC LIMIT ?`
   ).bind(...bindArgs).all();
 

@@ -3521,3 +3521,14 @@ body:has(#offer:not([hidden])) #promoBanner { display: none; }
   .nav-offers-btn { width: 44px; padding: 0; }
   .offers-panel { position: fixed; top: 64px; right: 16px; left: 16px; width: auto; }
 }
+
+/* ===== A sale's free gift ===== */
+.offer-gift { margin: -10px auto 20px; max-width: 640px; font-size: 1.02rem; font-weight: 700; color: #ffd08a; }
+.offer-gift[hidden] { display: none; }
+.hero-offer-gift { font-weight: 700; color: #ffd08a; }
+.hero-offer-gift[hidden] { display: none; }
+.co-gift { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 0.9rem; font-weight: 600;
+  border: 1px dashed rgba(255, 140, 56, 0.6); color: #ffd08a; background: rgba(255, 107, 0, 0.08); }
+.co-gift.is-earned { border-style: solid; background: rgba(255, 140, 56, 0.16); }
+#cartShipHint:not(:empty) { color: #ffd08a; font-weight: 600; }
+.offers-gift { margin: -4px 0 8px; font-size: 0.85rem; font-weight: 600; color: #ffd08a; }
