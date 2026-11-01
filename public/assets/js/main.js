@@ -813,6 +813,28 @@ function promoLine(promo, freeShip) {
   return [label, freeShip ? FREE_SHIP_BANNER : '', coupon].filter(Boolean).join(' · ');
 }
 
+// The homepage offer section (#offer). The Worker renders and un-hides it for a
+// labelled, live promo (offerParts in src/seo.js); this only takes it down for a
+// customer who has already used the code — it is one use per person, and
+// advertising it to them would be offering what checkout will refuse — and wires
+// the Copy button. Nothing here can show it: no promo from the server, no section.
+function syncOffer(promo) {
+  const sec = document.getElementById('offer');
+  if (!sec || sec.hidden && !sec.dataset.promoCode) return;
+  const code = sec.dataset.promoCode || '';
+  const live = promo && promo.code && promo.code.toUpperCase() === code.toUpperCase();
+  sec.hidden = !live || (promoUsed && promo.once_per_customer);
+  const copy = document.getElementById('offerCopy');
+  if (copy && !copy.dataset.bound) {
+    copy.dataset.bound = '1';
+    copy.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(code); copy.textContent = 'Copied'; }
+      catch { copy.textContent = code; }
+      setTimeout(() => { copy.textContent = 'Copy code'; }, 2000);
+    });
+  }
+}
+
 function renderPromo(promo) {
   const bar = document.getElementById('promoBanner');
   if (!bar) return;
@@ -820,6 +842,7 @@ function renderPromo(promo) {
   // whichever lands second has to be able to redraw the decision.
   if (promo !== undefined) lastPromo = promo;
   promo = lastPromo;
+  syncOffer(promo);
 
   // Already redeemed by THIS customer: the coupon part is dropped (applyCoupon()
   // refuses a second use regardless, and advertising it would read as bait and
