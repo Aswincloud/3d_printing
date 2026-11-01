@@ -131,6 +131,9 @@ export async function featuredPromo(env) {
     // terms. It rides on the promo so it can only ever appear WITH the coupon it
     // was written for: when the code expires or is paused, the label goes too.
     label: promoLabel(env, row.code),
+    // For the homepage offer section's "Ends 30 Nov". Null for a code that never
+    // expires, in which case no deadline is shown.
+    expires_at: row.expires_at || null,
   };
 }
 

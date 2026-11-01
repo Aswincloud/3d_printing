@@ -12,7 +12,7 @@
 //
 // Neither shows up by looking at the site.
 
-import { sitemap, robots, productJsonLd, homeJsonLd, jsonLdScript, localPageJsonLd, promoBannerText } from "../src/seo.js";
+import { sitemap, robots, productJsonLd, homeJsonLd, jsonLdScript, localPageJsonLd, promoBannerText, offerParts } from "../src/seo.js";
 import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
@@ -318,6 +318,31 @@ console.log("\nfree-shipping banner matches the client");
   ok("FAQ says free when free", faqFree.includes("shipping is free on every order") && !faqFree.includes("₹99"));
   const faqFlat = JSON.stringify(localPageJsonLd({ FLAT_SHIP_PAISE: "9900" }));
   ok("FAQ keeps the flat rate otherwise", faqFlat.includes("flat ₹99") && faqFlat.includes("₹2,000"));
+}
+
+console.log("\nthe homepage offer section");
+{
+  const diwali = { code: "DIWALI26", kind: "percent", value: 26, max_discount_paise: 10000, min_order_paise: 0,
+                   once_per_customer: true, label: "🪔 Diwali deals", expires_at: Date.parse("2026-11-30T18:29:59.999Z") };
+  const o = offerParts(diwali);
+  ok("kicker is the occasion label", o.kicker === "🪔 Diwali deals");
+  ok("headline from the coupon", o.title === "26% off everything in the shop", o.title);
+  ok("terms state the cap, the limit and free shipping", o.terms === "up to ₹100 off · one use per customer · free shipping on every order", o.terms);
+  ok("the code", o.code === "DIWALI26");
+  ok("ends on the expiry date, in IST", o.ends === "Ends 30 Nov", o.ends);
+  ok("a minimum order is stated", offerParts({ ...diwali, min_order_paise: 49900 }).terms.includes("on orders over ₹499"));
+  ok("a fixed-amount code", offerParts({ ...diwali, kind: "fixed", value: 10000, max_discount_paise: null }).title === "₹100 off everything in the shop");
+  ok("no expiry → no deadline line", offerParts({ ...diwali, expires_at: null }).ends === "");
+  // 1 Dec 00:30 IST is still 30 Nov in UTC: the date must be read in IST.
+  ok("the end date is read in IST, not UTC", offerParts({ ...diwali, expires_at: Date.parse("2026-11-30T19:00:00Z") }).ends === "Ends 1 Dec",
+     offerParts({ ...diwali, expires_at: Date.parse("2026-11-30T19:00:00Z") }).ends);
+  ok("hidden without an occasion label (WELCOME10 keeps just the banner)", offerParts({ ...diwali, label: "" }) === null);
+  ok("hidden without a promo", offerParts(null) === null);
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  ok("the section ships hidden; only the Worker un-hides it", /<section class="offer" id="offer"[^>]*\bhidden>/.test(html));
+  ok("it sits between the hero and the shop", html.indexOf('id="home"') < html.indexOf('id="offer"') && html.indexOf('id="offer"') < html.indexOf('id="shop"'));
+  const main = readFileSync(new URL("../public/assets/js/main.js", import.meta.url), "utf8");
+  ok("the browser hides it for a customer who has used the code", main.includes("sec.hidden = !live || (promoUsed && promo.once_per_customer);"));
 }
 
 // The shoppable hero is rewritten by rewriteHome(), which uses HTMLRewriter — a

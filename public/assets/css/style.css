@@ -3404,3 +3404,55 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 /* My Orders: courier and tracking line once shipped. */
 .my-order-ship { margin: 8px 0 4px; padding: 8px 10px; border-radius: 8px; background: rgba(22,163,74,.12); font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .my-order-ship a { color: var(--orange, #ff6b00); font-weight: 700; white-space: nowrap; }
+
+/* ===== Seasonal offer section (index.html #offer) =====
+   Shown only for a live, labelled promo (see offerParts in src/seo.js). Warm
+   festive glow from the brand orange; every effect is CSS, nothing to download. */
+.offer { padding: 28px 5% 8px; }
+.offer[hidden] { display: none; }
+.offer-inner {
+  position: relative; overflow: hidden;
+  max-width: 1100px; margin: 0 auto; padding: 36px 28px;
+  border-radius: 20px; text-align: center;
+  border: 1px solid rgba(255, 140, 56, 0.45);
+  background:
+    radial-gradient(120% 140% at 50% -20%, rgba(255, 170, 60, 0.35), transparent 60%),
+    radial-gradient(60% 80% at 10% 110%, rgba(255, 107, 0, 0.25), transparent 70%),
+    radial-gradient(60% 80% at 90% 110%, rgba(255, 196, 0, 0.18), transparent 70%),
+    var(--dark-3);
+  box-shadow: 0 10px 40px rgba(255, 107, 0, 0.18);
+}
+/* A soft row of "lamp" lights along the top edge. */
+.offer-inner::before {
+  /* Inset from the rounded corners, and spaced so the row ends on whole lights. */
+  content: ""; position: absolute; left: 22px; right: 22px; top: 6px; height: 6px;
+  background: radial-gradient(circle at 3px 3px, #ffcf6b 0 3px, transparent 4px) 0 0 / 28px 6px space no-repeat;
+  opacity: 0.9;
+}
+.offer-kicker { margin: 0 0 6px; font-size: 1rem; font-weight: 700; color: var(--orange-light); letter-spacing: 0.3px; }
+.offer-title { margin: 0 0 10px; font-size: clamp(1.8rem, 5vw, 2.8rem); font-weight: 800; line-height: 1.12; letter-spacing: -0.6px; color: var(--text); }
+.offer-terms { margin: 0 auto 22px; max-width: 640px; color: var(--text-muted); font-size: 0.98rem; line-height: 1.5; }
+.offer-actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; }
+.offer-code {
+  display: inline-flex; align-items: center; min-height: 48px; padding: 0 18px;
+  border: 2px dashed var(--orange-light); border-radius: 12px;
+  font-size: 1.25rem; font-weight: 800; letter-spacing: 2px; color: #ffd08a;
+  background: rgba(255, 107, 0, 0.08);
+}
+.offer-copy, .offer-cta {
+  min-height: 48px; padding: 0 20px; border-radius: 12px; font: inherit; font-weight: 700; font-size: 1rem;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; text-decoration: none;
+}
+.offer-copy { border: 1px solid rgba(255, 140, 56, 0.55); background: transparent; color: var(--text); }
+.offer-copy:hover { background: rgba(255, 140, 56, 0.12); }
+.offer-cta { border: 0; background: linear-gradient(135deg, var(--orange), var(--orange-light)); color: var(--on-orange); }
+.offer-cta:hover { filter: brightness(1.08); }
+.offer-copy:focus-visible, .offer-cta:focus-visible { outline: 2px solid #ffd08a; outline-offset: 2px; }
+.offer-ends { margin: 16px 0 0; font-size: 0.9rem; font-weight: 600; color: #ffd08a; }
+.offer-ends:empty { display: none; }
+@media (max-width: 520px) {
+  .offer { padding: 20px 16px 4px; }
+  .offer-inner { padding: 28px 16px; border-radius: 16px; }
+  .offer-actions { flex-direction: column; align-items: stretch; }
+  .offer-code { justify-content: center; }
+}

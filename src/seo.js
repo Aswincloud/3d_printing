@@ -331,6 +331,24 @@ function cardHtml(env, p, resize, overflow = false) {
 // promoLine() builds the identical string.
 export const FREE_SHIP_BANNER = "Free shipping across India";
 
+// The homepage offer section (index.html #offer), filled from the same promo as
+// the banner. Only for a promo WITH an occasion label: a plain always-on code
+// like WELCOME10 keeps just the banner, and the section stays hidden. Shared by
+// rewriteHome (server) and pinned against main.js's offerParts (client).
+export function offerParts(promo) {
+  if (!promo || !promo.code || !promo.label) return null;
+  const off = promo.kind === "percent" ? `${promo.value}% off` : `${rupees(promo.value)} off`;
+  const terms = [];
+  if (promo.kind === "percent" && promo.max_discount_paise) terms.push(`up to ${rupees(promo.max_discount_paise)} off`);
+  if (promo.min_order_paise) terms.push(`on orders over ${rupees(promo.min_order_paise)}`);
+  if (promo.once_per_customer) terms.push("one use per customer");
+  terms.push("free shipping on every order");
+  const ends = promo.expires_at
+    ? "Ends " + new Date(Number(promo.expires_at)).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })
+    : "";
+  return { kicker: promo.label, title: `${off} everything in the shop`, terms: terms.join(" · "), code: promo.code, ends };
+}
+
 export function promoBannerText(promo, freeShip = false) {
   const coupon = promo && promo.code ? couponText(promo) : "";
   const label = promo && promo.code && promo.label ? promo.label : "";
@@ -357,6 +375,7 @@ const HERO_WIDTHS = [320, 480, 640, 900, 1200];
 
 export function rewriteHome(env, response, products, url, promo = null) {
   const freeShip = shippingConfig(env).flat_paise === 0;
+  const offer = offerParts(promo);
   const base = baseUrl(env);
   const canonical = base + "/";
 
@@ -410,6 +429,13 @@ export function rewriteHome(env, response, products, url, promo = null) {
     // /api/products lands. main.js still owns dismissal and the "already
     // redeemed" case; it reads data-promo-code to hide a dismissed banner before
     // first paint, and redraws the same text once the API answers.
+    // The seasonal offer section: un-hidden and filled only for a labelled promo.
+    .on("#offer", { element(el) { if (offer) { el.removeAttribute("hidden"); el.setAttribute("data-promo-code", offer.code); } } })
+    .on("#offerKicker", { element(el) { if (offer) el.setInnerContent(offer.kicker); } })
+    .on("#offerTitle", { element(el) { if (offer) el.setInnerContent(offer.title); } })
+    .on("#offerTerms", { element(el) { if (offer) el.setInnerContent(offer.terms); } })
+    .on("#offerCode", { element(el) { if (offer) el.setInnerContent(offer.code); } })
+    .on("#offerEnds", { element(el) { if (offer) el.setInnerContent(offer.ends); } })
     .on("#promoBanner", {
       element(el) {
         if (!freeShip && (!promo || !promo.code)) return;

@@ -193,6 +193,26 @@
   </div>
 </section>
 
+<!-- ===== OFFER =====
+     A seasonal section for the featured coupon (Diwali now). Hidden unless the
+     coupon is live AND has an occasion label (PROMO_LABEL): the Worker fills
+     the headline and terms from the coupon row and un-hides it, so it can never
+     advertise an expired code or terms the checkout would not honour. Text is
+     set with setInnerContent / textContent — never parsed as HTML. -->
+<section class="offer" id="offer" aria-labelledby="offerTitle" hidden>
+  <div class="offer-inner">
+    <p class="offer-kicker" id="offerKicker"></p>
+    <h2 class="offer-title" id="offerTitle"></h2>
+    <p class="offer-terms" id="offerTerms"></p>
+    <div class="offer-actions">
+      <span class="offer-code" id="offerCode"></span>
+      <button type="button" class="offer-copy" id="offerCopy">Copy code</button>
+      <a class="offer-cta" href="#shop">Shop the deals</a>
+    </div>
+    <p class="offer-ends" id="offerEnds"></p>
+  </div>
+</section>
+
 <!-- ===== SHOP ===== -->
 <!-- Cards are rendered by assets/js/main.js from GET /api/products.
      The lightbox now binds here (the portfolio section it used to serve was
