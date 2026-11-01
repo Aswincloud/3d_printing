@@ -355,7 +355,8 @@ console.log("\nthe homepage offer section");
   ok("the card follows the section (used code → both hidden)", main.includes("if (card && card.dataset.promoCode) card.hidden = sec.hidden;"));
   const css = readFileSync(new URL("../public/assets/css/style.css", import.meta.url), "utf8");
   ok("the card is phones-only", /\.hero-offer \{ display: none; \}/.test(css) && /@media \(max-width: 768px\) \{\s*\.hero-offer:not\(\[hidden\]\)/.test(css));
-  ok("on phones the top strip steps aside only while the card shows", css.includes("body:has(#heroOffer:not([hidden])) #promoBanner { display: none; }"));
+  ok("the top strip steps aside, on every screen, while the offer section shows", css.includes("body:has(#offer:not([hidden])) #promoBanner { display: none; }"));
+  ok("…and not only on phones", !/@media[^{]*\{\s*body:has\(#offer/.test(css));
 }
 
 // The shoppable hero is rewritten by rewriteHome(), which uses HTMLRewriter — a
