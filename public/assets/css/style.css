@@ -187,6 +187,8 @@ nav {
 
 /* ===== HERO ===== */
 .hero {
+  /* Same budget as .hero-visual's --stack-h, readable by the hero itself. */
+  --stack-h-hero: min(calc(100vh - var(--nav-h) - 110px), 600px);
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -3414,6 +3416,16 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
    whole screen of hero would sit between the offer and the shop. Only while the
    offer shows — with no sale the hero is exactly as before. */
 .offer:not([hidden]) + .hero { min-height: 0; padding-top: 48px; }
+/* Desktop: the photo stack is absolutely positioned and was centred on the
+   FIRST SCREEN (nav-h + (100vh - nav-h) / 2) — right when the hero was first on
+   the page, wrong once the offer sits above it: the stack then hung 160px past
+   the hero's bottom and the hero's overflow:hidden cut it off (Batman's legs,
+   the whole third photo). With the offer above, centre the stack on the hero's
+   own box instead, and make the hero tall enough to hold it with room to spare. */
+@media (min-width: 1025px) {
+  .offer:not([hidden]) + .hero { min-height: calc(var(--stack-h-hero) + 96px); }
+  .offer:not([hidden]) + .hero .hero-visual { top: 50%; }
+}
 .offer[hidden] { display: none; }
 .offer-inner {
   position: relative; overflow: hidden;

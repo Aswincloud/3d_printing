@@ -18,7 +18,8 @@
     "test:mobile": "node test/browser/checkout-mobile.mjs",
     "test:dashboard": "node test/browser/dashboard-courier.mjs",
     "test:autoload": "node test/browser/shop-autoload.mjs",
-    "test:cart": "node test/browser/cart-adopt.mjs"
+    "test:cart": "node test/browser/cart-adopt.mjs",
+    "test:photos": "node test/browser/hero-photos.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.154.0",
