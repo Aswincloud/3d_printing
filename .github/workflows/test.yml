@@ -116,3 +116,7 @@ jobs:
           # merge endpoint sums by design, so this is the check that a refresh does
           # not double the cart. Fake account cart with the server's semantics.
           npm run test:cart
+          # The three hero photos sit wholly inside the hero, with the sale offer
+          # above it and without — the stack is absolutely positioned on desktop
+          # and once hung 160px past the hero, cropped by its overflow:hidden.
+          npm run test:photos
