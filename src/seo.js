@@ -349,7 +349,14 @@ export function offerParts(promo) {
   // The hero card's one line: the offer, the code, the deadline — short enough
   // for two lines on a 360px phone.
   const cap = promo.kind === "percent" && promo.max_discount_paise ? ` (up to ${rupees(promo.max_discount_paise)})` : "";
-  const short = `${off}${cap} with ${promo.code}` + (ends ? ` · ${ends.replace(/^Ends/, "ends")}` : "");
+  // On phones this card replaces the top strip, so every limit checkout enforces
+  // must be stated here too: the minimum order and once-per-customer.
+  const limits = [
+    promo.min_order_paise ? `on orders over ${rupees(promo.min_order_paise)}` : "",
+    promo.once_per_customer ? "1 per customer" : "",
+  ].filter(Boolean).join(", ");
+  const short = `${off}${cap} with ${promo.code}` + (limits ? ` · ${limits}` : "")
+    + (ends ? ` · ${ends.replace(/^Ends/, "ends")}` : "");
   return { kicker: promo.label, title: `${off} everything in the shop`, terms: terms.join(" · "), code: promo.code, ends, short };
 }
 
