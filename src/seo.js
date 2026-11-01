@@ -346,23 +346,12 @@ export function offerParts(promo) {
   const ends = promo.expires_at
     ? "Ends " + new Date(Number(promo.expires_at)).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })
     : "";
-  // The hero card's one line: the offer, the code, the deadline — short enough
-  // for two lines on a 360px phone.
-  const cap = promo.kind === "percent" && promo.max_discount_paise ? ` (up to ${rupees(promo.max_discount_paise)})` : "";
-  // On phones this card replaces the top strip, so every limit checkout enforces
-  // must be stated here too: the minimum order and once-per-customer.
-  const limits = [
-    promo.min_order_paise ? `on orders over ${rupees(promo.min_order_paise)}` : "",
-    promo.once_per_customer ? "1 per customer" : "",
-  ].filter(Boolean).join(", ");
-  const short = `${off}${cap} with ${promo.code}` + (limits ? ` · ${limits}` : "")
-    + (ends ? ` · ${ends.replace(/^Ends/, "ends")}` : "");
   // The sale's free gift, if it has one: "🎁 Order above ₹999 and get …".
   const gift = promo.gift && promo.gift.min_paise > 0 && promo.gift.text
     // "₹999 and above" because the rule is >= (an order of exactly ₹999 qualifies).
     ? `🎁 Orders of ${rupees(promo.gift.min_paise)} and above get ${promo.gift.text}`
     : "";
-  return { kicker: promo.label, title: `${off} everything in the shop`, terms: terms.join(" · "), code: promo.code, ends, short, gift };
+  return { kicker: promo.label, title: `${off} everything in the shop`, terms: terms.join(" · "), code: promo.code, ends, gift };
 }
 
 export function promoBannerText(promo, freeShip = false) {
@@ -453,11 +442,6 @@ export function rewriteHome(env, response, products, url, promo = null) {
     .on("#offerCode", { element(el) { if (offer) el.setInnerContent(offer.code); } })
     .on("#offerEnds", { element(el) { if (offer) el.setInnerContent(offer.ends); } })
     .on("#offerGift", { element(el) { if (offer && offer.gift) { el.removeAttribute("hidden"); el.setInnerContent(offer.gift); } } })
-    .on("#heroOfferGift", { element(el) { if (offer && offer.gift) { el.removeAttribute("hidden"); el.setInnerContent(offer.gift); } } })
-    // The compact phone card in the hero: same promo, same gate.
-    .on("#heroOffer", { element(el) { if (offer) { el.removeAttribute("hidden"); el.setAttribute("data-promo-code", offer.code); } } })
-    .on("#heroOfferKicker", { element(el) { if (offer) el.setInnerContent(offer.kicker); } })
-    .on("#heroOfferLine", { element(el) { if (offer) el.setInnerContent(offer.short); } })
     .on("#promoBanner", {
       element(el) {
         if (!freeShip && (!promo || !promo.code)) return;

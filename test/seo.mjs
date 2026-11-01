@@ -340,21 +340,16 @@ console.log("\nthe homepage offer section");
   ok("hidden without a promo", offerParts(null) === null);
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   ok("the section ships hidden; only the Worker un-hides it", /<section class="offer" id="offer"[^>]*\bhidden>/.test(html));
-  ok("it sits between the hero and the shop", html.indexOf('id="home"') < html.indexOf('id="offer"') && html.indexOf('id="offer"') < html.indexOf('id="shop"'));
+  ok("it is the first section on the page, above the hero", html.indexOf('id="offer"') > 0 && html.indexOf('id="offer"') < html.indexOf('id="home"'));
+  const cssTop = readFileSync(new URL("../public/assets/css/style.css", import.meta.url), "utf8");
+  ok("it clears the fixed menu itself", /\.offer \{ padding: calc\(var\(--nav-h\) \+ 20px\)/.test(cssTop));
+  ok("the hero after it drops its full-screen height and menu clearance — only while the offer shows", cssTop.includes(".offer:not([hidden]) + .hero { min-height: 0; padding-top: 48px; }"));
   const main = readFileSync(new URL("../public/assets/js/main.js", import.meta.url), "utf8");
   ok("the browser hides it for a customer who has used the code", main.includes("sec.hidden = !live || (promoUsed && promo.once_per_customer);"));
 
-  // The phone card in the hero.
-  ok("card line: offer, cap, code, the per-customer limit, deadline", o.short === "26% off (up to ₹100) with DIWALI26 · 1 per customer · ends 30 Nov", o.short);
-  const minOrder = offerParts({ ...diwali, min_order_paise: 49900 }).short;
-  ok("card line states a minimum order", minOrder === "26% off (up to ₹100) with DIWALI26 · on orders over ₹499, 1 per customer · ends 30 Nov", minOrder);
-  ok("no limits → none stated", offerParts({ ...diwali, once_per_customer: false }).short === "26% off (up to ₹100) with DIWALI26 · ends 30 Nov");
-  ok("card line without an expiry has no deadline", offerParts({ ...diwali, expires_at: null }).short === "26% off (up to ₹100) with DIWALI26 · 1 per customer");
-  ok("the card ships hidden and links to the section", /<a class="hero-offer" id="heroOffer" href="#offer" hidden>/.test(html));
-  ok("the card sits in the hero, under the headline", html.indexOf("<h1>Your Ideas") < html.indexOf('id="heroOffer"') && html.indexOf('id="heroOffer"') < html.indexOf('id="offer"'));
-  ok("the card follows the section (used code → both hidden)", main.includes("if (card && card.dataset.promoCode) card.hidden = sec.hidden;"));
+  // The full offer now LEADS the page (no separate short card in the hero).
   const css = readFileSync(new URL("../public/assets/css/style.css", import.meta.url), "utf8");
-  ok("the card shows on every screen size once the Worker un-hides it", /\.hero-offer \{ display: none; \}/.test(css) && /@media all \{\s*\.hero-offer:not\(\[hidden\]\)/.test(css));
+  ok("there is no short hero card any more", !html.includes('id="heroOffer"'));
   ok("the top strip steps aside, on every screen, while the offer section shows", css.includes("body:has(#offer:not([hidden])) #promoBanner { display: none; }"));
   ok("…and not only on phones", !/@media[^{]*\{\s*body:has\(#offer/.test(css));
 }

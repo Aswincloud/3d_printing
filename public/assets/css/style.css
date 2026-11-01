@@ -3408,7 +3408,12 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 /* ===== Seasonal offer section (index.html #offer) =====
    Shown only for a live, labelled promo (see offerParts in src/seo.js). Warm
    festive glow from the brand orange; every effect is CSS, nothing to download. */
-.offer { padding: 28px 5% 8px; }
+.offer { padding: calc(var(--nav-h) + 20px) 5% 8px; }
+/* The offer leads the page and takes over clearing the fixed menu; the hero
+   below it then needs neither its own clearance nor a full-screen height, or a
+   whole screen of hero would sit between the offer and the shop. Only while the
+   offer shows — with no sale the hero is exactly as before. */
+.offer:not([hidden]) + .hero { min-height: 0; padding-top: 48px; }
 .offer[hidden] { display: none; }
 .offer-inner {
   position: relative; overflow: hidden;
@@ -3451,35 +3456,13 @@ a.product-name:focus-visible { outline: 2px solid var(--orange); outline-offset:
 .offer-ends { margin: 16px 0 0; font-size: 0.9rem; font-weight: 600; color: #ffd08a; }
 .offer-ends:empty { display: none; }
 @media (max-width: 520px) {
-  .offer { padding: 20px 16px 4px; }
+  .offer { padding: calc(var(--nav-h) + 12px) 16px 4px; }
+  .offer:not([hidden]) + .hero { padding-top: 28px; }
   .offer-inner { padding: 28px 16px; border-radius: 16px; }
   .offer-actions { flex-direction: column; align-items: stretch; }
   .offer-code { justify-content: center; }
 }
 
-/* ===== Hero offer card (index.html #heroOffer) =====
-   The seasonal offer inside the first screen, on every screen size: the full
-   #offer section sits below the hero, out of view until the visitor scrolls. */
-.hero-offer { display: none; }
-.hero-offer:not([hidden]) { max-width: 520px; }
-@media all {
-  .hero-offer:not([hidden]) {
-    display: flex; align-items: center; gap: 12px;
-    margin: 0 0 18px; padding: 12px 14px; min-height: 56px;
-    border: 1px solid rgba(255, 140, 56, 0.55); border-radius: 14px;
-    background: radial-gradient(140% 160% at 0% 0%, rgba(255, 170, 60, 0.28), transparent 60%), var(--dark-3);
-    color: var(--text); text-decoration: none;
-    box-shadow: 0 6px 24px rgba(255, 107, 0, 0.2);
-  }
-  .hero-offer-text { display: grid; gap: 2px; flex: 1; min-width: 0; font-size: 0.92rem; line-height: 1.35; }
-  .hero-offer-text strong { color: var(--orange-light); font-size: 0.95rem; }
-  .hero-offer-go {
-    flex: none; display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px;
-    border-radius: 10px; font-weight: 700; font-size: 0.9rem;
-    background: linear-gradient(135deg, var(--orange), var(--orange-light)); color: var(--on-orange);
-  }
-  .hero-offer:focus-visible { outline: 2px solid #ffd08a; outline-offset: 2px; }
-}
 /* While the seasonal offer section is showing (#offer, and on phones the hero
    card that follows it), the top strip would only repeat it — so it steps aside
    on every screen size. The section states the offer, cap, limits, deadline and
@@ -3525,8 +3508,6 @@ body:has(#offer:not([hidden])) #promoBanner { display: none; }
 /* ===== A sale's free gift ===== */
 .offer-gift { margin: -10px auto 20px; max-width: 640px; font-size: 1.02rem; font-weight: 700; color: #ffd08a; }
 .offer-gift[hidden] { display: none; }
-.hero-offer-gift { font-weight: 700; color: #ffd08a; }
-.hero-offer-gift[hidden] { display: none; }
 .co-gift { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 0.9rem; font-weight: 600;
   border: 1px dashed rgba(255, 140, 56, 0.6); color: #ffd08a; background: rgba(255, 107, 0, 0.08); }
 .co-gift.is-earned { border-style: solid; background: rgba(255, 140, 56, 0.16); }
