@@ -22,8 +22,9 @@ const painted = (p) => p.evaluate(() => {
   let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; return n;
 });
 
-async function open(b, opts, showOffer) {
+async function open(b, opts, showOffer, slowFrames = false) {
   const p = await b.newPage(opts);
+  if (slowFrames) await p.addInitScript(() => { window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 1000); });
   await offline(p);
   await p.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"signedIn":false}' }));
   // The page re-checks the offer against /api/products' promo (syncOffer in
@@ -60,8 +61,11 @@ for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
     await p.waitForTimeout(200);
     const top = await p.evaluate(() => { const r = document.getElementById('offerCopy').getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return e ? (e.id || e.tagName + '.' + e.className) + ' @' + Math.round(r.top) + '/' + innerHeight : 'none'; });
     ok(`[${name} ${w}] the Copy button stays on top`, String(top).startsWith('offerCopy'), String(top));
-    await p.waitForTimeout(7500);
-    ok(`[${name} ${w}] the show ends and the canvas is clear`, (await painted(p)) === 0, String(await painted(p)));
+    // The show runs 5 s and sparks fade over ~1-2 s more; a hard stop clears
+    // everything 7 s after the show ends. Poll until clear, up to that limit.
+    let left = -1;
+    for (let i = 0; i < 30 && left !== 0; i++) { await p.waitForTimeout(500); left = await painted(p); }
+    ok(`[${name} ${w}] the show ends and the canvas is clear`, left === 0, String(left));
     await p.click('#offerCopy'); await p.waitForTimeout(250);
     ok(`[${name} ${w}] Copy code sets off a burst`, (await painted(p)) > 50);
     await p.close();
@@ -90,6 +94,15 @@ for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
   await mid.click('#offerCopy'); await mid.waitForTimeout(300);
   ok(`[${name}] reduced motion mid-visit: Copy sets nothing off`, (await painted(mid)) === 0, String(await painted(mid)));
   await mid.close();
+
+  // A slow device (~1 frame a second, as headless WebKit once delivered): the
+  // fireworks must still end. They used to fade by FRAME COUNT and lingered for
+  // a minute; they now fade by real time, with a hard stop as a backstop.
+  const slowPage = await open(b, { viewport: { width: 1280, height: 820 } }, true, true);
+  let slowLeft = -1;
+  for (let i = 0; i < 40 && slowLeft !== 0; i++) { await slowPage.waitForTimeout(500); slowLeft = await painted(slowPage); }
+  ok(`[${name}] a 1-frame-a-second device still ends the show`, slowLeft === 0, String(slowLeft));
+  await slowPage.close();
 
   const r = await open(b, { viewport: { width: 1280, height: 820 }, reducedMotion: 'reduce' }, true);
   await r.waitForTimeout(900);

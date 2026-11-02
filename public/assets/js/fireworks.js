@@ -26,11 +26,16 @@
   const COLOURS = ['#ffcf6b', '#ff8c38', '#ff6b00', '#ffd08a', '#ff4d6d', '#7cf5ff', '#b48cff'];
   const particles = [];
   const rockets = [];
-  let raf = 0, w = 0, h = 0, dpr = 1, showUntil = 0;
+  let raf = 0, w = 0, h = 0, dpr = 1, showUntil = 0, hardStop = 0;
   // True while step() runs. Bursts and launches inside a step must not schedule
   // a frame of their own — step() reschedules once at its end — or every burst
   // would add another loop, and the show would multiply instead of ending.
   let stepping = false;
+  // Time of the previous frame. Everything moves and fades by REAL time, scaled
+  // to 60fps "frame units" (dt = 1 at 60fps). Counting frames instead made a
+  // browser that delivers ~1 frame a second (headless WebKit did) keep sparks
+  // on screen for a minute; a slow phone would have done the same.
+  let last = 0;
   // Asked every time, not once at load: reduced motion can be switched on mid-visit.
   const motionOk = () => !(reduce && reduce.matches);
 
@@ -43,6 +48,17 @@
   }
 
   const rand = (a, b) => a + Math.random() * (b - a);
+
+  // Wipe the WHOLE pixel buffer. Not clearRect(0, 0, w, h): w/h are the box's
+  // size when last measured, and a box that grew since (fonts, text) left sparks
+  // outside that rectangle frozen on screen — seen in WebKit, where they stayed
+  // after the show had ended.
+  function wipe() {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
 
   // Bursts scale with the box: a 1600px desktop box gets bigger, fuller ones than
   // a phone. Two colours per burst, and a few slower sparks that twinkle.
@@ -68,15 +84,19 @@
   function step() {
     raf = 0;
     stepping = true;
-    ctx.clearRect(0, 0, w, h);
+    wipe();
     const now = performance.now();
+    // Capped, so a tab that was backgrounded for a while does not jump sparks
+    // across the box on its first frame back.
+    const dt = last ? Math.min(4, (now - last) / (1000 / 60)) : 1;
+    last = now;
     // More rockets on a wide box, so a desktop banner is not one lonely spark.
-    if (now < showUntil && Math.random() < 0.05 * Math.max(1, Math.min(2.5, w / 600))) launch();
+    if (now < showUntil && Math.random() < Math.min(1, 0.05 * dt * Math.max(1, Math.min(2.5, w / 600)))) launch();
 
     for (let i = rockets.length - 1; i >= 0; i--) {
       const r = rockets[i];
       r.trail.push(r.y); if (r.trail.length > 10) r.trail.shift();
-      r.y += r.vy; r.vy += 0.08;
+      r.y += r.vy * dt; r.vy += 0.08 * dt;
       // A fading streak rather than a single dash, so it reads as a rocket.
       for (let t = 0; t < r.trail.length; t++) {
         ctx.globalAlpha = (t + 1) / r.trail.length * 0.7;
@@ -88,7 +108,8 @@
     }
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
-      p.age++; p.x += p.vx; p.y += p.vy; p.vx *= 0.985; p.vy = p.vy * 0.985 + 0.035;
+      p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      const drag = Math.pow(0.985, dt); p.vx *= drag; p.vy = p.vy * drag + 0.035 * dt;
       const fade = 1 - p.age / p.life;
       if (fade <= 0) { particles.splice(i, 1); continue; }
       ctx.globalAlpha = p.twinkle ? fade * (0.55 + 0.45 * Math.sin(p.age * 0.6)) : fade;
@@ -99,18 +120,22 @@
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     // Keep going only while there is something to draw or the show is on.
     stepping = false;
+    // A hard limit: however slowly frames arrive, nothing stays on screen longer
+    // than this after the last show or burst began.
+    if (hardStop && now > hardStop) { particles.length = 0; rockets.length = 0; }
     if (motionOk() && (particles.length || rockets.length || now < showUntil)) raf = requestAnimationFrame(step);
-    else { particles.length = 0; rockets.length = 0; ctx.clearRect(0, 0, w, h); }
+    else { particles.length = 0; rockets.length = 0; wipe(); }
   }
 
   // The one way a loop starts: never while one is scheduled or running.
-  function start() { if (!raf && !stepping && !offer.hidden && motionOk()) raf = requestAnimationFrame(step); }
+  function start() { if (!raf && !stepping && !offer.hidden && motionOk()) { last = 0; raf = requestAnimationFrame(step); } }
 
   // A show: a few seconds of rockets, opening with a burst so it is seen at once.
   function show(ms) {
     if (offer.hidden || !motionOk()) return;
     size();
     showUntil = performance.now() + ms;
+    hardStop = showUntil + 7000;
     burst(w * 0.2, h * 0.32); burst(w * 0.8, h * 0.28); burst(w * 0.5, h * 0.18);
     start();
   }
@@ -129,10 +154,14 @@
   const copy = document.getElementById('offerCopy');
   if (copy) copy.addEventListener('click', () => {
     if (!motionOk()) return;
+    hardStop = Math.max(hardStop, performance.now() + 7000);
     size(); burst(w * 0.5, h * 0.35); burst(w * 0.3, h * 0.5); burst(w * 0.7, h * 0.5);
   });
 
   window.addEventListener('resize', () => { if (raf) size(); });
+  // The box itself can grow after load (web fonts, the offer's text arriving);
+  // keep the canvas buffer the same size as the box it covers.
+  if ('ResizeObserver' in window) new ResizeObserver(() => { size(); }).observe(box);
   // Turning reduce-motion on mid-visit stops it at once.
-  if (reduce && reduce.addEventListener) reduce.addEventListener('change', (e) => { if (e.matches) { showUntil = 0; particles.length = 0; rockets.length = 0; ctx.clearRect(0, 0, w, h); } });
+  if (reduce && reduce.addEventListener) reduce.addEventListener('change', (e) => { if (e.matches) { showUntil = 0; particles.length = 0; rockets.length = 0; wipe(); } });
 })();
