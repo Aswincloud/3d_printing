@@ -120,3 +120,6 @@ jobs:
           # above it and without — the stack is absolutely positioned on desktop
           # and once hung 160px past the hero, cropped by its overflow:hidden.
           npm run test:photos
+          # Fireworks over the sale offer: draw, then stop; never over the buttons;
+          # none with reduced motion or with no sale on.
+          npm run test:fireworks
