@@ -115,7 +115,9 @@ export function projectFiles({ design, label, copies, body, text, template }) {
   const two = design.ink !== design.base;
   const nFil = two ? 2 : 1;
   const textSlot = two ? 2 : 1;
-  const n = Math.max(1, Math.min(copies, PER_PLATE * MAX_PLATES));
+  // Callers split larger lines with fileParts(); more here is a bug, not a clamp.
+  if (!(copies >= 1 && copies <= PER_PLATE * MAX_PLATES)) throw new Error(`copies must be 1..${PER_PLATE * MAX_PLATES}, got ${copies}`);
+  const n = copies;
   const plates = Math.ceil(n / PER_PLATE);
 
   // Mesh objects: 1 = body, 2 = text. Every copy is a component pair pointing at them.
@@ -261,11 +263,22 @@ async function inputs(env, fontKey) {
   return { body, template, font: f };
 }
 
-// The file name the owner sees: receipt, text and colours, file-system safe.
-export function fileName(receipt, design, n) {
+// Most copies one file holds; a larger order line is split across files.
+export const PER_FILE = PER_PLATE * MAX_PLATES;
+
+// How an order line of `qty` splits into files: [copies in file 1, file 2, ...].
+export function fileParts(qty) {
+  const n = Math.max(1, Math.floor(Number(qty) || 1)), parts = [];
+  for (let left = n; left > 0; left -= PER_FILE) parts.push(Math.min(PER_FILE, left));
+  return parts;
+}
+
+// The file name the owner sees: receipt, text, colours and how many keychains
+// are IN THIS FILE; "part 2 of 3" when the line was split. File-system safe.
+export function fileName(receipt, design, n, part = 1, parts = 1) {
   const safe = (s) => String(s).replace(/[^A-Za-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
   const colours = design.ink !== design.base ? `${design.base}-${design.ink}` : design.base;
-  return `${safe(receipt)}-${safe(design.text) || "name"}-${colours}${n > 1 ? `-x${n}` : ""}.3mf`;
+  return `${safe(receipt)}-${safe(design.text) || "name"}-${colours}${n > 1 ? `-x${n}` : ""}${parts > 1 ? `-part${part}of${parts}` : ""}.3mf`;
 }
 
 // One design → the .3mf bytes.
@@ -295,37 +308,44 @@ export async function printFilesFor(env, order, items) {
     if (!it.design_id) continue;
     const design = parseDesign(it.design_id);
     if (!design) { failed++; continue; }
-    try {
-      const qty = Math.max(1, Number(it.qty) || 1);
-      const bytes = await keychain3mf(env, { design, receipt: order.receipt, copies: qty });
-      attachments.push({ filename: fileName(order.receipt, design, qty), content: b64(bytes) });
-    } catch (e) {
-      failed++;
-      console.error("keychain 3mf failed", order.receipt, e?.message || e);
+    // A line over PER_FILE keychains becomes several files; none is dropped.
+    const parts = fileParts(it.qty);
+    for (let i = 0; i < parts.length; i++) {
+      try {
+        const bytes = await keychain3mf(env, { design, receipt: order.receipt, copies: parts[i] });
+        attachments.push({ filename: fileName(order.receipt, design, parts[i], i + 1, parts.length), content: b64(bytes) });
+      } catch (e) {
+        failed++;
+        console.error("keychain 3mf failed", order.receipt, e?.message || e);
+      }
     }
   }
   return { attachments, failed };
 }
 
-// GET /api/admin/orders/<id>/print/<pos> — owner-only (it sits under the
-// /api/admin/ gate in index.js). Rebuilds the file from the stored design, so
-// it is always available and always matches the order line.
-export async function downloadPrintFile(env, orderId, pos) {
+// GET /api/admin/orders/<id>/print/<pos>[/<part>] — owner-only (it sits under
+// the /api/admin/ gate in index.js). Rebuilds the file from the stored design,
+// so it is always available and always matches the order line. `part` (1-based)
+// picks one file of a line split by fileParts().
+export async function downloadPrintFile(env, orderId, pos, part = 1) {
   const row = await env.DB.prepare(
     `SELECT o.receipt, i.design_id, i.qty FROM order_items i JOIN orders o ON o.id = i.order_id
       WHERE i.order_id = ? AND i.pos = ?`).bind(orderId, pos).first();
   const design = row && parseDesign(row.design_id);
   if (!design) return bad("No print file for that line.", 404);
+  const parts = fileParts(row.qty);
+  if (!Number.isInteger(part) || part < 1 || part > parts.length) return bad("No such part.", 404);
+  const copies = parts[part - 1];
   let bytes;
   try {
-    bytes = await keychain3mf(env, { design, receipt: row.receipt, copies: Math.max(1, Number(row.qty) || 1) });
+    bytes = await keychain3mf(env, { design, receipt: row.receipt, copies });
   } catch (e) {
     console.error("keychain 3mf failed", row.receipt, e?.message || e);
     return bad("The print file could not be built. Check the Worker logs.", 500);
   }
   return new Response(bytes, { headers: {
     "content-type": "application/vnd.ms-package.3dmanufacturing-3dmodel+xml",
-    "content-disposition": `attachment; filename="${fileName(row.receipt, design, row.qty)}"`,
+    "content-disposition": `attachment; filename="${fileName(row.receipt, design, copies, part, parts.length)}"`,
     "cache-control": "private, no-store",
     "x-content-type-options": "nosniff",
   } });

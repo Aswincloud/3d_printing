@@ -8,7 +8,7 @@
 // The real files were checked by slicing with Bambu Studio 2.08 (see the PR).
 import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
-import { textMesh, projectFiles, projectConfig, zip, keychain3mf, fileName, placement, printFilesFor, downloadPrintFile, BODY_KEY, TEMPLATE_KEY, PER_PLATE, MAX_PLATES } from "../src/kc3mf.js";
+import { textMesh, projectFiles, projectConfig, zip, keychain3mf, fileName, fileParts, placement, printFilesFor, downloadPrintFile, BODY_KEY, TEMPLATE_KEY, PER_PLATE, MAX_PLATES, PER_FILE } from "../src/kc3mf.js";
 import { layoutText, PANEL, MARGIN, TEXT_Z0, TEXT_Z1 } from "../public/assets/js/kc-text.js";
 import { designId, parseDesign, FONTS } from "../src/keychain.js";
 
@@ -142,7 +142,13 @@ section("the project");
   const f3 = files(one, 3), f8 = files(one, 8);
   ok("qty 3 → 3 keychains", (f3["3D/3dmodel.model"].match(/<item /g) || []).length === 3);
   ok("qty 8 → 8 keychains on 2 plates", (f8["3D/3dmodel.model"].match(/<item /g) || []).length === 8 && (f8["Metadata/model_settings.config"].match(/<plate>/g) || []).length === 2);
-  ok(`never more than ${PER_PLATE * MAX_PLATES} in one file`, (files(one, 500)["3D/3dmodel.model"].match(/<item /g) || []).length === PER_PLATE * MAX_PLATES);
+  ok(`${PER_FILE} copies fit one file`, (files(one, PER_FILE)["3D/3dmodel.model"].match(/<item /g) || []).length === PER_FILE);
+  let threw = false;
+  try { files(one, PER_FILE + 1); } catch { threw = true; }
+  ok(`more than ${PER_FILE} in one file is refused, never silently cut`, threw);
+  ok("a line splits into files of at most PER_FILE, losing none", [1, 24, 25, 30, 48, 49, 100].every((q) => {
+    const p = fileParts(q); return p.reduce((a, b) => a + b, 0) === q && p.every((n) => n >= 1 && n <= PER_FILE);
+  }), JSON.stringify(fileParts(30)));
   // Every copy's 120 x 32 footprint is on its plate's bed and clear of the others.
   ok("a single keychain sits in the middle of the bed", JSON.stringify(placement(0, 1)) === '{"plate":0,"x":128,"y":128}', JSON.stringify(placement(0, 1)));
   ok("the last plate's copies are centred too (7 → 1 alone on plate 2)", placement(6, 7).y === 128 && placement(6, 7).plate === 1, JSON.stringify(placement(6, 7)));
@@ -199,6 +205,8 @@ section("an order's print files (the owner email)");
   ok("one attachment for the one keychain line", r.attachments.length === 1 && r.failed === 0);
   ok("…named for the order and design", r.attachments[0]?.filename === "AP-9-Aswin-white-pink-x2.3mf", r.attachments[0]?.filename);
   ok("…as base64 of a zip", Buffer.from(r.attachments[0]?.content || "", "base64").subarray(0, 2).toString() === "PK");
+  const big = await printFilesFor(env, { receipt: "AP-9" }, [{ qty: 30, design_id: kc }]);
+  ok("qty 30 → two files, 24 + 6, every keychain accounted for", big.attachments.map((a) => a.filename).join() === "AP-9-Aswin-white-pink-x24-part1of2.3mf,AP-9-Aswin-white-pink-x6-part2of2.3mf", big.attachments.map((a) => a.filename).join());
   const bad = await printFilesFor(env, { receipt: "AP-9" }, [{ qty: 1, design_id: "kc~nonsense" }]);
   ok("an unparseable design is counted as failed, not thrown", bad.attachments.length === 0 && bad.failed === 1);
   const broken = await printFilesFor({ UPLOADS: { get: async () => null }, ASSETS: assets }, { receipt: "AP-9" }, [{ qty: 1, design_id: kc }]);
@@ -217,6 +225,11 @@ section("the dashboard download");
   ok("…never cached", r.headers.get("cache-control") === "private, no-store");
   ok("a non-keychain line → 404", (await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 1)).status === 404);
   ok("an unknown line → 404", (await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 9)).status === 404);
+  rows["11111111-1111-4111-8111-111111111111:2"] = { receipt: "AP-7", design_id: kc, qty: 30 };
+  const p2 = await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 2, 2);
+  ok("part 2 of a 30-line downloads the remaining 6", p2.status === 200 && /AP-7-Aswin-white-pink-x6-part2of2\.3mf/.test(p2.headers.get("content-disposition")), p2.headers.get("content-disposition"));
+  ok("a part past the end → 404", (await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 2, 3)).status === 404);
+  ok("part 0 → 404", (await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 2, 0)).status === 404);
 
   // Owner-only: the route sits under the /api/admin/ gate.
   const src = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");

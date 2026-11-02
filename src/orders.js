@@ -628,14 +628,26 @@ function notifyPaid(env, ctx, paid, items) {
     // so the owner can open it in Bambu Studio and print. If building a file
     // fails, the email still goes — it says so, and the dashboard has a
     // Download button that builds the file again.
-    printFilesFor(env, paid, items).then(({ attachments, failed }) => sendEmail(env, {
-      to: owner,
-      replyTo: paid.cust_email,
-      subject: `💰 New paid order — ${paid.receipt}`,
-      html: orderOwnerEmail(env, paid, items, { attached: attachments.map((a) => a.filename), failed }),
-      text: `New paid order ${paid.receipt} from ${paid.cust_name} <${paid.cust_email}>\n`,
-      attachments,
-    })).then((r) => { if (!r.ok) console.error("owner order email failed", r.status, r.error); }),
+    //
+    // If Resend refuses the email WITH attachments (too large, say), it is sent
+    // again without them, saying the files are on the dashboard: the order
+    // email itself must never be lost to a print file.
+    printFilesFor(env, paid, items).then(async ({ attachments, failed }) => {
+      const send = (atts, failedCount) => sendEmail(env, {
+        to: owner,
+        replyTo: paid.cust_email,
+        subject: `💰 New paid order — ${paid.receipt}`,
+        html: orderOwnerEmail(env, paid, items, { attached: atts.map((a) => a.filename), failed: failedCount }),
+        text: `New paid order ${paid.receipt} from ${paid.cust_name} <${paid.cust_email}>\n`,
+        attachments: atts,
+      });
+      let r = await send(attachments, failed);
+      if (!r.ok && attachments.length) {
+        console.error("owner order email with print files failed; resending without", r.status, r.error);
+        r = await send([], failed + attachments.length);
+      }
+      return r;
+    }).then((r) => { if (!r.ok) console.error("owner order email failed", r.status, r.error); }),
 
     // Raise the invoice at invoicer.aswincloud.com. The email above is a
     // receipt; this is the document with a number on it.
