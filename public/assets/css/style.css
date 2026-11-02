@@ -100,6 +100,7 @@ nav {
 }
 
 .nav-links a {
+  white-space: nowrap;   /* a two-word link never breaks onto two lines */
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-muted);
@@ -3533,3 +3534,27 @@ body:has(#offer:not([hidden])) #promoBanner { display: none; }
 .offer-inner > :not(.offer-fireworks) { position: relative; z-index: 1; }
 /* The text sits on the fireworks: a soft shadow keeps it crisp over a burst. */
 .offer-kicker, .offer-title, .offer-terms, .offer-gift, .offer-ends { text-shadow: 0 1px 10px rgba(10, 10, 15, 0.85); }
+.cart-item-design { font-size: 0.8rem; color: var(--text-muted); margin: 2px 0 4px; }
+
+/* Narrow desktops (769-1199px): tighter gaps so the five links stay on one row. */
+@media (min-width: 769px) and (max-width: 1199px) {
+  .nav-links { gap: 1.1rem; }
+  .nav-actions { margin-left: 1rem; }
+}
+/* Below 900px there is no room for five links and four buttons in one bar, so
+   the menu folds into the hamburger here rather than at 768px (only the menu —
+   the rest of the phone layout still switches at 768px). */
+@media (min-width: 769px) and (max-width: 899px) {
+  body:not(.nav-menu-open) .nav-links { display: none; }
+  .nav-hamburger { display: flex; }
+}
+/* 769-1023px: the right-hand buttons ran past the screen edge (the account
+   button was cut off at 800-900px). Offers shows as its icon, as on phones, and
+   the gaps tighten further, so everything fits on one row. */
+@media (min-width: 769px) and (max-width: 1023px) {
+  .nav-links { gap: 0.8rem; }
+  .nav-links a { font-size: 0.85rem; }
+  .nav-actions { margin-left: 0.6rem; gap: 0.5rem; }
+  .nav-offers-label { display: none; }
+  .nav-offers-btn { width: 44px; padding: 0; }
+}

@@ -10,6 +10,7 @@ import { isProductPath, productPage } from "./productpage.js";
 import { payPendingPage } from "./paypending.js";
 import { thankYouPage } from "./thankyou.js";
 import { trackPage, trackLookup } from "./track.js";
+import { keychainPage } from "./keychainpage.js";
 import { backPage, stopReminders, stopConfirmPage, handleReminderBatch } from "./reminders.js";
 import { waWebhookHandler } from "./waoptout.js";
 import { recordActivity, adminActivity } from "./activity.js";
@@ -123,6 +124,12 @@ export default {
     if (payMatch && (request.method === "GET" || request.method === "HEAD")) {
       try { return withSecurityHeaders(await payPendingPage(env, payMatch[1])); }
       catch (e) { console.error("pay page error", e?.message || e); return Response.redirect(new URL("/", url.origin).toString(), 302); }
+    }
+
+    // Design a custom name keychain, with a live 3D preview. See keychainpage.js.
+    if ((url.pathname === "/keychain" || url.pathname === "/keychain/") && (request.method === "GET" || request.method === "HEAD")) {
+      try { return withSecurityHeaders(await keychainPage(env)); }
+      catch (e) { console.error("keychain page error", e?.message || e); return Response.redirect(new URL("/#shop", url.origin).toString(), 302); }
     }
 
     // Track an order — guests included. See track.js.

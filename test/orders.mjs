@@ -84,7 +84,7 @@ function makeDB() {
         addr_pin: "", notes, created_at, paid_at, shipped_at: null });
       return { meta: { changes: 1 } };
     }
-    if (s.startsWith("SELECT id, name, price_paise, personalise_label, personalise_required FROM products")) {
+    if (s.startsWith("SELECT id, slug, name, price_paise, personalise_label, personalise_required FROM products")) {
       const want = new Set(args);
       return { results: db.products.filter((p) => p.visible === 1 && want.has(p.id)) };
     }

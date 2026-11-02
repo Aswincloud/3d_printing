@@ -48,7 +48,7 @@ function makeDB({ coupons = [], redemptions = [], products = CATALOGUE, scope = 
   const run = (sql, a) => {
     const s = sql.replace(/\s+/g, " ").trim();
 
-    if (s.startsWith("SELECT id, name, price_paise, personalise_label, personalise_required FROM products")) {
+    if (s.startsWith("SELECT id, slug, name, price_paise, personalise_label, personalise_required FROM products")) {
       const want = new Set(a);
       return { results: db.products.filter((p) => p.visible === 1 && want.has(p.id)) };
     }
