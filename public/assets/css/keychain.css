@@ -55,3 +55,13 @@ h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); margin: 0 0 6px; letter-spacing: -0.
   .kc-swatches { grid-template-columns: repeat(5, 40px); }
   .kc-swatch { width: 40px; height: 40px; }
 }
+
+/* Style picker (2026-11-02): ten tiles, a photo of each design and its name. */
+.kc-styles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.kc-style { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px 8px; border-radius: 10px;
+  border: 1px solid var(--dark-4); background: var(--dark-2); color: var(--text); font: inherit; font-size: 12px; font-weight: 600;
+  line-height: 1.2; cursor: pointer; text-align: center; }
+.kc-style img { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; background: var(--dark-3, #222); }
+.kc-style[aria-pressed="true"] { border-color: var(--orange); background: rgba(255, 107, 0, 0.14); color: #ffd08a; }
+.kc-style:focus-visible { outline: 3px solid #ffd08a; outline-offset: 3px; }
+@media (max-width: 560px) { .kc-styles { grid-template-columns: repeat(3, 1fr); } }

@@ -2,41 +2,37 @@
 // (2026-11-02). Runs in the OWNER'S BROWSER (the dashboard's Download button,
 // public/assets/js/admin.js) and in the tests — not in the Worker: the shop is
 // on Cloudflare's free plan (10 ms of CPU per request) and a build takes
-// 50-300 ms. The Worker only hands the owner the inputs (src/kc3mf.js).
+// 50-500 ms. The Worker only hands the owner the inputs (src/kc3mf.js).
 //
-// The file: the keychain body (private, fetched owner-only), the customer's
-// name as its own solid part laid out by kc-text.js (the same layout as the
-// shop's preview), each part on its AMS slot in the customer's colours, the
-// printer set to the A1 from a template built by scripts/build-kc-template.py.
-import polygonClipping from "../vendor/kc/polygon-clipping.js";
+// A keychain is a list of PARTS, each a closed mesh on one AMS slot, z from 0
+// at the bed. The parts come from the style (kc-styles.js): either shapes made
+// from the customer's name, extruded between two heights, or a fixed body mesh
+// (private, from the owner's file) with the name laid on it.
 import earcut from "../vendor/kc/earcut.js";
-import { layoutText, area2, TEXT_Z0, TEXT_Z1 } from "./kc-text.js";
+import { layoutText, TEXT_Z0, TEXT_Z1, PANEL } from "./kc-text.js";
+import { STYLES } from "./kc-styles.js";
+import { union } from "./kc-shapes.js";
 
-// Copies per plate, and the most plates one file holds. Six 120 x 32 mm
-// keychains fit the A1's 256 mm bed in a column with room to spare.
+// Copies per plate, and the most plates one file holds.
 export const PER_PLATE = 6;
 export const MAX_PLATES = 4;
-const BED = 256, PITCH = 40;
+const BED = 256, GAP = 6;
 // Bambu Studio lays plates out in a grid, each plate 1.2 bed-widths from the
 // last (seen in a Studio-saved project: plate 2's object at x = 128 + 307.2).
 const PLATE_STRIDE = BED * 1.2;
-const BODY_HALF_HEIGHT = 2.6; // the body mesh is centred on z = 0
 
 // ── geometry ──────────────────────────────────────────────────────
 
-// The name as a closed, outward-facing triangle mesh in body coordinates.
-// Overlapping script letters are merged first, so the mesh has no internal
-// faces for the slicer to trip over.
-export function textMesh(text, font) {
-  const { polygons } = layoutText(text, font);
-  if (!polygons.length) return { v: [], t: [] };
-  const merged = polygonClipping.union(...polygons.map((p) => [p]));
+const area2 = (r) => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += r[j][0] * r[i][1] - r[i][0] * r[j][1]; return a; };
+
+// A shape (kc-shapes.js: polygons of [outer, ...holes]) extruded from z0 to z1
+// as one closed, outward-facing triangle mesh.
+export function extrude(shape, z0, z1) {
   const v = [], t = [];
-  for (const poly of merged) {
-    // polygon-clipping repeats each ring's first point at its end.
-    const rings = poly.map((r) => r.slice(0, -1)).filter((r) => r.length > 2);
+  for (const poly of shape) {
+    const rings = poly.filter((r) => r.length > 2).map((r) => r.slice());
     if (!rings.length) continue;
-    // Outer ring counter-clockwise, holes clockwise: the side walls below rely on it.
+    // Outer counter-clockwise, holes clockwise: the side walls rely on it.
     rings.forEach((r, i) => { if ((area2(r) > 0) !== (i === 0)) r.reverse(); });
     const flat = [], holes = [];
     for (const r of rings) {
@@ -45,7 +41,7 @@ export function textMesh(text, font) {
     }
     const n = flat.length / 2, base = v.length / 3;
     // Vertex k of the polygon: bottom at base + 2k, top at base + 2k + 1.
-    for (let k = 0; k < n; k++) v.push(flat[2 * k], flat[2 * k + 1], TEXT_Z0, flat[2 * k], flat[2 * k + 1], TEXT_Z1);
+    for (let k = 0; k < n; k++) v.push(flat[2 * k], flat[2 * k + 1], z0, flat[2 * k], flat[2 * k + 1], z1);
     const tri = earcut(flat, holes);
     for (let i = 0; i < tri.length; i += 3) {
       let [a, b, c] = [tri[i], tri[i + 1], tri[i + 2]];
@@ -68,11 +64,56 @@ export function textMesh(text, font) {
   return { v, t };
 }
 
+// The heart body's name: laid out in its recess (kc-text.js), merged. The heart
+// body mesh is centred on z = 0, 5.2 mm thick; the name stands from the recess
+// floor to just proud of the top, so both are lifted by 2.6 mm to the bed.
+const HEART_LIFT = 2.6;
+// The ribbon body (lifted to the bed when it was extracted) carries the name
+// across its wings, on top of its upper layer.
+export const RIBBON = { x0: -19, x1: 20.8, y0: 7, y1: 15.7, z0: 1.69, z1: 2.4, height: 8.2 };
+
+export function textMesh(text, font) {
+  const { polygons } = layoutText(text, font);
+  if (!polygons.length) return { v: [], t: [] };
+  return extrude(union(...polygons.map((p) => [p])), TEXT_Z0, TEXT_Z1);
+}
+
+const lift = (m, dz) => ({ v: m.v.map((x, i) => (i % 3 === 2 ? x + dz : x)), t: m.t });
+
+// A design → its parts: [{ name, slot, mesh }], all z >= 0, plus its footprint.
+// `bodies`: { heart, ribbon } meshes for the body styles (private files).
+export function designParts(design, font, bodies, initialFont) {
+  const st = STYLES[design.style || "heart"];
+  if (!st) throw new Error(`unknown style ${design.style}`);
+  if (st.body === "heart") {
+    const body = bodies?.heart;
+    if (!body) throw new Error("the heart body is missing");
+    const text = textMesh(design.text, font);
+    return { parts: [
+      { name: "Keychain body", slot: 1, mesh: lift(body, HEART_LIFT) },
+      { name: `Text: ${design.text}`, slot: 2, mesh: lift(text, HEART_LIFT) },
+    ], size: { w: 120, h: 32 } };
+  }
+  if (st.body === "ribbon") {
+    const body = bodies?.ribbon;
+    if (!body) throw new Error("the ribbon body is missing");
+    const { polygons } = layoutText(design.text, font, RIBBON);
+    const name = extrude(union(...polygons.map((p) => [p])), RIBBON.z0, RIBBON.z1);
+    return { parts: [
+      ...body.parts.map((p) => ({ name: p.name, slot: p.slot, mesh: { v: p.v, t: p.t } })),
+      { name: `Text: ${design.text}`, slot: 2, mesh: name },
+    ], size: { w: 49, h: 50 } };
+  }
+  const built = st.build(design.text, font, initialFont);
+  if (!built) throw new Error("the text produced no shape");
+  return { parts: built.parts.map((p) => ({ name: p.name === "Name" ? `Text: ${design.text}` : p.name, slot: p.slot, mesh: extrude(p.shape, p.z0, p.z1) })), size: built.size };
+}
+
 // ── project files ─────────────────────────────────────────────────
 
 const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-// Full float precision: the body has distinct vertices closer than 1e-4 mm,
-// and rounding them together would tear its surface.
+// Full float precision: the heart body has distinct vertices closer than
+// 1e-4 mm, and rounding them together would tear its surface.
 const num = (x) => String(Math.fround(x));
 
 function meshXml(id, m) {
@@ -87,47 +128,52 @@ function meshXml(id, m) {
 const NS = `xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"`;
 const uuid = (a, b) => `${a.toString(16).padStart(8, "0")}-${b.toString(16).padStart(4, "0")}-4000-8000-000000000000`;
 
-// Where copy i (0-based) of n sits: a column of up to PER_PLATE per plate,
-// centred on the bed; plates in Bambu's grid (cols = ceil(sqrt(plates))).
-export function placement(i, n) {
-  const plates = Math.ceil(n / PER_PLATE);
-  const plate = Math.floor(i / PER_PLATE), slot = i % PER_PLATE;
-  const onPlate = Math.min(PER_PLATE, n - plate * PER_PLATE);
-  const cols = Math.ceil(Math.sqrt(plates));
-  const px = (plate % cols) * PLATE_STRIDE, py = -Math.floor(plate / cols) * PLATE_STRIDE;
-  return { plate, x: px + BED / 2, y: py + BED / 2 + (slot - (onPlate - 1) / 2) * PITCH };
+// How many of a size fit one plate, packed in rows (each copy's footprint
+// plus a GAP), and where copy i of n sits. Plates follow Bambu's grid.
+export function layout(n, size) {
+  const cw = size.w + GAP, ch = size.h + GAP;
+  const cols = Math.max(1, Math.floor((BED - 10) / cw)), rows = Math.max(1, Math.floor((BED - 10) / ch));
+  const per = Math.min(PER_PLATE, cols * rows);
+  const plates = Math.ceil(n / per), gridCols = Math.ceil(Math.sqrt(plates));
+  const at = [];
+  for (let i = 0; i < n; i++) {
+    const plate = Math.floor(i / per), k = i % per, onPlate = Math.min(per, n - plate * per);
+    const used = Math.min(cols, onPlate), usedRows = Math.ceil(onPlate / cols);
+    const c = k % cols, r = Math.floor(k / cols);
+    const px = (plate % gridCols) * PLATE_STRIDE, py = -Math.floor(plate / gridCols) * PLATE_STRIDE;
+    at.push({ plate, x: px + BED / 2 + (c - (used - 1) / 2) * cw, y: py + BED / 2 - (r - (usedRows - 1) / 2) * ch });
+  }
+  return { at, plates, per };
 }
+// The heart's column layout, kept for its tests: 6 per plate, 40 mm apart.
+export const placement = (i, n) => layout(n, { w: 120, h: 34 }).at[i];
 
 // Build the project for `copies` of one design. Returns the files of the 3MF
-// as [name, string] pairs; zip() packs them.
-// `colours`: the filament hex for each slot — [base] or [base, text].
-export function projectFiles({ design, label, copies, body, text, template, colours }) {
-  const two = design.ink !== design.base;
-  const nFil = two ? 2 : 1;
-  const textSlot = two ? 2 : 1;
-  // Callers split larger lines with fileParts(); more here is a bug, not a clamp.
+// as [name, string] pairs; zip() packs them. `colours`: hex per slot used.
+export function projectFiles({ parts, size, label, copies, template, colours }) {
   if (!(copies >= 1 && copies <= PER_PLATE * MAX_PLATES)) throw new Error(`copies must be 1..${PER_PLATE * MAX_PLATES}, got ${copies}`);
   const n = copies;
-  const plates = Math.ceil(n / PER_PLATE);
+  const { at, plates } = layout(n, size);
+  const slots = Math.max(...parts.map((p) => p.slot));
+  if (colours.length < slots) throw new Error(`the design uses ${slots} colours, ${colours.length} given`);
 
-  // Mesh objects: 1 = body, 2 = text. Every copy is a component pair pointing at them.
+  // One mesh object per part, ids 1..k; every copy is a component group.
   const objectModel = `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n <metadata name="BambuStudio:3mfVersion">1</metadata>\n <resources>\n`
-    + meshXml(1, body) + meshXml(2, text) + ` </resources>\n <build/>\n</model>\n`;
+    + parts.map((p, i) => meshXml(i + 1, p.mesh)).join("") + ` </resources>\n <build/>\n</model>\n`;
 
   const resources = [], items = [], cfgObjects = [], instances = Array.from({ length: plates }, () => []);
+  const first = parts.length + 1;
   for (let i = 0; i < n; i++) {
-    const id = 3 + i;
-    const at = placement(i, n);
+    const id = first + i;
     resources.push(`  <object id="${id}" p:UUID="${uuid(id, 1)}" type="model">\n   <components>\n`
-      + `    <component p:path="/3D/Objects/object_1.model" objectid="1" p:UUID="${uuid(id, 2)}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n`
-      + `    <component p:path="/3D/Objects/object_1.model" objectid="2" p:UUID="${uuid(id, 3)}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n`
+      + parts.map((_, k) => `    <component p:path="/3D/Objects/object_1.model" objectid="${k + 1}" p:UUID="${uuid(id, 2 + k)}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n`).join("")
       + `   </components>\n  </object>\n`);
-    items.push(`  <item objectid="${id}" p:UUID="${uuid(id, 4)}" transform="1 0 0 0 1 0 0 0 1 ${num(at.x)} ${num(at.y)} ${BODY_HALF_HEIGHT}" printable="1"/>\n`);
+    items.push(`  <item objectid="${id}" p:UUID="${uuid(id, 1000)}" transform="1 0 0 0 1 0 0 0 1 ${num(at[i].x)} ${num(at[i].y)} 0" printable="1"/>\n`);
     const name = n > 1 ? `${label} (${i + 1})` : label;
     cfgObjects.push(`  <object id="${id}">\n    <metadata key="name" value="${xml(name)}"/>\n    <metadata key="extruder" value="1"/>\n`
-      + `    <part id="1" subtype="normal_part">\n      <metadata key="name" value="Keychain body"/>\n      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n      <metadata key="extruder" value="1"/>\n    </part>\n`
-      + `    <part id="2" subtype="normal_part">\n      <metadata key="name" value="${xml(`Text: ${design.text}`)}"/>\n      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n      <metadata key="extruder" value="${textSlot}"/>\n    </part>\n  </object>\n`);
-    instances[at.plate].push(`    <model_instance>\n      <metadata key="object_id" value="${id}"/>\n      <metadata key="instance_id" value="0"/>\n      <metadata key="identify_id" value="${100 + i}"/>\n    </model_instance>\n`);
+      + parts.map((p, k) => `    <part id="${k + 1}" subtype="normal_part">\n      <metadata key="name" value="${xml(p.name)}"/>\n      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n      <metadata key="extruder" value="${p.slot}"/>\n    </part>\n`).join("")
+      + `  </object>\n`);
+    instances[at[i].plate].push(`    <model_instance>\n      <metadata key="object_id" value="${id}"/>\n      <metadata key="instance_id" value="0"/>\n      <metadata key="identify_id" value="${100 + i}"/>\n    </model_instance>\n`);
   }
 
   const mainModel = `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n`
@@ -135,11 +181,12 @@ export function projectFiles({ design, label, copies, body, text, template, colo
     + ` <metadata name="Title">${xml(label)}</metadata>\n <resources>\n${resources.join("")} </resources>\n`
     + ` <build p:UUID="${uuid(1, 9)}">\n${items.join("")} </build>\n</model>\n`;
 
+  const used = colours.slice(0, slots);
   const plateXml = instances.map((list, p) => `  <plate>\n    <metadata key="plater_id" value="${p + 1}"/>\n    <metadata key="plater_name" value=""/>\n    <metadata key="locked" value="false"/>\n`
-    + `    <metadata key="filament_map_mode" value="Auto For Flush"/>\n    <metadata key="filament_maps" value="${Array(nFil).fill(1).join(" ")}"/>\n${list.join("")}  </plate>\n`).join("");
+    + `    <metadata key="filament_map_mode" value="Auto For Flush"/>\n    <metadata key="filament_maps" value="${Array(used.length).fill(1).join(" ")}"/>\n${list.join("")}  </plate>\n`).join("");
   const modelSettings = `<?xml version="1.0" encoding="UTF-8"?>\n<config>\n${cfgObjects.join("")}${plateXml}  <assemble>\n  </assemble>\n</config>\n`;
 
-  const projectSettings = JSON.stringify(projectConfig(template, colours.slice(0, nFil), plates), null, 4);
+  const projectSettings = JSON.stringify(projectConfig(template, used, plates), null, 4);
 
   return [
     ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n <Default Extension="png" ContentType="image/png"/>\n <Default Extension="gcode" ContentType="text/x.gcode"/>\n</Types>\n`],
@@ -233,25 +280,45 @@ export function fileParts(qty) {
 // are IN THIS FILE; "part 2 of 3" when the line was split. File-system safe.
 export function fileName(receipt, design, n, part = 1, parts = 1) {
   const safe = (s) => String(s).replace(/[^A-Za-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
-  const colours = design.ink !== design.base ? `${design.base}-${design.ink}` : design.base;
-  return `${safe(receipt)}-${safe(design.text) || "name"}-${colours}${n > 1 ? `-x${n}` : ""}${parts > 1 ? `-part${part}of${parts}` : ""}.3mf`;
+  // Distinct colours in slot order (base, text, accent), and the style for all
+  // but the original heart, so file names from before styles stay the same.
+  const colours = [...new Set([design.base, design.ink, design.accent || design.base])].join("-");
+  const style = design.style && design.style !== "heart" ? `-${design.style}` : "";
+  return `${safe(receipt)}-${safe(design.text) || "name"}${style}-${colours}${n > 1 ? `-x${n}` : ""}${parts > 1 ? `-part${part}of${parts}` : ""}.3mf`;
 }
 
+
+// Parts on slots 1..3 with `hex` per slot → parts renumbered so each distinct
+// colour has one slot, and that slot list.
+export function mergeSlots(parts, hex) {
+  const colours = [], slotOf = new Map();
+  const ordered = [...new Set([1, ...parts.map((p) => p.slot)])];
+  for (const s of ordered) {
+    const c = String(hex[s - 1] || hex[0]).toLowerCase();
+    if (!slotOf.has(c)) { colours.push(c); slotOf.set(c, colours.length); }
+  }
+  return { parts: parts.map((p) => ({ ...p, slot: slotOf.get(String(hex[p.slot - 1] || hex[0]).toLowerCase()) })), colours };
+}
 
 // ── the whole thing ───────────────────────────────────────────────
 
 // job: what GET /api/admin/orders/<id>/print/<pos> returns —
-//   { receipt, design, qty, colours, font, body, template }, with font a
-//   typeface JSON object. Returns [{ name, bytes }], one per file of the line.
+//   { receipt, design, qty, colours, font, bodies, template }, with font (and
+//   initialFont for the big-initial style) a typeface JSON object, colours the
+//   hex for slots 1..3. Returns [{ name, bytes }], one per file of the line.
 export async function buildPrintFiles(job) {
-  const text = textMesh(job.design.text, job.font);
-  if (!text.t.length) throw new Error("the text produced no geometry");
-  const parts = fileParts(job.qty);
+  const built = designParts(job.design, job.font, job.bodies, job.initialFont);
+  // Parts in the same colour share one filament slot: a one-colour design
+  // prints from one spool with no prime tower. Slots are numbered in order of
+  // first use (base first).
+  const { parts, colours } = mergeSlots(built.parts, job.colours);
+  const size = built.size;
+  const fileCount = fileParts(job.qty);
   const out = [];
-  for (let i = 0; i < parts.length; i++) {
+  for (let i = 0; i < fileCount.length; i++) {
     const label = `${job.receipt} ${job.design.text}`;
-    const bytes = await zip(projectFiles({ design: job.design, label, copies: parts[i], body: job.body, text, template: job.template, colours: job.colours }));
-    out.push({ name: fileName(job.receipt, job.design, parts[i], i + 1, parts.length), bytes });
+    const bytes = await zip(projectFiles({ parts, size, label, copies: fileCount[i], template: job.template, colours }));
+    out.push({ name: fileName(job.receipt, job.design, fileCount[i], i + 1, fileCount.length), bytes });
   }
   return out;
 }

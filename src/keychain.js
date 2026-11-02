@@ -59,8 +59,27 @@ export function cleanText(s) {
   return String(s ?? "").normalize("NFC").replace(/\s+/g, " ").trim();
 }
 
-// [text, font, base, textColour] → { text, font, base, ink } or null.
-// textColour equal to base (or empty) means one colour.
+// The keychain styles (2026-11-02), the owner's designs: public/assets/js/
+// kc-styles.js turns each into printable parts; this list is what the shop
+// ACCEPTS. `accent`: the style has a third part (inner outline, charm, bow top)
+// with its own colour. The first is the default and the style of every design
+// made before styles existed.
+export const STYLES = {
+  heart: { name: "Heart tag", accent: false },
+  bubble: { name: "Bubble script", accent: false },
+  double: { name: "Double outline", accent: true },
+  topring: { name: "Script, ring on top", accent: false },
+  classic: { name: "Classic script", accent: false },
+  chunky: { name: "Chunky bubble", accent: false },
+  charm: { name: "Flower charm", accent: true },
+  initial: { name: "Big initial", accent: false },
+  shadow: { name: "Drop shadow", accent: false },
+  ribbon: { name: "Ribbon bow", accent: true },
+};
+
+// { text, font, base, ink, style, accent } → validated, or null.
+// ink equal to base (or empty) means one colour; accent defaults to the base
+// and is kept only for styles that have an accent part.
 export function validDesign(d) {
   if (!d || typeof d !== "object") return null;
   const text = cleanText(d.text);
@@ -69,16 +88,23 @@ export function validDesign(d) {
   if (!Object.hasOwn(COLOURS, d.base)) return null;
   const ink = d.ink || d.base;
   if (!Object.hasOwn(COLOURS, ink)) return null;
-  return { text, font: d.font, base: d.base, ink };
+  const style = d.style || "heart";
+  if (!Object.hasOwn(STYLES, style)) return null;
+  const accent = STYLES[style].accent ? (d.accent || d.base) : d.base;
+  if (!Object.hasOwn(COLOURS, accent)) return null;
+  return { text, font: d.font, base: d.base, ink, style, accent };
 }
 
 const b64url = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const unb64url = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
 
+// A heart design keeps the original four-field id, so carts and orders from
+// before styles existed still match; every other style adds [style, accent].
 export function designId(d) {
   const v = validDesign(d);
   if (!v) return null;
-  return KC_PREFIX + b64url(JSON.stringify([v.text, v.font, v.base, v.ink]));
+  const fields = v.style === "heart" ? [v.text, v.font, v.base, v.ink] : [v.text, v.font, v.base, v.ink, v.style, v.accent];
+  return KC_PREFIX + b64url(JSON.stringify(fields));
 }
 
 export const isDesignId = (id) => typeof id === "string" && id.startsWith(KC_PREFIX);
@@ -90,19 +116,27 @@ export function parseDesign(id) {
   if (!isDesignId(id) || id.length > 200) return null;
   let arr;
   try { arr = JSON.parse(unb64url(id.slice(KC_PREFIX.length))); } catch { return null; }
-  if (!Array.isArray(arr) || arr.length !== 4) return null;
-  const v = validDesign({ text: arr[0], font: arr[1], base: arr[2], ink: arr[3] });
+  if (!Array.isArray(arr) || (arr.length !== 4 && arr.length !== 6)) return null;
+  const v = validDesign({ text: arr[0], font: arr[1], base: arr[2], ink: arr[3], style: arr[4], accent: arr[5] });
   if (!v || designId(v) !== id) return null;
   return v;
 }
 
-export const twoColour = (v) => v.ink !== v.base;
+// More than one colour (text, or an accent part, differs from the base).
+export const twoColour = (v) => v.ink !== v.base || v.accent !== v.base;
+// One colour ₹199; any multi-colour design ₹299 — including three colours
+// (owner to confirm a three-colour price; 2026-11-02).
 export const designPrice = (v) => (twoColour(v) ? PRICE_TWO_PAISE : PRICE_ONE_PAISE);
 
 // What the owner reads on the order, the dashboard and the email.
 export function designSummary(v) {
-  const colours = twoColour(v)
-    ? `${COLOURS[v.base].name} base, ${COLOURS[v.ink].name} text`
-    : `${COLOURS[v.base].name}, one colour`;
-  return `"${v.text}" · ${FONTS[v.font].name} font · ${colours}`;
+  const parts = [];
+  if (!twoColour(v)) parts.push(`${COLOURS[v.base].name}, one colour`);
+  else {
+    parts.push(`${COLOURS[v.base].name} base`);
+    if (v.ink !== v.base) parts.push(`${COLOURS[v.ink].name} text`);
+    if (v.accent !== v.base) parts.push(`${COLOURS[v.accent].name} ${v.style === "charm" ? "flower" : v.style === "ribbon" ? "bow" : "outline"}`);
+  }
+  const style = v.style === "heart" ? "" : ` · ${STYLES[v.style].name}`;
+  return `"${v.text}"${style} · ${FONTS[v.font].name} font · ${parts.join(", ")}`;
 }
