@@ -123,3 +123,6 @@ jobs:
           # Fireworks over the sale offer: draw, then stop; never over the buttons;
           # none with reduced motion or with no sale on.
           npm run test:fireworks
+          # The custom name keychain designer: 3D preview renders, controls change
+          # design and price, bad text blocked, Add to cart stores the server's id.
+          npm run test:keychain

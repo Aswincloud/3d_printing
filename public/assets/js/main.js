@@ -511,6 +511,33 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
    localStorage entry can change what you see, never what you pay. */
 
 const CART_KEY = 'ap_cart';
+// A custom keychain design's cart id (src/keychain.js). Such a line is priced and
+// validated by the server; here it is kept out of the account-cart sync, because
+// the account cart only holds real products.
+const isDesignLine = (id) => typeof id === 'string' && id.startsWith('kc~');
+
+// The product a cart line shows as. A normal line is its catalogue entry; a
+// custom keychain design is the "Custom Name Keychain" entry re-labelled with
+// the design and priced by the same rule the server uses (one colour ₹199, text
+// in a second colour ₹299 — PRICE_ONE/TWO in src/keychain.js). DISPLAY ONLY:
+// priceCart() decodes and validates the design and sets the real price.
+const KC_SLUG = 'custom-name-keychain';
+function decodeDesign(id) {
+  try {
+    const b = atob(id.slice(3).replace(/-/g, '+').replace(/_/g, '/'));
+    const a = JSON.parse(new TextDecoder().decode(Uint8Array.from(b, (c) => c.charCodeAt(0))));
+    return Array.isArray(a) && a.length === 4 && typeof a[0] === 'string' ? { text: a[0], font: a[1], base: a[2], ink: a[3] } : null;
+  } catch { return null; }
+}
+function cartProduct(id) {
+  if (!isDesignLine(id)) return catalogue.find((c) => c.id === id);
+  const base = catalogue.find((c) => c.slug === KC_SLUG);
+  const d = decodeDesign(id);
+  if (!base || !d) return undefined;
+  const two = d.ink && d.ink !== d.base;
+  return { ...base, id, name: base.name + ' — "' + d.text + '"', price_paise: two ? 29900 : 19900,
+           personalise_label: '', design: d };
+}
 const MAX_QTY = 100; // mirrors MAX_QTY in src/shop.js
 const MAX_PZ = 120;  // mirrors MAX_PERSONALISATION in src/shop.js
 
@@ -613,7 +640,7 @@ function writeCart(cart) {
 function cartCount(cart = readCart()) {
   if (!catalogue.length) return cart.reduce((n, it) => n + it.qty, 0);
   return cart.reduce((n, it) =>
-    (catalogue.some((c) => c.id === it.id) ? n + it.qty : n), 0);
+    (cartProduct(it.id) ? n + it.qty : n), 0);
 }
 
 function addToCart(id) {
@@ -628,6 +655,11 @@ function addToCart(id) {
   if (!id) return false;
   const known = catalogue.find((p) => p.id === id);
   if (known && known.quote_only) return false;
+  // The Custom Name Keychain is only bought as a DESIGN (text, font, colours),
+  // from /keychain — never as a blank product. Every Add / Buy button on the
+  // grid, the lightbox and the cart funnels through here, so this one check
+  // sends all of them to the designer. priceCart() refuses the base product too.
+  if (known && known.slug === KC_SLUG) { location.href = '/keychain'; return false; }
 
   const cart = readCart();
   const line = cart.find((it) => it.id === id);
@@ -1877,7 +1909,7 @@ function renderCart() {
   // Lines whose product has vanished from the catalogue are dropped here
   // rather than shown at a guessed price.
   const lines = cart
-    .map((it) => ({ it, p: catalogue.find((c) => c.id === it.id) }))
+    .map((it) => ({ it, p: cartProduct(it.id) }))
     .filter((row) => row.p);
 
   if (!lines.length) {
@@ -1908,6 +1940,17 @@ function renderCart() {
     name.className = 'cart-item-name';
     name.textContent = p.name;
 
+    // A custom keychain: which font and colours, so two designs can be told apart.
+    let designLine = null;
+    if (p.design) {
+      const COL = { white: 'White', black: 'Black', brown: 'Choco brown', gold: 'Gold', orange: 'Orange', blue: 'Blue', red: 'Red', green: 'Green', pink: 'Pink', skin: 'Skin' };
+      const FON = { bold: 'Bold', classic: 'Classic', serif: 'Serif', rounded: 'Rounded' };
+      designLine = document.createElement('div');
+      designLine.className = 'cart-item-design';
+      designLine.textContent = (FON[p.design.font] || '') + ' font · ' +
+        (p.design.ink && p.design.ink !== p.design.base ? (COL[p.design.base] || '') + ' base, ' + (COL[p.design.ink] || '') + ' text' : (COL[p.design.base] || '') + ', one colour');
+    }
+
     const price = document.createElement('div');
     price.className = 'cart-item-price';
     price.textContent = rupees(p.price_paise) + ' × ' + it.qty + ' = ' + rupees(p.price_paise * it.qty);
@@ -1936,7 +1979,9 @@ function renderCart() {
     remove.setAttribute('aria-label', 'Remove ' + p.name + ' from cart');
     remove.addEventListener('click', () => setQty(it.id, 0));
 
-    info.append(name, price, qty);
+    info.append(name);
+    if (designLine) info.append(designLine);
+    info.append(price, qty);
     const pz = pzField(p, it.pz, renderCart);
     if (pz) info.appendChild(pz);
     row.append(img, info, remove);
@@ -2095,7 +2140,7 @@ function renderCoSummary() {
   // checkoutItems(), not readCart(): a "buy now — just this" checkout must show
   // only that item, and must show the same set the payload will send.
   const lines = checkoutItems()
-    .map((it) => ({ it, p: catalogue.find((c) => c.id === it.id) }))
+    .map((it) => ({ it, p: cartProduct(it.id) }))
     .filter((r) => r.p);
 
   let subtotal = 0;
@@ -2288,7 +2333,9 @@ function takeBuyNowHandoff() {
       const id = typeof it?.id === 'string' ? it.id : '';
       const qty = parseInt(it?.qty, 10);
       if (!id || !Number.isFinite(qty) || qty < 1) continue;
-      const p = catalogue.find((c) => c.id === id);
+      // cartProduct, so a custom keychain design (kc~…) from the designer's Buy
+      // now is accepted; it resolves to a priced entry only if the design decodes.
+      const p = cartProduct(id);
       // price_paise > 0 mirrors addToCart and priceCart: an unpriced product
       // cannot be bought by any route, and this is a route.
       if (!p || !(p.price_paise > 0)) continue;
@@ -3434,7 +3481,7 @@ async function adoptServerCart() {
       const merged = await fetch('/api/me/cart/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: local.map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
+        body: JSON.stringify({ items: local.filter((it) => !isDesignLine(it.id)).map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
       });
       // Not adopted yet: leave the stamp unset so the next load tries again,
       // rather than stamping a cart the account never received.
@@ -3446,7 +3493,7 @@ async function adoptServerCart() {
       const put = await fetch('/api/me/cart', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: local.map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
+        body: JSON.stringify({ items: local.filter((it) => !isDesignLine(it.id)).map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
       });
       if (!put.ok) return;                 // keep the local copy and the flag; try again next load
       clearCartDirty();
@@ -3457,9 +3504,12 @@ async function adoptServerCart() {
     const { items } = await res.json();
     // setItem directly, NOT writeCart — writeCart triggers syncCartUp, which
     // would push straight back to the server in a loop.
+    // Custom keychain designs live only in this browser (the account cart table
+    // holds real products), so keep them when the account's cart replaces ours.
+    const designs = readCart().filter((it) => isDesignLine(it.id));
     localStorage.setItem(CART_KEY, JSON.stringify(items.map((it) => ({
       id: it.product_id, qty: it.qty, pz: it.personalisation || '',
-    }))));
+    })).concat(designs)));
     renderCart();
   } catch { /* keep the local cart */ }
 }
@@ -3484,7 +3534,7 @@ function syncCartUp() {
   fetch('/api/me/cart', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items: readCart().map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
+    body: JSON.stringify({ items: readCart().filter((it) => !isDesignLine(it.id)).map((it) => ({ product_id: it.id, qty: it.qty, personalisation: it.pz || '' })) }),
   }).then((res) => { if (res.ok) clearCartDirty(); }).catch(() => {});
 }
 

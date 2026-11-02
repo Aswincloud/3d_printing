@@ -6,6 +6,7 @@
 
 import { json, now } from "./lib.js";
 import { applyCoupon, couponScope } from "./coupons.js";
+import { isDesignId, parseDesign, designPrice, designSummary, KEYCHAIN_SLUG } from "./keychain.js";
 // Shared with the dashboard's unlisted-photos panel, so a synthesised card and
 // the admin form suggest the same name for the same file.
 import { suggestName } from "./admin.js";
@@ -419,7 +420,25 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
   }
 
   const ids = [...wanted.keys()];
-  const placeholders = ids.map(() => "?").join(",");
+  // Custom keychain designs ride in the cart as their own ids (src/keychain.js).
+  // Each must parse to a valid design, and all of them price against the ONE
+  // keychain product row — so look that row up instead of the design ids.
+  const designs = new Map();
+  for (const id of ids) {
+    if (!isDesignId(id)) continue;
+    const d = parseDesign(id);
+    if (!d) return { error: "A custom keychain in your cart isn't valid. Please design it again." };
+    designs.set(id, d);
+  }
+  let keychainRow = null;
+  if (designs.size) {
+    keychainRow = await env.DB.prepare(
+      `SELECT id, name, price_paise, personalise_label, personalise_required FROM products
+        WHERE slug = ? AND visible = 1 AND price_paise > 0`).bind(KEYCHAIN_SLUG).first();
+    if (!keychainRow) return { error: "Custom keychains aren't available right now." };
+  }
+  const realIds = ids.filter((id) => !designs.has(id));
+  const placeholders = (realIds.length ? realIds : ["__none__"]).map(() => "?").join(",");
   // `price_paise > 0` is a SECURITY control, not a display rule.
   //
   // A price of 0 means "not priced yet": the shop auto-lists every pushed photo
@@ -437,17 +456,17 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
   // is refused, which is the right answer: better than silently dropping an item
   // the customer believed they were buying.
   const { results } = await env.DB.prepare(
-    `SELECT id, name, price_paise, personalise_label, personalise_required
+    `SELECT id, slug, name, price_paise, personalise_label, personalise_required
        FROM products
       WHERE visible = 1 AND price_paise > 0 AND id IN (${placeholders})`
-  ).bind(...ids).all();
+  ).bind(...(realIds.length ? realIds : ["__none__"])).all();
 
   const found = new Map((results || []).map((r) => [r.id, r]));
 
   // A missing id means either a bogus product or one that's been hidden since
   // the cart was filled. Either way, refuse rather than silently dropping it —
   // a customer must never be charged for a different basket than they saw.
-  const missing = ids.filter((id) => !found.has(id));
+  const missing = realIds.filter((id) => !found.has(id));
   if (missing.length) {
     return { error: "An item in your cart is no longer available. Please refresh and try again." };
   }
@@ -457,8 +476,30 @@ export async function priceCart(env, rawItems, delivery, couponCode = null, emai
   let subtotal = 0;
   let pos = 0;
   for (const id of ids) {
-    const row = found.get(id);
     const qty = wanted.get(id);
+    const design = designs.get(id);
+    if (design) {
+      // The price is the RULE (one colour or two), not anything in the id; the
+      // order line records the real keychain product and the design to print.
+      const price = designPrice(design);
+      subtotal += price * qty;
+      items.push({
+        product_id: keychainRow.id,
+        name: keychainRow.name,
+        price_paise: price,
+        qty,
+        personalisation: designSummary(design),
+        design_id: id,
+        pos: pos++,
+      });
+      continue;
+    }
+    const row = found.get(id);
+    // The keychain product itself is bought only as a design (above). Bought
+    // directly it would be a blank keychain with no text or colours to print.
+    if (row.slug === KEYCHAIN_SLUG) {
+      return { error: "Custom keychains are designed first — please use the keychain designer." };
+    }
     subtotal += row.price_paise * qty;
     // A product that does not ask gets nothing stored, whatever was sent. The
     // client decides what to SHOW; the row decides what is real — the same split
