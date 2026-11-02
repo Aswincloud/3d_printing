@@ -1250,6 +1250,9 @@
 
 /* A custom keychain line's print file (src/kc3mf.js). */
 .oi-print {
+  font: inherit;
+  background: none;
+  cursor: pointer;
   display: inline-block;
   margin-top: 6px;
   padding: 6px 10px;

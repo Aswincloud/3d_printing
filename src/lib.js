@@ -121,9 +121,7 @@ function fromHeader(env, name) {
 
 // `replyTo` added over invoicer's version: quote mails set it to the customer
 // so Aswin can just hit reply.
-// `attachments`: [{ filename, content (base64) }] — Resend's shape. Used only for
-// the print files on the owner's order email; never on customer mail.
-export async function sendEmail(env, { to, subject, html, text, fromName, replyTo, bcc, attachments }) {
+export async function sendEmail(env, { to, subject, html, text, fromName, replyTo, bcc }) {
   const key = env.RESEND_API_KEY;
   if (!key) return { ok: false, error: "RESEND_API_KEY not set" };
   const payload = {
@@ -137,7 +135,6 @@ export async function sendEmail(env, { to, subject, html, text, fromName, replyT
   const blind = (Array.isArray(bcc) ? bcc : [bcc])
     .map((a) => String(a || "").trim()).filter((a) => isEmail(a) && !lower.has(a.toLowerCase()));
   if (blind.length) payload.bcc = blind;
-  if (Array.isArray(attachments) && attachments.length) payload.attachments = attachments;
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {

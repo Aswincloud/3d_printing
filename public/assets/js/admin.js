@@ -271,18 +271,14 @@ function orderCard(o) {
     if (String(it.personalisation || '').trim()) {
       label.appendChild(el('div', 'oi-pz', it.personalisation));
     }
-    // A custom keychain: its print-ready Bambu Studio file, built on click.
-    // More than 24 keychains on one line come as several files (PER_FILE in
-    // src/kc3mf.js), one button each.
+    // A custom keychain: its print-ready Bambu Studio file, built HERE in the
+    // browser from the order's inputs (public/assets/js/kc-build.js) — the
+    // Worker's free plan cannot spend the CPU. Over 24 keychains → several files.
     if (it.has_print) {
-      const PER_FILE = 24;
-      const parts = Math.max(1, Math.ceil((Number(it.qty) || 1) / PER_FILE));
-      for (let part = 1; part <= parts; part++) {
-        const a = el('a', 'oi-print', parts > 1 ? `Download .3mf part ${part} of ${parts}` : 'Download .3mf for Bambu Studio');
-        a.href = `/api/admin/orders/${encodeURIComponent(o.id)}/print/${it.pos}${parts > 1 ? '/' + part : ''}`;
-        a.setAttribute('download', '');
-        label.appendChild(a);
-      }
+      const b = el('button', 'oi-print', 'Download .3mf for Bambu Studio');
+      b.type = 'button';
+      b.addEventListener('click', () => downloadPrint(o.id, it.pos, b));
+      label.appendChild(b);
     }
     li.append(label, el('strong', null, rupees(it.price_paise * it.qty)));
     items.appendChild(li);
@@ -2555,3 +2551,34 @@ async function loadActivity() {
 }
 $('activityRefresh')?.addEventListener('click', loadActivity);
 $('activityHours')?.addEventListener('change', loadActivity);
+
+/* ── custom keychain print files ─────────────────────────────────── */
+async function downloadPrint(orderId, pos, btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Building…';
+  try {
+    const job = await api(`/api/admin/orders/${encodeURIComponent(orderId)}/print/${pos}`);
+    const [{ buildPrintFiles }, font] = await Promise.all([
+      import('/assets/js/kc-build.js'),
+      fetch(job.font).then((r) => { if (!r.ok) throw new Error('font ' + r.status); return r.json(); }),
+    ]);
+    const files = await buildPrintFiles({ ...job, font });
+    for (let i = 0; i < files.length; i++) {
+      // Safari keeps only the last of several downloads started at once, so a
+      // split line's files go one at a time.
+      if (i) await new Promise((r) => setTimeout(r, 1200));
+      const f = files[i];
+      const url = URL.createObjectURL(new Blob([f.bytes], { type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+    btn.textContent = files.length > 1 ? `Downloaded ${files.length} files` : 'Downloaded';
+  } catch (e) {
+    btn.textContent = 'Failed — try again';
+    alert('Could not build the print file: ' + (e?.message || e));
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = label; }, 4000);
+  }
+}

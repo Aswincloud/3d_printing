@@ -23,7 +23,6 @@ import {
 } from "./razorpay.js";
 import { orderCustomerEmail, orderOwnerEmail, unmatchedPaymentEmail, pendingCheckoutOwnerEmail } from "./emails.js";
 import { sendOrderInvoice } from "./invoicing.js";
-import { printFilesFor } from "./kc3mf.js";
 
 const MAX = { name: 100, email: 160, phone: 30, line: 200, city: 80, state: 80, pin: 10, notes: 500 };
 const clip = (v, n) => String(v ?? "").trim().slice(0, n);
@@ -624,29 +623,16 @@ function notifyPaid(env, ctx, paid, items) {
       text: `Payment received. Your order ${paid.receipt} is confirmed.\n`,
     }).then((r) => { if (!r.ok) console.error("customer order email failed", r.status, r.error); }),
 
-    // Custom keychains come with their print-ready .3mf attached (src/kc3mf.js),
-    // so the owner can open it in Bambu Studio and print. If building a file
-    // fails, the email still goes — it says so, and the dashboard has a
-    // Download button that builds the file again.
-    //
-    // If Resend refuses the email WITH attachments (too large, say), it is sent
-    // again without them, saying the files are on the dashboard: the order
-    // email itself must never be lost to a print file.
-    printFilesFor(env, paid, items).then(async ({ attachments, failed }) => {
-      const send = (atts, failedCount) => sendEmail(env, {
-        to: owner,
-        replyTo: paid.cust_email,
-        subject: `💰 New paid order — ${paid.receipt}`,
-        html: orderOwnerEmail(env, paid, items, { attached: atts.map((a) => a.filename), failed: failedCount }),
-        text: `New paid order ${paid.receipt} from ${paid.cust_name} <${paid.cust_email}>\n`,
-        attachments: atts,
-      });
-      let r = await send(attachments, failed);
-      if (!r.ok && attachments.length) {
-        console.error("owner order email with print files failed; resending without", r.status, r.error);
-        r = await send([], failed + attachments.length);
-      }
-      return r;
+    // A custom keychain's print file is NOT built here: this runs inside the
+    // payment webhook on the free plan's 10 ms CPU budget, and a .3mf takes
+    // 50-300 ms — a kill here would also lose the customer's confirmation and
+    // the invoice. The email says which lines have one; the dashboard builds it.
+    sendEmail(env, {
+      to: owner,
+      replyTo: paid.cust_email,
+      subject: `💰 New paid order — ${paid.receipt}`,
+      html: orderOwnerEmail(env, paid, items),
+      text: `New paid order ${paid.receipt} from ${paid.cust_name} <${paid.cust_email}>\n`,
     }).then((r) => { if (!r.ok) console.error("owner order email failed", r.status, r.error); }),
 
     // Raise the invoice at invoicer.aswincloud.com. The email above is a

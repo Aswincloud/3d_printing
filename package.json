@@ -21,7 +21,8 @@
     "test:cart": "node test/browser/cart-adopt.mjs",
     "test:photos": "node test/browser/hero-photos.mjs",
     "test:fireworks": "node test/browser/offer-fireworks.mjs",
-    "test:keychain": "node test/browser/keychain-designer.mjs"
+    "test:keychain": "node test/browser/keychain-designer.mjs",
+    "test:print": "node test/browser/dashboard-print.mjs"
   },
   "devDependencies": {
     "playwright": "^1.56.0",
@@ -32,8 +33,6 @@
     "workerd@1.20260730.1": true
   },
   "dependencies": {
-    "@aswincloud/auth": "^0.5.0",
-    "earcut": "^3.0.2",
-    "polygon-clipping": "^0.15.7"
+    "@aswincloud/auth": "^0.5.0"
   }
 }

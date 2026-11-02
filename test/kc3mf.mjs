@@ -8,9 +8,10 @@
 // The real files were checked by slicing with Bambu Studio 2.08 (see the PR).
 import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
-import { textMesh, projectFiles, projectConfig, zip, keychain3mf, fileName, fileParts, placement, printFilesFor, downloadPrintFile, BODY_KEY, TEMPLATE_KEY, PER_PLATE, MAX_PLATES, PER_FILE } from "../src/kc3mf.js";
+import { textMesh, projectFiles, projectConfig, zip, buildPrintFiles, fileName, fileParts, placement, PER_PLATE, MAX_PLATES, PER_FILE } from "../public/assets/js/kc-build.js";
+import { printJob, BODY_KEY, TEMPLATE_KEY } from "../src/kc3mf.js";
 import { layoutText, PANEL, MARGIN, TEXT_Z0, TEXT_Z1 } from "../public/assets/js/kc-text.js";
-import { designId, parseDesign, FONTS } from "../src/keychain.js";
+import { designId, parseDesign, FONTS, COLOURS } from "../src/keychain.js";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -122,7 +123,8 @@ section("the project");
   const one = parseDesign(designId({ text: "Aswin", font: "script", base: "white" }));
   const two = parseDesign(designId({ text: "Aswin", font: "script", base: "white", ink: "pink" }));
   const text = textMesh("Aswin", font("script"));
-  const files = (d, copies = 1) => Object.fromEntries(projectFiles({ design: d, label: "AP-1 Aswin", copies, body: BODY, text, template: TEMPLATE }));
+  const hex = (d) => [COLOURS[d.base].hex, COLOURS[d.ink].hex];
+  const files = (d, copies = 1) => Object.fromEntries(projectFiles({ design: d, label: "AP-1 Aswin", copies, body: BODY, text, template: TEMPLATE, colours: hex(d) }));
 
   const f1 = files(one), f2 = files(two);
   const cfg1 = JSON.parse(f1["Metadata/project_settings.config"]), cfg2 = JSON.parse(f2["Metadata/project_settings.config"]);
@@ -165,7 +167,7 @@ section("the project");
   }
   // Customer text is escaped in the XML.
   const sneaky = { text: `A"&<b>`, font: "script", base: "white", ink: "white" };
-  const xs = Object.fromEntries(projectFiles({ design: sneaky, label: `AP-1 A"&<b>`, copies: 1, body: BODY, text, template: TEMPLATE }));
+  const xs = Object.fromEntries(projectFiles({ design: sneaky, label: `AP-1 A"&<b>`, copies: 1, body: BODY, text, template: TEMPLATE, colours: hex(sneaky) }));
   ok("text in the XML is escaped", !xs["Metadata/model_settings.config"].includes(`A"&<b>`) && xs["Metadata/model_settings.config"].includes("A&quot;&amp;&lt;b&gt;"));
   ok("the template is not modified by a project", TEMPLATE.settings.filament_colour.length === 1 && projectConfig(TEMPLATE, ["#111111", "#222222"], 1) && TEMPLATE.settings.nozzle_temperature.length === 1);
 }
@@ -178,64 +180,64 @@ section("the zip");
   ok("starts with a zip header", bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4);
 }
 
-section("one design → the .3mf");
+section("an order line → its .3mf files (what the dashboard builds)");
 {
-  const env = { UPLOADS: bucket(), ASSETS: assets };
   const d = parseDesign(designId({ text: "Priya", font: "rounded", base: "blue", ink: "gold" }));
-  const bytes = await keychain3mf(env, { design: d, receipt: "AP-abc123", copies: 2 });
-  const f = unzip(bytes);
+  const job = (qty) => ({ receipt: "AP-abc123", design: d, qty, colours: [COLOURS.blue.hex, COLOURS.gold.hex], font: font("rounded"), body: BODY, template: TEMPLATE });
+  const [one] = await buildPrintFiles(job(2));
+  const f = unzip(one.bytes);
   ok("contains a Bambu project", ["3D/3dmodel.model", "3D/Objects/object_1.model", "Metadata/model_settings.config", "Metadata/project_settings.config", "[Content_Types].xml", "_rels/.rels"].every((k) => k in f), Object.keys(f).join(","));
   ok("…in the customer's colours", JSON.parse(f["Metadata/project_settings.config"]).filament_colour.join() === "#1F5FD1,#C9A227");
-  ok("file name says receipt, text, colours, quantity", fileName("AP-abc123", d, 2) === "AP-abc123-Priya-blue-gold-x2.3mf");
+  ok("…named for receipt, text, colours, quantity", one.name === "AP-abc123-Priya-blue-gold-x2.3mf", one.name);
   ok("file name of a one-colour single", fileName("AP-abc123", { ...d, ink: "blue" }, 1) === "AP-abc123-Priya-blue.3mf");
   ok("file name strips anything odd", fileName("AP-1", { ...d, text: "Mo & Jo's" }, 1) === "AP-1-Mo-Jo-s-blue-gold.3mf");
-  let threw = "";
-  try { await keychain3mf({ UPLOADS: { get: async () => null }, ASSETS: assets }, { design: d, receipt: "AP-1" }); } catch (e) { threw = e.message; }
-  ok("a missing private body is an error, not a broken file", /missing private\/keychain\/heart-body\.json/.test(threw), threw);
+  const big = await buildPrintFiles(job(30));
+  ok("qty 30 → two files, 24 + 6, every keychain accounted for", big.map((x) => x.name).join() === "AP-abc123-Priya-blue-gold-x24-part1of2.3mf,AP-abc123-Priya-blue-gold-x6-part2of2.3mf", big.map((x) => x.name).join());
+  ok("…the second really holds 6", (unzip(big[1].bytes)["3D/3dmodel.model"].match(/<item /g) || []).length === 6);
 }
 
-section("an order's print files (the owner email)");
-{
-  const env = { UPLOADS: bucket(), ASSETS: assets };
-  const kc = designId({ text: "Aswin", font: "script", base: "white", ink: "pink" });
-  const r = await printFilesFor(env, { receipt: "AP-9" }, [
-    { name: "Murugan Box", qty: 1, design_id: "" },
-    { name: "Custom Name Keychain", qty: 2, design_id: kc },
-  ]);
-  ok("one attachment for the one keychain line", r.attachments.length === 1 && r.failed === 0);
-  ok("…named for the order and design", r.attachments[0]?.filename === "AP-9-Aswin-white-pink-x2.3mf", r.attachments[0]?.filename);
-  ok("…as base64 of a zip", Buffer.from(r.attachments[0]?.content || "", "base64").subarray(0, 2).toString() === "PK");
-  const big = await printFilesFor(env, { receipt: "AP-9" }, [{ qty: 30, design_id: kc }]);
-  ok("qty 30 → two files, 24 + 6, every keychain accounted for", big.attachments.map((a) => a.filename).join() === "AP-9-Aswin-white-pink-x24-part1of2.3mf,AP-9-Aswin-white-pink-x6-part2of2.3mf", big.attachments.map((a) => a.filename).join());
-  const bad = await printFilesFor(env, { receipt: "AP-9" }, [{ qty: 1, design_id: "kc~nonsense" }]);
-  ok("an unparseable design is counted as failed, not thrown", bad.attachments.length === 0 && bad.failed === 1);
-  const broken = await printFilesFor({ UPLOADS: { get: async () => null }, ASSETS: assets }, { receipt: "AP-9" }, [{ qty: 1, design_id: kc }]);
-  ok("a missing body is counted as failed, not thrown", broken.attachments.length === 0 && broken.failed === 1);
-}
-
-section("the dashboard download");
+section("the Worker hands the owner the inputs, and nothing else");
 {
   const kc = designId({ text: "Aswin", font: "script", base: "white", ink: "pink" });
-  const rows = { "11111111-1111-4111-8111-111111111111:0": { receipt: "AP-7", design_id: kc, qty: 1 },
-                 "11111111-1111-4111-8111-111111111111:1": { receipt: "AP-7", design_id: "", qty: 1 } };
+  const rows = { "11111111-1111-4111-8111-111111111111:0": { receipt: "AP-7", design_id: kc, qty: 3 },
+                 "11111111-1111-4111-8111-111111111111:1": { receipt: "AP-7", design_id: "", qty: 1 },
+                 "11111111-1111-4111-8111-111111111111:2": { receipt: "AP-7", design_id: "kc~forged", qty: 1 } };
   const DB = { prepare: () => ({ bind: (id, pos) => ({ first: async () => rows[`${id}:${pos}`] || null }) }) };
-  const env = { DB, UPLOADS: bucket(), ASSETS: assets };
-  const r = await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 0);
-  ok("a keychain line downloads", r.status === 200 && /attachment; filename="AP-7-Aswin-white-pink\.3mf"/.test(r.headers.get("content-disposition")));
+  const raw = { [BODY_KEY]: JSON.stringify(BODY), [TEMPLATE_KEY]: JSON.stringify(TEMPLATE) };
+  const UPLOADS = { get: async (k) => (raw[k] ? { text: async () => raw[k] } : null) };
+  const env = { DB, UPLOADS };
+  const r = await printJob(env, "11111111-1111-4111-8111-111111111111", 0);
+  const job = await r.json();
+  ok("a keychain line → its job", r.status === 200 && job.receipt === "AP-7" && job.qty === 3 && job.design.text === "Aswin");
+  ok("…with the colours and font for the design", job.colours.join() === "#f4f4f2,#f06fae" && job.font === "/assets/fonts3d/kc-script.json", JSON.stringify([job.colours, job.font]));
+  ok("…and the private body and template, unchanged", JSON.stringify(job.body) === JSON.stringify(BODY) && JSON.stringify(job.template) === JSON.stringify(TEMPLATE));
   ok("…never cached", r.headers.get("cache-control") === "private, no-store");
-  ok("a non-keychain line → 404", (await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 1)).status === 404);
-  ok("an unknown line → 404", (await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 9)).status === 404);
-  rows["11111111-1111-4111-8111-111111111111:2"] = { receipt: "AP-7", design_id: kc, qty: 30 };
-  const p2 = await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 2, 2);
-  ok("part 2 of a 30-line downloads the remaining 6", p2.status === 200 && /AP-7-Aswin-white-pink-x6-part2of2\.3mf/.test(p2.headers.get("content-disposition")), p2.headers.get("content-disposition"));
-  ok("a part past the end → 404", (await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 2, 3)).status === 404);
-  ok("part 0 → 404", (await downloadPrintFile(env, "11111111-1111-4111-8111-111111111111", 2, 0)).status === 404);
+  ok("a non-keychain line → 404", (await printJob(env, "11111111-1111-4111-8111-111111111111", 1)).status === 404);
+  ok("a forged design → 404", (await printJob(env, "11111111-1111-4111-8111-111111111111", 2)).status === 404);
+  ok("an unknown line → 404", (await printJob(env, "11111111-1111-4111-8111-111111111111", 9)).status === 404);
+  ok("missing model files → 500, not a broken job", (await printJob({ DB, UPLOADS: { get: async () => null } }, "11111111-1111-4111-8111-111111111111", 0)).status === 500);
+  // And the inputs it returns build a real file — the browser's whole job.
+  const files = await buildPrintFiles({ ...job, font: font("script") });
+  ok("the job builds into a .3mf", files.length === 1 && files[0].name === "AP-7-Aswin-white-pink-x3.3mf" && unzip(files[0].bytes)["3D/3dmodel.model"].includes("<item "));
 
   // Owner-only: the route sits under the /api/admin/ gate.
   const src = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
   const gate = src.indexOf('if (p.startsWith("/api/admin/")) {');
-  const route = src.indexOf("downloadPrintFile(env, printFile[1]");
-  ok("the download route is below the owner gate", gate > 0 && route > gate);
+  const route = src.indexOf("printJob(env, printFile[1]");
+  ok("the print-job route is below the owner gate", gate > 0 && route > gate);
+  // The Worker never builds the file: it imports none of the geometry.
+  const worker = readFileSync(new URL("../src/kc3mf.js", import.meta.url), "utf8");
+  ok("the Worker does no geometry (free-plan CPU)", !/^import .*(kc-build|polygon|earcut)/m.test(worker) && !/\bzip\(/.test(worker));
+}
+
+section("the vendored clipper runs in any page");
+{
+  // A page element with id="process" is a global in browsers (index.html has
+  // one), and the library's `typeof process && process.env.X` then threw.
+  const src = readFileSync(new URL("../public/assets/vendor/kc/polygon-clipping.js", import.meta.url), "utf8");
+  ok("no process.env lookups left in the vendored polygon-clipping", !/typeof process|process\.env\.[A-Z]/.test(src));
+  const { default: pc } = await import("../public/assets/vendor/kc/polygon-clipping.js?fresh");
+  ok("…and it still unions", pc.union([[[0, 0], [2, 0], [2, 2], [0, 2]]], [[[1, 1], [3, 1], [3, 3], [1, 3]]])[0][0].length === 9);
 }
 
 section("the private files stay private");
