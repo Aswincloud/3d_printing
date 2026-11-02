@@ -126,3 +126,6 @@ jobs:
           # The custom name keychain designer: 3D preview renders, controls change
           # design and price, bad text blocked, Add to cart stores the server's id.
           npm run test:keychain
+          # The dashboard builds a keychain order's .3mf in the browser and
+          # downloads it (split lines as several files) — Chromium and WebKit.
+          npm run test:print

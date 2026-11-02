@@ -11,7 +11,7 @@ import { payPendingPage } from "./paypending.js";
 import { thankYouPage } from "./thankyou.js";
 import { trackPage, trackLookup } from "./track.js";
 import { keychainPage } from "./keychainpage.js";
-import { downloadPrintFile } from "./kc3mf.js";
+import { printJob } from "./kc3mf.js";
 import { backPage, stopReminders, stopConfirmPage, handleReminderBatch } from "./reminders.js";
 import { waWebhookHandler } from "./waoptout.js";
 import { recordActivity, adminActivity } from "./activity.js";
@@ -634,9 +634,10 @@ async function api(request, env, url, ctx) {
 
     if (p === "/api/admin/reviews" && m === "GET") return adminListReviews(env);
     if (p === "/api/admin/orders/ship-together" && m === "POST") return adminShipTogether(env, body, ctx);
-    // A custom keychain line's print-ready .3mf, built on request (src/kc3mf.js).
-    const printFile = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/print\/(\d{1,3})(?:\/(\d{1,2}))?$/);
-    if (printFile && m === "GET") return downloadPrintFile(env, printFile[1], Number(printFile[2]), Number(printFile[3] || 1));
+    // A custom keychain line's print inputs (design + the private body mesh).
+    // The .3mf is built from them in the owner's browser — see src/kc3mf.js.
+    const printFile = p.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/print\/(\d{1,3})$/);
+    if (printFile && m === "GET") return printJob(env, printFile[1], Number(printFile[2]));
     if (p === "/api/admin/activity" && m === "GET") return adminActivity(env, url);
     if (p === "/api/admin/reviews" && m === "POST") return adminAddReview(env, body);
     const rev = p.match(/^\/api\/admin\/reviews\/([0-9a-f-]{36})$/);
