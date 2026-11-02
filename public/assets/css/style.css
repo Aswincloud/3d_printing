@@ -3525,3 +3525,11 @@ body:has(#offer:not([hidden])) #promoBanner { display: none; }
 .co-gift.is-earned { border-style: solid; background: rgba(255, 140, 56, 0.16); }
 #cartShipHint:not(:empty) { color: #ffd08a; font-weight: 600; }
 .offers-gift { margin: -4px 0 8px; font-size: 0.85rem; font-weight: 600; color: #ffd08a; }
+
+/* Fireworks over the offer (public/assets/js/fireworks.js): fills the box,
+   paints under the text, and never takes a click. */
+.offer-inner { isolation: isolate; }   /* its own stacking context, so z-index below layers within it */
+.offer-fireworks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+.offer-inner > :not(.offer-fireworks) { position: relative; z-index: 1; }
+/* The text sits on the fireworks: a soft shadow keeps it crisp over a burst. */
+.offer-kicker, .offer-title, .offer-terms, .offer-gift, .offer-ends { text-shadow: 0 1px 10px rgba(10, 10, 15, 0.85); }
