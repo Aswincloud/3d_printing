@@ -22,7 +22,8 @@ const BODY = { v: [-60, -16, -2.6, 60, -16, -2.6, 60, 16, -2.6, -60, 16, -2.6, -
   t: [0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7] };
 const TEMPLATE = { settings: { printer_model: 'Bambu Lab A1', filament_colour: ['#000000'] }, per_filament: ['filament_colour'] };
 const JOB = (qty) => ({ receipt: 'AP-KC1', design: { text: 'Aswin', font: 'script', base: 'white', ink: 'pink' }, qty,
-  colours: ['#f4f4f2', '#f06fae'], font: '/assets/fonts3d/kc-script.json', body: BODY, template: TEMPLATE });
+  colours: ['#f4f4f2', '#f06fae', '#f4f4f2'], font: '/assets/fonts3d/kc-script.json', initialFont: '/assets/fonts3d/kc-rounded.json',
+  bodies: { heart: BODY }, template: TEMPLATE });
 const ORDER = (id, qty) => ({
   id, receipt: 'AP-KC1', status: 'paid', status_label: 'paid', total_paise: 29900 * qty, subtotal_paise: 29900 * qty,
   shipping_paise: 0, discount_paise: 0, cust_name: 'Buyer', cust_email: 'b@example.com', cust_phone: '9000090000',

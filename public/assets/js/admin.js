@@ -2558,11 +2558,11 @@ async function downloadPrint(orderId, pos, btn) {
   btn.disabled = true; btn.textContent = 'Building…';
   try {
     const job = await api(`/api/admin/orders/${encodeURIComponent(orderId)}/print/${pos}`);
-    const [{ buildPrintFiles }, font] = await Promise.all([
-      import('/assets/js/kc-build.js'),
-      fetch(job.font).then((r) => { if (!r.ok) throw new Error('font ' + r.status); return r.json(); }),
+    const getFont = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error('font ' + r.status); return r.json(); });
+    const [{ buildPrintFiles }, font, initialFont] = await Promise.all([
+      import('/assets/js/kc-build.js'), getFont(job.font), job.initialFont ? getFont(job.initialFont) : null,
     ]);
-    const files = await buildPrintFiles({ ...job, font });
+    const files = await buildPrintFiles({ ...job, font, initialFont });
     for (let i = 0; i < files.length; i++) {
       // Safari keeps only the last of several downloads started at once, so a
       // split line's files go one at a time.

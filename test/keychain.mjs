@@ -2,7 +2,7 @@
 // server decodes, validates and prices it. Real SQLite with every migration.
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
-import { designId, parseDesign, validDesign, designPrice, designSummary, PRICE_ONE_PAISE, PRICE_TWO_PAISE, TEXT_RE, FONTS } from "../src/keychain.js";
+import { designId, parseDesign, validDesign, designPrice, designSummary, PRICE_ONE_PAISE, PRICE_TWO_PAISE, TEXT_RE, FONTS, STYLES } from "../src/keychain.js";
 import { priceCart } from "../src/shop.js";
 
 let pass = 0, fail = 0;
@@ -34,7 +34,7 @@ section("design ids");
 {
   const a = designId({ text: "ASWIN", font: "script", base: "red", ink: "red" });
   ok("a design has a stable id", a === designId({ text: "  ASWIN ", font: "script", base: "red" }), a);
-  ok("…which parses back to the same design", JSON.stringify(parseDesign(a)) === '{"text":"ASWIN","font":"script","base":"red","ink":"red"}');
+  ok("…which parses back to the same design", JSON.stringify(parseDesign(a)) === '{"text":"ASWIN","font":"script","base":"red","ink":"red","style":"heart","accent":"red"}');
   ok("different names are different ids", a !== designId({ text: "PRIYA", font: "script", base: "red" }));
   for (const [label, d] of [
     ["empty text", { text: "  ", font: "script", base: "red" }],
@@ -130,10 +130,40 @@ section("every allowed character has a glyph in every font (else the preview sho
   ok("the designer uses the same rule", js.includes("const TEXT_RE = /^[A-Za-z0-9 &.\\-'!]+$/u;"));
 }
 
+section("styles");
+{
+  const old = designId({ text: "ASWIN", font: "script", base: "red" });
+  const heart = designId({ text: "ASWIN", font: "script", base: "red", style: "heart" });
+  ok("a heart design keeps the original 4-field id (old carts still match)", old === heart && JSON.parse(Buffer.from(old.slice(3), "base64url")).length === 4);
+  const b = designId({ text: "Priya", font: "script", base: "white", ink: "pink", style: "bubble" });
+  ok("another style's id round-trips", parseDesign(b)?.style === "bubble" && parseDesign(b)?.text === "Priya");
+  ok("an unknown style is refused", designId({ text: "A", font: "script", base: "red", style: "spaceship" }) === null);
+  const enc = (a) => "kc~" + Buffer.from(JSON.stringify(a)).toString("base64url");
+  ok("a hand-made id with an unknown style is refused", parseDesign(enc(["A", "script", "red", "red", "spaceship", "red"])) === null);
+  ok("5 fields is refused", parseDesign(enc(["A", "script", "red", "red", "bubble"])) === null);
+  ok("a style with no accent part ignores a sent accent (no hidden third colour)",
+     parseDesign(designId({ text: "A", font: "script", base: "red", style: "bubble", accent: "gold" }))?.accent === "red");
+  ok("…and a hand-made id claiming one is refused, not coerced",
+     parseDesign(enc(["A", "script", "red", "red", "bubble", "gold"])) === null);
+  const tri = validDesign({ text: "A", font: "script", base: "white", ink: "pink", style: "charm", accent: "gold" });
+  ok("three colours price as multi-colour (₹299)", designPrice(tri) === PRICE_TWO_PAISE);
+  ok("an accent alone makes it multi-colour", designPrice(validDesign({ text: "A", font: "script", base: "white", style: "charm", accent: "gold" })) === PRICE_TWO_PAISE);
+  ok("one colour in any style is ₹199", Object.keys(STYLES).every((s) => designPrice(validDesign({ text: "A", font: "script", base: "red", style: s })) === PRICE_ONE_PAISE));
+  ok("the summary names style and every colour", designSummary(tri) === '"A" · Flower charm · Script font · White base, Pink text, Gold flower', designSummary(tri));
+}
+
 section("the browser's design id matches the server's");
 {
   const js = readFileSync(new URL("../public/assets/js/keychain.js", import.meta.url), "utf8");
-  ok("same id format in the designer", js.includes("const json = JSON.stringify([d.text, d.font, d.base, d.ink]);") && js.includes("return 'kc~' + b64;"));
+  // Run the designer's own designId (lifted out of the module) against the
+  // server's, for every style: a mismatch would make every cart line invalid.
+  const src = js.slice(js.indexOf("function designId(d) {"), js.indexOf("\n}\n", js.indexOf("function designId(d) {")) + 2);
+  const browserId = new Function(`${src}; return designId;`)();
+  const { STYLES: SERVER_STYLES } = await import("../src/keychain.js");
+  for (const style of Object.keys(SERVER_STYLES)) {
+    const d = validDesign({ text: "Priya", font: "script", base: "blue", ink: "gold", style, accent: "pink" });
+    ok(`designer and server agree on the id (${style})`, browserId(d) === designId(d), `${browserId(d)} vs ${designId(d)}`);
+  }
   for (const k of ["white", "black", "brown", "gold", "orange", "blue", "red", "green", "pink", "skin"]) ok(`colour ${k} offered in the designer`, js.includes(`${k}: [`));
 }
 

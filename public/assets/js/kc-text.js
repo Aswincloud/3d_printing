@@ -86,7 +86,9 @@ function clean(r) {
 // Returns { polygons, width, height }: one polygon per filled region of each
 // glyph, as [outerRing, ...holeRings]. Letters of a script font overlap their
 // neighbours; the 3MF writer unions them, the preview just draws them.
-export function layoutText(text, font) {
+// `area` (optional): { x0, x1, y0, y1, height?, margin? } to fit into instead
+// of the heart's name panel — the ribbon bow's wings, say.
+export function layoutText(text, font, area = null) {
   const glyphs = textGlyphs(text, font);
   const all = glyphs.flat();
   if (!all.length) return { polygons: [], width: 0, height: 0 };
@@ -95,10 +97,11 @@ export function layoutText(text, font) {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
   }
   const w = x1 - x0, h = y1 - y0;
-  const maxW = PANEL.x1 - PANEL.x0 - 2 * MARGIN;
-  const maxH = Math.min(PANEL.y1 - PANEL.y0 - 2 * MARGIN, MAX_HEIGHT);
+  const P = area || PANEL, m = area ? (area.margin ?? 0) : MARGIN;
+  const maxW = P.x1 - P.x0 - 2 * m;
+  const maxH = Math.min(P.y1 - P.y0 - 2 * m, area ? (area.height ?? Infinity) : MAX_HEIGHT);
   const scale = Math.min(maxW / w, maxH / h);
-  const cx = (PANEL.x0 + PANEL.x1) / 2, cy = (PANEL.y0 + PANEL.y1) / 2;
+  const cx = (P.x0 + P.x1) / 2, cy = (P.y0 + P.y1) / 2;
   const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
   const place = (r) => r.map(([x, y]) => [cx + (x - mx) * scale, cy + (y - my) * scale]);
   const polygons = glyphs.flatMap((g) => nest(g.map(place)));

@@ -13,19 +13,22 @@ export async function keychainPage(env) {
   const body = available ? `
     <div class="kc-wrap">
       <div class="kc-stage"><div id="kcCanvas" class="kc-canvas" role="img" aria-label="3D preview of your keychain. Drag to rotate."></div>
-        <p class="kc-hint">Drag to rotate · 120 × 32 mm keyring, shown to scale</p></div>
+        <p class="kc-hint">Drag to rotate · shown to scale</p></div>
       <div class="kc-panel">
         <h1>Design your name keychain</h1>
         <p class="kc-sub">Type a name, pick a font and colours, and see it in 3D. Printed to order in Pondicherry.</p>
         <label class="kc-label" for="kcText">Your text <span id="kcCount" class="kc-count"></span></label>
         <input id="kcText" class="kc-input" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="e.g. Priya">
         <p id="kcError" class="kc-error" role="status" aria-live="polite"></p>
+        <p class="kc-label">Style</p>
+        <div id="kcStyles" class="kc-styles" role="group" aria-label="Style"></div>
         <p class="kc-label">Font</p>
         <div id="kcFonts" class="kc-fonts" role="group" aria-label="Font"></div>
         <p class="kc-label">Base colour</p>
         <div id="kcBase" class="kc-swatches" role="group" aria-label="Base colour"></div>
-        <label class="kc-check"><input type="checkbox" id="kcTwoTone"> Text in a different colour <span class="kc-extra">(+${r(PRICE_TWO_PAISE - PRICE_ONE_PAISE)})</span></label>
+        <label class="kc-check"><input type="checkbox" id="kcTwoTone"> More than one colour <span class="kc-extra">(+${r(PRICE_TWO_PAISE - PRICE_ONE_PAISE)})</span></label>
         <div id="kcInkRow" hidden><p class="kc-label">Text colour</p><div id="kcInk" class="kc-swatches" role="group" aria-label="Text colour"></div></div>
+        <div id="kcAccentRow" hidden><p class="kc-label" id="kcAccentLabel">Accent colour</p><div id="kcAccent" class="kc-swatches" role="group" aria-labelledby="kcAccentLabel"></div></div>
         <div class="kc-buy">
           <div><span id="kcPrice" class="kc-price"></span> <span id="kcPriceNote" class="kc-note"></span></div>
           <p id="kcSummary" class="kc-summary"></p>
@@ -35,7 +38,7 @@ export async function keychainPage(env) {
           </div>
           <p id="kcAdded" class="kc-added" role="status" hidden>Added to your cart. <a href="/#cart">View cart</a> or design another.</p>
         </div>
-        <p class="kc-small">${r(PRICE_ONE_PAISE)} in one colour, ${r(PRICE_TWO_PAISE)} with the text in a second colour. Up to ${MAX_TEXT} characters. Free shipping across India.</p>
+        <p class="kc-small">${r(PRICE_ONE_PAISE)} in one colour, ${r(PRICE_TWO_PAISE)} in two or three colours. Up to ${MAX_TEXT} characters. Free shipping across India.</p>
       </div>
     </div>
     <script type="module" src="/assets/js/keychain.js"></script>`
