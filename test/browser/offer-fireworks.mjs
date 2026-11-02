@@ -65,7 +65,32 @@ for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
     await p.click('#offerCopy'); await p.waitForTimeout(250);
     ok(`[${name} ${w}] Copy code sets off a burst`, (await painted(p)) > 50);
     await p.close();
+
+    // Only ever ONE animation loop: count requestAnimationFrame callbacks per
+    // frame during a burst-heavy moment. One loop = at most ~1 call per frame.
+    const q = await open(b, { viewport: { width: w, height: h } }, true);
+    const perFrame = await q.evaluate(() => new Promise((resolve) => {
+      const real = window.requestAnimationFrame.bind(window);
+      let calls = 0, frames = 0;
+      window.requestAnimationFrame = (cb) => { calls++; return real(cb); };
+      const tick = () => { frames++; if (frames < 90) real(tick); else { window.requestAnimationFrame = real; resolve(calls / frames); } };
+      real(tick);
+      for (let i = 0; i < 5; i++) document.getElementById('offerCopy').click();
+    }));
+    ok(`[${name} ${w}] a single animation loop (≈1 frame request per frame)`, perFrame <= 1.2, perFrame.toFixed(2));
+    await q.close();
   }
+  // Reduced motion switched on MID-VISIT: the show is cleared, and Copy no
+  // longer sets anything off.
+  const mid = await open(b, { viewport: { width: 1280, height: 820 } }, true);
+  await mid.waitForTimeout(700);
+  await mid.emulateMedia({ reducedMotion: 'reduce' });
+  await mid.waitForTimeout(300);
+  ok(`[${name}] reduced motion mid-visit: the show is cleared`, (await painted(mid)) === 0, String(await painted(mid)));
+  await mid.click('#offerCopy'); await mid.waitForTimeout(300);
+  ok(`[${name}] reduced motion mid-visit: Copy sets nothing off`, (await painted(mid)) === 0, String(await painted(mid)));
+  await mid.close();
+
   const r = await open(b, { viewport: { width: 1280, height: 820 }, reducedMotion: 'reduce' }, true);
   await r.waitForTimeout(900);
   ok(`[${name}] reduced motion: no fireworks at all`, !(await r.evaluate(() => document.querySelector('.offer-fireworks'))));

@@ -27,6 +27,12 @@
   const particles = [];
   const rockets = [];
   let raf = 0, w = 0, h = 0, dpr = 1, showUntil = 0;
+  // True while step() runs. Bursts and launches inside a step must not schedule
+  // a frame of their own — step() reschedules once at its end — or every burst
+  // would add another loop, and the show would multiply instead of ending.
+  let stepping = false;
+  // Asked every time, not once at load: reduced motion can be switched on mid-visit.
+  const motionOk = () => !(reduce && reduce.matches);
 
   function size() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -61,6 +67,7 @@
 
   function step() {
     raf = 0;
+    stepping = true;
     ctx.clearRect(0, 0, w, h);
     const now = performance.now();
     // More rockets on a wide box, so a desktop banner is not one lonely spark.
@@ -91,14 +98,17 @@
     }
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     // Keep going only while there is something to draw or the show is on.
-    if (particles.length || rockets.length || now < showUntil) raf = requestAnimationFrame(step);
+    stepping = false;
+    if (motionOk() && (particles.length || rockets.length || now < showUntil)) raf = requestAnimationFrame(step);
+    else { particles.length = 0; rockets.length = 0; ctx.clearRect(0, 0, w, h); }
   }
 
-  function start() { if (!raf && !offer.hidden) raf = requestAnimationFrame(step); }
+  // The one way a loop starts: never while one is scheduled or running.
+  function start() { if (!raf && !stepping && !offer.hidden && motionOk()) raf = requestAnimationFrame(step); }
 
   // A show: a few seconds of rockets, opening with a burst so it is seen at once.
   function show(ms) {
-    if (offer.hidden) return;
+    if (offer.hidden || !motionOk()) return;
     size();
     showUntil = performance.now() + ms;
     burst(w * 0.2, h * 0.32); burst(w * 0.8, h * 0.28); burst(w * 0.5, h * 0.18);
@@ -117,7 +127,10 @@
 
   // A burst when the code is copied — the moment worth celebrating.
   const copy = document.getElementById('offerCopy');
-  if (copy) copy.addEventListener('click', () => { size(); burst(w * 0.5, h * 0.35); burst(w * 0.3, h * 0.5); burst(w * 0.7, h * 0.5); });
+  if (copy) copy.addEventListener('click', () => {
+    if (!motionOk()) return;
+    size(); burst(w * 0.5, h * 0.35); burst(w * 0.3, h * 0.5); burst(w * 0.7, h * 0.5);
+  });
 
   window.addEventListener('resize', () => { if (raf) size(); });
   // Turning reduce-motion on mid-visit stops it at once.
