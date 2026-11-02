@@ -23,6 +23,7 @@ import {
 } from "./razorpay.js";
 import { orderCustomerEmail, orderOwnerEmail, unmatchedPaymentEmail, pendingCheckoutOwnerEmail } from "./emails.js";
 import { sendOrderInvoice } from "./invoicing.js";
+import { printFilesFor } from "./kc3mf.js";
 
 const MAX = { name: 100, email: 160, phone: 30, line: 200, city: 80, state: 80, pin: 10, notes: 500 };
 const clip = (v, n) => String(v ?? "").trim().slice(0, n);
@@ -187,10 +188,10 @@ export async function createOrderHandler(request, env, body, sessionUserId = nul
   for (const it of priced.items) {
     batch.push(env.DB.prepare(
       `INSERT INTO order_items
-         (id, order_id, product_id, name, price_paise, qty, personalisation, pos)
-       VALUES (?,?,?,?,?,?,?,?)`
+         (id, order_id, product_id, name, price_paise, qty, personalisation, design_id, pos)
+       VALUES (?,?,?,?,?,?,?,?,?)`
     ).bind(uid(), orderId, it.product_id, it.name, it.price_paise, it.qty,
-           it.personalisation || "", it.pos));
+           it.personalisation || "", it.design_id || "", it.pos));
   }
 
   await env.DB.batch(batch);
@@ -496,7 +497,7 @@ async function handleQuotePaid(env, ctx, evt) {
 
   const order = await env.DB.prepare(`SELECT * FROM orders WHERE id = ?`).bind(orderId).first();
   const { results: items } = await env.DB.prepare(
-    `SELECT name, price_paise, qty, personalisation FROM order_items WHERE order_id = ? ORDER BY pos`
+    `SELECT name, price_paise, qty, personalisation, design_id FROM order_items WHERE order_id = ? ORDER BY pos`
   ).bind(orderId).all();
 
   // The same notification path a normal paid order takes, so a quotation sale is
@@ -592,7 +593,7 @@ async function handleOrderPaid(env, ctx, evt) {
   }
 
   const { results: items } = await env.DB.prepare(
-    `SELECT name, price_paise, qty, personalisation FROM order_items WHERE order_id = ? ORDER BY pos`
+    `SELECT name, price_paise, qty, personalisation, design_id FROM order_items WHERE order_id = ? ORDER BY pos`
   ).bind(order.id).all();
 
   const paid = { ...order, status: "paid", rzp_payment_id: payment.id || order.rzp_payment_id };
@@ -623,13 +624,18 @@ function notifyPaid(env, ctx, paid, items) {
       text: `Payment received. Your order ${paid.receipt} is confirmed.\n`,
     }).then((r) => { if (!r.ok) console.error("customer order email failed", r.status, r.error); }),
 
-    sendEmail(env, {
+    // Custom keychains come with their print-ready .3mf attached (src/kc3mf.js),
+    // so the owner can open it in Bambu Studio and print. If building a file
+    // fails, the email still goes — it says so, and the dashboard has a
+    // Download button that builds the file again.
+    printFilesFor(env, paid, items).then(({ attachments, failed }) => sendEmail(env, {
       to: owner,
       replyTo: paid.cust_email,
       subject: `💰 New paid order — ${paid.receipt}`,
-      html: orderOwnerEmail(env, paid, items),
+      html: orderOwnerEmail(env, paid, items, { attached: attachments.map((a) => a.filename), failed }),
       text: `New paid order ${paid.receipt} from ${paid.cust_name} <${paid.cust_email}>\n`,
-    }).then((r) => { if (!r.ok) console.error("owner order email failed", r.status, r.error); }),
+      attachments,
+    })).then((r) => { if (!r.ok) console.error("owner order email failed", r.status, r.error); }),
 
     // Raise the invoice at invoicer.aswincloud.com. The email above is a
     // receipt; this is the document with a number on it.

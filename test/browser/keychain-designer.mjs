@@ -33,19 +33,25 @@ for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
     await p.waitForTimeout(2500);
     const tag = `[${name} ${w}]`;
     ok(`${tag} the 3D preview renders`, await p.evaluate(() => { const c = document.querySelector('#kcCanvas canvas'); return Boolean(c && c.width > 100 && c.height > 100); }));
-    ok(`${tag} starts at ₹199, one colour`, (await p.textContent('#kcPrice')) === '₹199');
-    await p.fill('#kcText', 'PRIYA'); await p.click('[data-font="classic"]');
+    ok(`${tag} starts with a two-colour example (₹299)`, (await p.textContent('#kcPrice')) === '₹299');
+    await p.uncheck('#kcTwoTone'); await p.waitForTimeout(150);
+    ok(`${tag} one colour → ₹199`, (await p.textContent('#kcPrice')) === '₹199');
+    // The preview is drawn from three parts: floor, rim (with the heart and name
+    // recesses), and the name. A blank name leaves just the plate.
+    const parts = () => p.evaluate(() => window.__kcParts?.());
+    ok(`${tag} the plate and the name are drawn`, (await parts()) === 3, String(await parts()));
+    await p.fill('#kcText', 'PRIYA'); await p.click('[data-font="brush"]');
     await p.click('#kcBase .kc-swatch[aria-label="Blue"]'); await p.check('#kcTwoTone');
     await p.click('#kcInk .kc-swatch[aria-label="Gold"]'); await p.waitForTimeout(500);
     ok(`${tag} two colours → ₹299`, (await p.textContent('#kcPrice')) === '₹299');
-    ok(`${tag} the summary reads the design`, (await p.textContent('#kcSummary')) === '"PRIYA" · Classic font · Blue base, Gold text', await p.textContent('#kcSummary'));
+    ok(`${tag} the summary reads the design`, (await p.textContent('#kcSummary')) === '"PRIYA" · Brush font · Blue base, Gold text', await p.textContent('#kcSummary'));
     // Keyboard: pick a colour with Enter; focus must stay on that swatch.
     await p.focus('#kcBase .kc-swatch[aria-label="Green"]'); await p.keyboard.press('Enter'); await p.waitForTimeout(150);
     ok(`${tag} a keyboard colour pick keeps focus on the swatch`, await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Green' && document.activeElement.getAttribute('aria-pressed') === 'true'));
     await p.click('#kcBase .kc-swatch[aria-label="Blue"]'); await p.waitForTimeout(150);
     await p.click('#kcAdd'); await p.waitForTimeout(200);
     const cart = await p.evaluate(() => JSON.parse(localStorage.getItem('ap_cart') || '[]'));
-    const want = designId({ text: 'PRIYA', font: 'classic', base: 'blue', ink: 'gold' });
+    const want = designId({ text: 'PRIYA', font: 'brush', base: 'blue', ink: 'gold' });
     ok(`${tag} Add to cart stores the server's id for this design`, cart.length === 1 && cart[0].id === want && parseDesign(cart[0].id)?.ink === 'gold', JSON.stringify(cart));
     // Buy now hands off THIS keychain only (not the cart) to checkout.
     await p.route('**/index.html', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>shop</title>' }));

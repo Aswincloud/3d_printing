@@ -1113,7 +1113,7 @@ export async function listOrders(env, url) {
   if (list.length) {
     const ph = list.map(() => "?").join(",");
     const r = await env.DB.prepare(
-      `SELECT order_id, name, price_paise, qty, personalisation, pos FROM order_items
+      `SELECT order_id, name, price_paise, qty, personalisation, pos, design_id <> '' AS has_print FROM order_items
         WHERE order_id IN (${ph}) ORDER BY pos`
     ).bind(...list.map((o) => o.id)).all();
     items = r.results || [];

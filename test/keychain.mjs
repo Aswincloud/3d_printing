@@ -32,20 +32,21 @@ function setup({ keychain = true } = {}) {
 
 section("design ids");
 {
-  const a = designId({ text: "ASWIN", font: "bold", base: "red", ink: "red" });
-  ok("a design has a stable id", a === designId({ text: "  ASWIN ", font: "bold", base: "red" }), a);
-  ok("…which parses back to the same design", JSON.stringify(parseDesign(a)) === '{"text":"ASWIN","font":"bold","base":"red","ink":"red"}');
-  ok("different names are different ids", a !== designId({ text: "PRIYA", font: "bold", base: "red" }));
+  const a = designId({ text: "ASWIN", font: "script", base: "red", ink: "red" });
+  ok("a design has a stable id", a === designId({ text: "  ASWIN ", font: "script", base: "red" }), a);
+  ok("…which parses back to the same design", JSON.stringify(parseDesign(a)) === '{"text":"ASWIN","font":"script","base":"red","ink":"red"}');
+  ok("different names are different ids", a !== designId({ text: "PRIYA", font: "script", base: "red" }));
   for (const [label, d] of [
-    ["empty text", { text: "  ", font: "bold", base: "red" }],
-    ["13 characters", { text: "ABCDEFGHIJKLM", font: "bold", base: "red" }],
-    ["markup", { text: "<b>x</b>", font: "bold", base: "red" }],
+    ["empty text", { text: "  ", font: "script", base: "red" }],
+    ["13 characters", { text: "ABCDEFGHIJKLM", font: "script", base: "red" }],
+    ["markup", { text: "<b>x</b>", font: "script", base: "red" }],
     ["an unknown font", { text: "A", font: "comic", base: "red" }],
-    ["an unknown colour", { text: "A", font: "bold", base: "purple" }],
-    ["an unknown text colour", { text: "A", font: "bold", base: "red", ink: "silver" }],
+    ["a retired font (bold, before 2026-11-02)", { text: "A", font: "bold", base: "red" }],
+    ["an unknown colour", { text: "A", font: "script", base: "purple" }],
+    ["an unknown text colour", { text: "A", font: "script", base: "red", ink: "silver" }],
     ["a prototype key as a font", { text: "A", font: "toString", base: "red" }],
   ]) ok(`refused: ${label}`, validDesign(d) === null && designId(d) === null);
-  ok("12 characters is the limit and allowed", validDesign({ text: "ABCDEFGHIJKL", font: "bold", base: "red" }) !== null);
+  ok("12 characters is the limit and allowed", validDesign({ text: "ABCDEFGHIJKL", font: "script", base: "red" }) !== null);
 }
 
 section("a hand-crafted id is refused");
@@ -54,60 +55,60 @@ section("a hand-crafted id is refused");
   for (const [label, id] of [
     ["not base64", "kc~!!!!"],
     ["not JSON", "kc~" + Buffer.from("hello").toString("base64url")],
-    ["an extra field (a price)", enc(["ASWIN", "bold", "red", "red", 1])],
+    ["an extra field (a price)", enc(["ASWIN", "script", "red", "red", 1])],
     ["an object instead of an array", enc({ text: "ASWIN" })],
-    ["markup inside", enc(["<img src=x>", "bold", "red", "red"])],
-    ["a non-canonical spelling (padding, spaces)", enc([" ASWIN ", "bold", "red", "red"])],
+    ["markup inside", enc(["<img src=x>", "script", "red", "red"])],
+    ["a non-canonical spelling (padding, spaces)", enc([" ASWIN ", "script", "red", "red"])],
     ["far too long", "kc~" + "A".repeat(300)],
   ]) ok(`refused: ${label}`, parseDesign(id) === null);
 }
 
 section("pricing: one colour ₹199, two colours ₹299 — from the rule, never the id");
 {
-  const one = { text: "ASWIN", font: "bold", base: "red", ink: "red" };
-  const two = { text: "PRIYA", font: "classic", base: "blue", ink: "gold" };
+  const one = { text: "ASWIN", font: "script", base: "red", ink: "red" };
+  const two = { text: "PRIYA", font: "brush", base: "blue", ink: "gold" };
   ok("one colour", designPrice(validDesign(one)) === PRICE_ONE_PAISE && PRICE_ONE_PAISE === 19900);
   ok("two colours", designPrice(validDesign(two)) === PRICE_TWO_PAISE && PRICE_TWO_PAISE === 29900);
-  ok("summary reads for the owner", designSummary(validDesign(two)) === '"PRIYA" · Classic font · Blue base, Gold text', designSummary(validDesign(two)));
-  ok("one-colour summary", designSummary(validDesign(one)) === '"ASWIN" · Bold font · Red, one colour');
+  ok("summary reads for the owner", designSummary(validDesign(two)) === '"PRIYA" · Brush font · Blue base, Gold text', designSummary(validDesign(two)));
+  ok("one-colour summary", designSummary(validDesign(one)) === '"ASWIN" · Script font · Red, one colour');
 }
 
 section("priceCart: designs as their own lines, through the real pricing code");
 {
   const { env } = setup();
-  const a = designId({ text: "ASWIN", font: "bold", base: "red" });
-  const b = designId({ text: "PRIYA", font: "classic", base: "blue", ink: "gold" });
+  const a = designId({ text: "ASWIN", font: "script", base: "red" });
+  const b = designId({ text: "PRIYA", font: "brush", base: "blue", ink: "gold" });
   const r = await priceCart(env, [{ product_id: a, qty: 2 }, { product_id: b, qty: 1 }, { product_id: "p1", qty: 1 }], "ship");
   ok("priced", !r.error, r.error);
   ok("three lines (two designs + a product)", r.items?.length === 3, JSON.stringify(r.items?.map((i) => i.product_id)));
   ok("subtotal = 2×199 + 299 + 549", r.subtotal_paise === 2 * 19900 + 29900 + 54900, String(r.subtotal_paise));
   const kc = r.items.filter((i) => i.product_id === "kc1");
   ok("design lines record the REAL keychain product id", kc.length === 2);
-  ok("…with the design to print", kc.some((i) => i.personalisation === '"ASWIN" · Bold font · Red, one colour' && i.qty === 2 && i.price_paise === 19900)
-     && kc.some((i) => i.personalisation === '"PRIYA" · Classic font · Blue base, Gold text' && i.price_paise === 29900), JSON.stringify(kc));
+  ok("…with the design to print", kc.some((i) => i.personalisation === '"ASWIN" · Script font · Red, one colour' && i.qty === 2 && i.price_paise === 19900)
+     && kc.some((i) => i.personalisation === '"PRIYA" · Brush font · Blue base, Gold text' && i.price_paise === 29900), JSON.stringify(kc));
   ok("the same design twice adds up on one line", (await priceCart(env, [{ product_id: a, qty: 1 }, { product_id: a, qty: 3 }], "ship")).items[0].qty === 4);
 }
 {
   const { env } = setup();
-  const bad = "kc~" + Buffer.from(JSON.stringify(["ASWIN", "bold", "red", "red", 1])).toString("base64url");
+  const bad = "kc~" + Buffer.from(JSON.stringify(["ASWIN", "script", "red", "red", 1])).toString("base64url");
   const r = await priceCart(env, [{ product_id: bad, qty: 1 }], "ship");
   ok("a tampered design refuses the whole cart", Boolean(r.error) && !r.items, JSON.stringify(r));
-  const r2 = await priceCart(env, [{ product_id: designId({ text: "A", font: "bold", base: "red" }), qty: 1, price_paise: 1 }], "ship");
+  const r2 = await priceCart(env, [{ product_id: designId({ text: "A", font: "script", base: "red" }), qty: 1, price_paise: 1 }], "ship");
   ok("a price sent from the browser is ignored", r2.subtotal_paise === 19900);
   const off = setup({ keychain: false });
-  const r3 = await priceCart(off.env, [{ product_id: designId({ text: "A", font: "bold", base: "red" }), qty: 1 }], "ship");
+  const r3 = await priceCart(off.env, [{ product_id: designId({ text: "A", font: "script", base: "red" }), qty: 1 }], "ship");
   ok("no keychain product at all → refused", Boolean(r3.error), JSON.stringify(r3));
   // Hiding the product in the dashboard must switch the designer off, and an
   // unpriced (0) row must never sell keychains at ₹199 off a rule.
   const hid = setup(); hid.db.exec("UPDATE products SET visible = 0 WHERE slug = 'custom-name-keychain'");
-  ok("a HIDDEN keychain product → refused", Boolean((await priceCart(hid.env, [{ product_id: designId({ text: "A", font: "bold", base: "red" }), qty: 1 }], "ship")).error));
+  ok("a HIDDEN keychain product → refused", Boolean((await priceCart(hid.env, [{ product_id: designId({ text: "A", font: "script", base: "red" }), qty: 1 }], "ship")).error));
   const unp = setup(); unp.db.exec("UPDATE products SET price_paise = 0 WHERE slug = 'custom-name-keychain'");
-  ok("an UNPRICED keychain product → refused", Boolean((await priceCart(unp.env, [{ product_id: designId({ text: "A", font: "bold", base: "red" }), qty: 1 }], "ship")).error));
+  ok("an UNPRICED keychain product → refused", Boolean((await priceCart(unp.env, [{ product_id: designId({ text: "A", font: "script", base: "red" }), qty: 1 }], "ship")).error));
   // The keychain product bought directly is a BLANK keychain: refused, alone or
   // alongside a real design.
   const blank = await priceCart(env, [{ product_id: "kc1", qty: 1 }], "ship");
   ok("the bare keychain product alone → refused", Boolean(blank.error) && /designer/.test(blank.error), JSON.stringify(blank));
-  const mixed = await priceCart(env, [{ product_id: "kc1", qty: 1 }, { product_id: designId({ text: "A", font: "bold", base: "red" }), qty: 1 }], "ship");
+  const mixed = await priceCart(env, [{ product_id: "kc1", qty: 1 }, { product_id: designId({ text: "A", font: "script", base: "red" }), qty: 1 }], "ship");
   ok("…and alongside a design → refused", Boolean(mixed.error));
   const r4 = await priceCart(env, [{ product_id: "p1", qty: 1 }], "ship");
   ok("an ordinary cart is unaffected", !r4.error && r4.subtotal_paise === 54900);

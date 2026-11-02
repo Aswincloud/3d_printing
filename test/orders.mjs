@@ -109,9 +109,9 @@ function makeDB() {
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("INSERT INTO order_items")) {
-      const [id, order_id, product_id, name, price_paise, qty, personalisation, pos] = args;
+      const [id, order_id, product_id, name, price_paise, qty, personalisation, design_id, pos] = args;
       db.order_items.push({ id, order_id, product_id, name, price_paise, qty,
-                            personalisation, pos });
+                            personalisation, design_id, pos });
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("SELECT id, receipt, status, total_paise, pay_token FROM orders WHERE rzp_order_id")) {
@@ -144,9 +144,9 @@ function makeDB() {
       const rows = o ? db.order_items.filter((i) => i.order_id === o.id).sort((a, b) => a.pos - b.pos) : [];
       return { results: rows.map((r) => project(r, ["name", "price_paise", "qty"])) };
     }
-    if (s.startsWith("SELECT name, price_paise, qty, personalisation FROM order_items WHERE order_id")) {
+    if (s.startsWith("SELECT name, price_paise, qty, personalisation, design_id FROM order_items WHERE order_id")) {
       const rows = db.order_items.filter((i) => i.order_id === args[0]).sort((a, b) => a.pos - b.pos);
-      return { results: rows.map((r) => project(r, ["name", "price_paise", "qty"])) };
+      return { results: rows.map((r) => ({ ...project(r, ["name", "price_paise", "qty"]), design_id: r.design_id || "" })) };
     }
     if (s.startsWith("SELECT receipt, status,")) {
       const o = db.orders.find((x) => x.receipt === args[0]);

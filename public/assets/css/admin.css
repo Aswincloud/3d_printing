@@ -1247,3 +1247,17 @@
 
 /* A sale's free gift on an order card. */
 .badge-gift { background: rgba(255, 140, 56, 0.18); color: #ffd08a; border: 1px solid rgba(255, 140, 56, 0.5); }
+
+/* A custom keychain line's print file (src/kc3mf.js). */
+.oi-print {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--orange, #ff6b00);
+  border-radius: 8px;
+  color: var(--orange, #ff6b00);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.oi-print:hover, .oi-print:focus-visible { background: rgba(255, 107, 0, 0.12); }

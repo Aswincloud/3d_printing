@@ -13,12 +13,12 @@ export async function keychainPage(env) {
   const body = available ? `
     <div class="kc-wrap">
       <div class="kc-stage"><div id="kcCanvas" class="kc-canvas" role="img" aria-label="3D preview of your keychain. Drag to rotate."></div>
-        <p class="kc-hint">Drag to rotate · preview, not to exact scale</p></div>
+        <p class="kc-hint">Drag to rotate · 120 × 32 mm keyring, shown to scale</p></div>
       <div class="kc-panel">
         <h1>Design your name keychain</h1>
         <p class="kc-sub">Type a name, pick a font and colours, and see it in 3D. Printed to order in Pondicherry.</p>
         <label class="kc-label" for="kcText">Your text <span id="kcCount" class="kc-count"></span></label>
-        <input id="kcText" class="kc-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. ASWIN">
+        <input id="kcText" class="kc-input" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="e.g. Priya">
         <p id="kcError" class="kc-error" role="status" aria-live="polite"></p>
         <p class="kc-label">Font</p>
         <div id="kcFonts" class="kc-fonts" role="group" aria-label="Font"></div>

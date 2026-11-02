@@ -420,7 +420,9 @@ export function unmatchedPaymentEmail(env, d) {
 }
 
 // ── order notification → owner ────────────────────────────────────
-export function orderOwnerEmail(env, order, items) {
+// `files`: the print files attached to this email ({ attached: [names],
+// failed: n }) — custom keychains whose .3mf was built (or not) for this order.
+export function orderOwnerEmail(env, order, items, files = { attached: [], failed: 0 }) {
   const base = env.APP_BASE_URL || "https://3d-prints.aswincloud.com";
   const lines = items.map((it) =>
     `<tr><td style="padding:8px 0;border-bottom:1px solid ${LINE};font-size:14px">${esc(it.name)} × ${it.qty}${pzLine(it, ORANGE)}</td>` +
@@ -434,6 +436,8 @@ export function orderOwnerEmail(env, order, items) {
     // A gift is a packing instruction: put it where it can't be missed.
     (order.gift ? `<div style="background:#3a2408;border:1px solid ${ORANGE};border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:15px;font-weight:700;color:#ffd08a">🎁 Include ${esc(order.gift)} in this parcel</div>` : "") +
     `<table style="width:100%;border-collapse:collapse;margin-bottom:20px">${lines}</table>` +
+    (files.attached?.length ? `<div style="background:${CARD};border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:14px">Print files attached — open in Bambu Studio:<br>${files.attached.map((n) => `<strong>${esc(n)}</strong>`).join("<br>")}</div>` : "") +
+    (files.failed ? `<div style="background:#3a1010;border:1px solid #c0392b;border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:14px;color:#ffb3a8">${files.failed} keychain print file${files.failed > 1 ? "s" : ""} could not be built. Download from the dashboard instead.</div>` : "") +
     rows([
       ["Customer", esc(order.cust_name)],
       ["Email", `<a href="mailto:${esc(order.cust_email)}" style="color:${ORANGE}">${esc(order.cust_email)}</a>`],

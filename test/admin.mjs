@@ -355,9 +355,9 @@ function makeDB(seed = {}) {
       const rows = status ? db.orders.filter((o) => o.status === status) : db.orders;
       return { results: [...rows].sort((x, y) => y.created_at - x.created_at) };
     }
-    if (s.startsWith("SELECT order_id, name, price_paise, qty, personalisation, pos FROM order_items")) {
+    if (s.startsWith("SELECT order_id, name, price_paise, qty, personalisation, pos, design_id <> '' AS has_print FROM order_items")) {
       const want = new Set(a);
-      return { results: db.order_items.filter((i) => want.has(i.order_id)) };
+      return { results: db.order_items.filter((i) => want.has(i.order_id)).map((i) => ({ ...i, has_print: i.design_id ? 1 : 0 })) };
     }
     // listOrders' ship-together grouping: the orders still to ship, oldest first.
     if (s.startsWith("SELECT id, receipt, status, cust_email, cust_phone, addr_line, addr_pin, total_paise, created_at FROM orders WHERE status IN ('paid','in_production','ready')")) {

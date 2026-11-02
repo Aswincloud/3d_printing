@@ -35,12 +35,14 @@ export const COLOURS = {
   skin: { name: "Skin", hex: "#e8b996" },
 };
 
-// Fonts with a three.js typeface file in /assets/fonts3d/.
+// Fonts (2026-11-02), built by scripts/build-kc-fonts.py into /assets/fonts3d/.
+// The SAME file draws the browser preview and the printed 3MF (src/kc3mf.js).
+// The first is the default.
 export const FONTS = {
-  bold: { name: "Bold", file: "helvetiker_bold.typeface.json" },
-  classic: { name: "Classic", file: "optimer_bold.typeface.json" },
-  serif: { name: "Serif", file: "droid_serif_bold.typeface.json" },
-  rounded: { name: "Rounded", file: "gentilis_bold.typeface.json" },
+  script: { name: "Script", file: "kc-script.json" },   // Pacifico
+  brush: { name: "Brush", file: "kc-brush.json" },      // Damion
+  hand: { name: "Handwritten", file: "kc-hand.json" },  // Satisfy
+  rounded: { name: "Rounded", file: "kc-rounded.json" }, // Fredoka
 };
 
 // The two prices (owner, 2026-11-02): one colour, or text in a second colour.
