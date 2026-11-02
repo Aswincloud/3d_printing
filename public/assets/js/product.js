@@ -234,7 +234,7 @@ async function addToCart(qty) {
   const id = await resolveProductId();
   if (!id) return false;
   // Bought only as a design, from the designer (see the same rule in main.js).
-  if (location.pathname === '/p/custom-name-keychain') { location.href = '/keychain'; return false; }
+  if (location.pathname.replace(/\/+$/, '') === '/p/custom-name-keychain') { location.href = '/keychain'; return false; }
 
   const cart = readCart();
   const line = cart.find((it) => it.id === id);

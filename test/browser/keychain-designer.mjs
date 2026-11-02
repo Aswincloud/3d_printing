@@ -39,10 +39,21 @@ for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
     await p.click('#kcInk .kc-swatch[aria-label="Gold"]'); await p.waitForTimeout(500);
     ok(`${tag} two colours → ₹299`, (await p.textContent('#kcPrice')) === '₹299');
     ok(`${tag} the summary reads the design`, (await p.textContent('#kcSummary')) === '"PRIYA" · Classic font · Blue base, Gold text', await p.textContent('#kcSummary'));
+    // Keyboard: pick a colour with Enter; focus must stay on that swatch.
+    await p.focus('#kcBase .kc-swatch[aria-label="Green"]'); await p.keyboard.press('Enter'); await p.waitForTimeout(150);
+    ok(`${tag} a keyboard colour pick keeps focus on the swatch`, await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Green' && document.activeElement.getAttribute('aria-pressed') === 'true'));
+    await p.click('#kcBase .kc-swatch[aria-label="Blue"]'); await p.waitForTimeout(150);
     await p.click('#kcAdd'); await p.waitForTimeout(200);
     const cart = await p.evaluate(() => JSON.parse(localStorage.getItem('ap_cart') || '[]'));
     const want = designId({ text: 'PRIYA', font: 'classic', base: 'blue', ink: 'gold' });
     ok(`${tag} Add to cart stores the server's id for this design`, cart.length === 1 && cart[0].id === want && parseDesign(cart[0].id)?.ink === 'gold', JSON.stringify(cart));
+    // Buy now hands off THIS keychain only (not the cart) to checkout.
+    await p.route('**/index.html', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>shop</title>' }));
+    await p.evaluate(() => sessionStorage.removeItem('ap_buynow'));
+    await p.click('#kcBuy'); await p.waitForTimeout(400);
+    const handoff = await p.evaluate(() => sessionStorage.getItem('ap_buynow'));
+    ok(`${tag} Buy now hands off just this design`, handoff === JSON.stringify([{ id: want, qty: 1 }]), handoff);
+    await p.goto(BASE + '/keychain', { waitUntil: 'load' }); await p.waitForTimeout(1500);
     await p.fill('#kcText', '<b>hi</b>'); await p.waitForTimeout(150);
     ok(`${tag} bad text blocks Add to cart`, !(await p.isEnabled('#kcAdd')) && /only/.test(await p.textContent('#kcError')));
     await p.fill('#kcText', 'ABCDEFGHIJKLM'); await p.waitForTimeout(150);

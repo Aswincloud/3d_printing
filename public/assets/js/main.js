@@ -2333,7 +2333,9 @@ function takeBuyNowHandoff() {
       const id = typeof it?.id === 'string' ? it.id : '';
       const qty = parseInt(it?.qty, 10);
       if (!id || !Number.isFinite(qty) || qty < 1) continue;
-      const p = catalogue.find((c) => c.id === id);
+      // cartProduct, so a custom keychain design (kc~…) from the designer's Buy
+      // now is accepted; it resolves to a priced entry only if the design decodes.
+      const p = cartProduct(id);
       // price_paise > 0 mirrors addToCart and priceCart: an unpriced product
       // cannot be bought by any route, and this is a route.
       if (!p || !(p.price_paise > 0)) continue;

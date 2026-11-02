@@ -48,8 +48,10 @@ export const PRICE_ONE_PAISE = 19900;
 export const PRICE_TWO_PAISE = 29900;
 
 // Letters, digits, space and a few safe symbols — what prints cleanly at
-// keychain size and cannot carry markup.
-const TEXT_RE = /^[A-Za-z0-9 &.\-'!♥]+$/u;
+// keychain size, cannot carry markup, and EVERY font in /assets/fonts3d has a
+// glyph for (a missing one previews as "?"; ♥ was dropped for that reason).
+// test/keychain.mjs checks this list against the font files.
+export const TEXT_RE = /^[A-Za-z0-9 &.\-'!]+$/u;
 
 export function cleanText(s) {
   return String(s ?? "").normalize("NFC").replace(/\s+/g, " ").trim();

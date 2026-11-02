@@ -20,7 +20,7 @@ const FONTS = {
 };
 const MAX_TEXT = 12;
 const PRICE_ONE = 19900, PRICE_TWO = 29900;
-const TEXT_RE = /^[A-Za-z0-9 &.\-'!♥]+$/u;
+const TEXT_RE = /^[A-Za-z0-9 &.\-'!]+$/u;   // must match src/keychain.js
 const CART_KEY = 'ap_cart';
 
 const state = { text: 'ASWIN', font: 'bold', base: 'orange', ink: 'orange', twoTone: false };
@@ -112,17 +112,20 @@ async function rebuild() {
 function frame() { requestAnimationFrame(frame); controls.update(); renderer.render(scene, camera); }
 
 // ── controls ──────────────────────────────────────────────────────
-function swatches(id, pick, current) {
+// Built ONCE; refresh() only updates aria-pressed. Rebuilding on every refresh
+// removed the focused button, so a keyboard user lost their place after each pick.
+function swatches(id, pick) {
   const box = $(id); box.replaceChildren();
   for (const [k, [name, hex]] of Object.entries(COLOURS)) {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'kc-swatch'; b.style.setProperty('--sw', hex);
+    b.dataset.colour = k;
     b.setAttribute('aria-label', name); b.title = name;
-    b.setAttribute('aria-pressed', String(k === current()));
     b.addEventListener('click', () => { pick(k); refresh(); });
     box.append(b);
   }
 }
+const markSwatches = (id, current) => { for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.colour === current)); };
 function fontButtons() {
   const box = $('kcFonts'); box.replaceChildren();
   for (const [k, [name]] of Object.entries(FONTS)) {
@@ -136,8 +139,8 @@ function fontButtons() {
 
 function refresh() {
   for (const b of $('kcFonts').children) b.setAttribute('aria-pressed', String(b.dataset.font === state.font));
-  swatches('kcBase', (k) => { state.base = k; }, () => state.base);
-  swatches('kcInk', (k) => { state.ink = k; }, () => state.ink);
+  markSwatches('kcBase', state.base);
+  markSwatches('kcInk', state.ink);
   $('kcInkRow').hidden = !state.twoTone;
   const d = design(), two = d.ink !== d.base;
   $('kcPrice').textContent = rupees(two ? PRICE_TWO : PRICE_ONE);
@@ -150,7 +153,7 @@ function refresh() {
   $('kcCount').textContent = n + ' / ' + MAX_TEXT;
   $('kcError').textContent = !clean(state.text) ? 'Type the name or text you want.'
     : n > MAX_TEXT ? 'Up to ' + MAX_TEXT + ' characters.'
-    : !TEXT_RE.test(clean(state.text)) ? 'Letters, numbers, spaces and & . - \' ! ♥ only.' : '';
+    : !TEXT_RE.test(clean(state.text)) ? 'Letters, numbers, spaces and & . - \' ! only.' : '';
   rebuild();
 }
 
@@ -175,7 +178,16 @@ $('kcAdd').addEventListener('click', () => {
   const msg = $('kcAdded'); msg.hidden = false;
   clearTimeout(msg._t); msg._t = setTimeout(() => { msg.hidden = true; }, 4000);
 });
-$('kcBuy').addEventListener('click', () => { if (addToCart()) location.href = '/#checkout'; });
+// Buy now checks out THIS keychain only, through the same hand-off a product
+// page's Buy now uses (takeBuyNowHandoff in main.js) — not the whole cart.
+$('kcBuy').addEventListener('click', () => {
+  if (!valid()) return;
+  const id = designId(design());
+  try { sessionStorage.setItem('ap_buynow', JSON.stringify([{ id, qty: 1 }])); } catch { /* falls back to the cart */ addToCart(); }
+  location.href = '/#checkout';
+});
 
 fontButtons();
+swatches('kcBase', (k) => { state.base = k; });
+swatches('kcInk', (k) => { state.ink = k; });
 size(); refresh(); frame();

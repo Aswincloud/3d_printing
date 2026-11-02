@@ -2,7 +2,7 @@
 // server decodes, validates and prices it. Real SQLite with every migration.
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
-import { designId, parseDesign, validDesign, designPrice, designSummary, PRICE_ONE_PAISE, PRICE_TWO_PAISE } from "../src/keychain.js";
+import { designId, parseDesign, validDesign, designPrice, designSummary, PRICE_ONE_PAISE, PRICE_TWO_PAISE, TEXT_RE, FONTS } from "../src/keychain.js";
 import { priceCart } from "../src/shop.js";
 
 let pass = 0, fail = 0;
@@ -111,6 +111,22 @@ section("priceCart: designs as their own lines, through the real pricing code");
   ok("…and alongside a design → refused", Boolean(mixed.error));
   const r4 = await priceCart(env, [{ product_id: "p1", qty: 1 }], "ship");
   ok("an ordinary cart is unaffected", !r4.error && r4.subtotal_paise === 54900);
+}
+
+section("every allowed character has a glyph in every font (else the preview shows '?')");
+{
+  const probe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&.-'!";
+  // Every char the rule accepts, from the probe set plus anything it allows.
+  const allowed = [...probe].filter((c) => TEXT_RE.test(c));
+  ok("the rule accepts exactly the probe set", allowed.length === probe.length, allowed.join(""));
+  ok("♥ is not allowed (no font has it)", !TEXT_RE.test("♥"));
+  for (const [k, { file }] of Object.entries(FONTS)) {
+    const glyphs = JSON.parse(readFileSync(new URL(`../public/assets/fonts3d/${file}`, import.meta.url), "utf8")).glyphs;
+    const missing = allowed.filter((c) => !glyphs[c]);
+    ok(`font ${k} draws every allowed character`, missing.length === 0, missing.join(""));
+  }
+  const js = readFileSync(new URL("../public/assets/js/keychain.js", import.meta.url), "utf8");
+  ok("the designer uses the same rule", js.includes("const TEXT_RE = /^[A-Za-z0-9 &.\\-'!]+$/u;"));
 }
 
 section("the browser's design id matches the server's");
