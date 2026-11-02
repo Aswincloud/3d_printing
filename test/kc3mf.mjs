@@ -323,6 +323,18 @@ section("every name style's base is one piece with a ring hole — awkward names
   ok("…and grows with the radius", sizes.every((o, i) => !i || area(o) > area(sizes[i - 1])), sizes.map((o) => area(o).toFixed(0)).join());
 }
 
+{
+  // The big initial moves the name 6 mm below centre; the spine must follow it,
+  // or "a b" under the initial is two islands joined only by luck.
+  const { bounds } = await import("../public/assets/js/kc-shapes.js");
+  const src = readFileSync(new URL("../public/assets/js/kc-styles.js", import.meta.url), "utf8");
+  const spineSrc = src.slice(src.indexOf("function spine("), src.indexOf("\n}\n", src.indexOf("function spine(")) + 2);
+  const spine = new Function("bounds", `${spineSrc}; return spine;`)(bounds);
+  const name = [[[[0, -12], [4, -12], [4, 0], [0, 0]]], [[[10, -12], [14, -12], [14, 0], [10, 0]]]];
+  const bar = spine(name)[0][0], ys = bar.map((p) => p[1]);
+  ok("the spine is centred on a moved name, not on y = 0", Math.abs((Math.min(...ys) + Math.max(...ys)) / 2 + 6) < 1e-9, JSON.stringify(ys));
+}
+
 section("the vendored geometry libraries are browser-safe");
 {
   // A page element with id="process" is a global in browsers (index.html has

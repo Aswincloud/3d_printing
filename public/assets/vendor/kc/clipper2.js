@@ -1,5 +1,5 @@
-// clipper2-js 1.2.4 (Boost Software License 1.0; Angus Johnson's Clipper2, JS port by
-// Junior Xavier). Vendored unchanged from the npm package's fesm2020 build: the CSP allows only
+// clipper2-js 1.2.4 (Boost Software License 1.0; a JS port of Angus Johnson's Clipper2).
+// Vendored unchanged from the npm package's fesm2020 build: the CSP allows only
 // scripts from this site. Licence: LICENSE-clipper2.txt beside this file.
 /*******************************************************************************
 * Author    :  Angus Johnson                                                   *

@@ -55,8 +55,10 @@ const rightAtY = (shape) => { const b = bounds(shape); return (b.y0 + b.y1) / 2;
 // unioned in before outlining so the backing is ONE piece even for spaced-out
 // text ("A . B"), where the outline alone would leave separate islands.
 function spine(name, frac = 0.12) {
-  const b = bounds(name), h = Math.max(1.2, b.h * frac);
-  return [[[[b.x0 + 1, -h], [b.x1 - 1, -h], [b.x1 - 1, h], [b.x0 + 1, h]]]];
+  // Centred on the name's own middle: a style may have moved the name (the big
+  // initial puts it 6 mm below centre), and a bar at y = 0 would miss it.
+  const b = bounds(name), h = Math.max(1.2, b.h * frac), cy = (b.y0 + b.y1) / 2;
+  return [[[[b.x0 + 1, cy - h], [b.x1 - 1, cy - h], [b.x1 - 1, cy + h], [b.x0 + 1, cy + h]]]];
 }
 
 // A ring tab: a disc of radius `r + wall` at (cx, cy) joined to `shape`, with
