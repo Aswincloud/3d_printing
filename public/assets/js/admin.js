@@ -271,6 +271,19 @@ function orderCard(o) {
     if (String(it.personalisation || '').trim()) {
       label.appendChild(el('div', 'oi-pz', it.personalisation));
     }
+    // A custom keychain: its print-ready Bambu Studio file, built on click.
+    // More than 24 keychains on one line come as several files (PER_FILE in
+    // src/kc3mf.js), one button each.
+    if (it.has_print) {
+      const PER_FILE = 24;
+      const parts = Math.max(1, Math.ceil((Number(it.qty) || 1) / PER_FILE));
+      for (let part = 1; part <= parts; part++) {
+        const a = el('a', 'oi-print', parts > 1 ? `Download .3mf part ${part} of ${parts}` : 'Download .3mf for Bambu Studio');
+        a.href = `/api/admin/orders/${encodeURIComponent(o.id)}/print/${it.pos}${parts > 1 ? '/' + part : ''}`;
+        a.setAttribute('download', '');
+        label.appendChild(a);
+      }
+    }
     li.append(label, el('strong', null, rupees(it.price_paise * it.qty)));
     items.appendChild(li);
   }

@@ -109,9 +109,9 @@ function makeDB() {
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("INSERT INTO order_items")) {
-      const [id, order_id, product_id, name, price_paise, qty, personalisation, pos] = args;
+      const [id, order_id, product_id, name, price_paise, qty, personalisation, design_id, pos] = args;
       db.order_items.push({ id, order_id, product_id, name, price_paise, qty,
-                            personalisation, pos });
+                            personalisation, design_id, pos });
       return { meta: { changes: 1 } };
     }
     if (s.startsWith("SELECT id, receipt, status, total_paise, pay_token FROM orders WHERE rzp_order_id")) {
@@ -144,9 +144,9 @@ function makeDB() {
       const rows = o ? db.order_items.filter((i) => i.order_id === o.id).sort((a, b) => a.pos - b.pos) : [];
       return { results: rows.map((r) => project(r, ["name", "price_paise", "qty"])) };
     }
-    if (s.startsWith("SELECT name, price_paise, qty, personalisation FROM order_items WHERE order_id")) {
+    if (s.startsWith("SELECT name, price_paise, qty, personalisation, design_id FROM order_items WHERE order_id")) {
       const rows = db.order_items.filter((i) => i.order_id === args[0]).sort((a, b) => a.pos - b.pos);
-      return { results: rows.map((r) => project(r, ["name", "price_paise", "qty"])) };
+      return { results: rows.map((r) => ({ ...project(r, ["name", "price_paise", "qty"]), design_id: r.design_id || "" })) };
     }
     if (s.startsWith("SELECT receipt, status,")) {
       const o = db.orders.find((x) => x.receipt === args[0]);
@@ -584,6 +584,48 @@ section("POST /api/webhook/razorpay — order.paid");
   const own = calls.resend.find((e) => e.to[0] === "owner@example.com");
   ok("the owner's own alert is not copied to itself", own.bcc === undefined, JSON.stringify(own.bcc));
   ok("no secret in any email", !JSON.stringify(calls.resend).includes(KEY_SECRET));
+}
+
+section("webhook — a custom keychain's print file goes to the owner, and never costs the order email");
+{
+  const { readFileSync: rf } = await import("node:fs");
+  const { designId } = await import("../src/keychain.js");
+  const { BODY_KEY, TEMPLATE_KEY } = await import("../src/kc3mf.js");
+  // A stand-in body box and minimal template; the real ones are private (R2).
+  const BODY = { v: [-60, -16, -2.6, 60, -16, -2.6, 60, 16, -2.6, -60, 16, -2.6, -60, -16, 2.6, 60, -16, 2.6, 60, 16, 2.6, -60, 16, 2.6],
+    t: [0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7] };
+  const TEMPLATE = { settings: { filament_colour: ["#000000"] }, per_filament: ["filament_colour"] };
+  const store = { [BODY_KEY]: BODY, [TEMPLATE_KEY]: TEMPLATE };
+  const kcEnv = (env) => Object.assign(env, {
+    UPLOADS: { get: async (k) => (store[k] ? { json: async () => structuredClone(store[k]) } : null) },
+    ASSETS: { fetch: async (req) => new Response(rf(new URL(`../public${new URL(req.url).pathname}`, import.meta.url))) },
+  });
+  const run = async ({ rejectAttachments }) => {
+    const { env, calls, raw, sig } = await seedPaidOrder();
+    kcEnv(env);
+    // Make the paid order's line a custom keychain design.
+    env.DB._db.order_items[0].design_id = designId({ text: "Aswin", font: "script", base: "white", ink: "pink" });
+    if (rejectAttachments) {
+      const inner = globalThis.fetch;
+      globalThis.fetch = async (url, init) => {
+        if (new URL(String(url)).hostname === "api.resend.com" && JSON.parse(init.body || "{}").attachments) {
+          calls.resend.push({ rejected: true });
+          return new Response("payload too large", { status: 413 });
+        }
+        return inner(url, init);
+      };
+    }
+    const ctx = makeCtx();
+    await razorpayWebhook(webhookReq(raw, sig, "evt_kc"), env, ctx);
+    await settle(ctx);
+    return calls.resend.filter((e) => !e.rejected && e.to?.[0] === "owner@example.com");
+  };
+  const owner = await run({ rejectAttachments: false });
+  ok("the owner email carries the .3mf", owner.length === 1 && owner[0].attachments?.length === 1 && /\.3mf$/.test(owner[0].attachments[0].filename), JSON.stringify(owner.map((e) => e.attachments?.map((a) => a.filename))));
+  ok("…and lists it in the email", owner[0]?.html.includes(owner[0]?.attachments?.[0]?.filename || "\u0000"));
+  const retried = await run({ rejectAttachments: true });
+  ok("attachments refused → the owner email is still sent, without them", retried.length === 1 && !retried[0].attachments);
+  ok("…and says to download from the dashboard", /could not be attached\. Download from the dashboard/.test(retried[0]?.html || ""));
 }
 
 section("webhook — signature is enforced");
