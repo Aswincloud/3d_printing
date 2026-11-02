@@ -14,6 +14,7 @@ import { OrbitControls } from '/assets/vendor/three/OrbitControls.js';
 import { layoutText, PANEL, TEXT_Z0, TEXT_Z1 } from '/assets/js/kc-text.js';
 import { STYLES as SHAPES } from '/assets/js/kc-styles.js';
 import { RIBBON } from '/assets/js/kc-build.js';
+import { RIBBON_OUTLINE, flatLayers, layersSvg } from '/assets/js/kc-flat.js';
 
 const COLOURS = {
   white: ['White', '#f4f4f2'], black: ['Black', '#1b1b1f'], brown: ['Choco brown', '#5a3a22'],
@@ -31,15 +32,12 @@ const STYLE_LIST = {
   charm: ['Flower charm', true], initial: ['Big initial', false], shadow: ['Drop shadow', false], ribbon: ['Ribbon bow', true],
 };
 const ACCENT_LABEL = { double: 'Inner outline colour', charm: 'Flower colour', ribbon: 'Bow colour' };
-// The ribbon bow's silhouette for the PREVIEW only (2D, simplified to 0.35 mm,
-// from the owner's file): the printable bow mesh is private and never sent here.
-const RIBBON_OUTLINE = {"base":[[[[-11.6,-20.68],[-11.7,-19.16],[-10.1,-12.83],[-8.89,-4.43],[-6.16,3.3],[-10.74,1.84],[-15.5,1.3],[-18.05,1.47],[-20.37,2.83],[-22.87,6.16],[-24.25,10.67],[-23.99,15.35],[-22.27,19.14],[-21.06,20.5],[-19.4,21.32],[-13.73,21.62],[-9.95,20.51],[-2.84,16.26],[-2.83,19.2],[-0.89,21.01],[1.49,21.31],[3.17,20.49],[4.18,18.92],[4.23,17.05],[14.03,24.36],[17.83,24.98],[21.11,23.95],[23.19,21.74],[24.23,18.82],[24.08,12.99],[22.85,8.33],[19.46,4.54],[15.54,3.43],[11.6,3.47],[13.7,-1.18],[14.36,-6.69],[15.57,-10.68],[17.55,-13.99],[21.4,-17.68],[21.41,-19.42],[19.74,-20.55],[17.68,-20.94],[17.87,-23.8],[16.66,-24.91],[13.96,-24.47],[11.58,-21.97],[7.83,-15.24],[5.41,-2.49],[4.07,1.16],[1.9,4.66],[-0.72,-8.19],[-1.4,-20.71],[-2.43,-21.58],[-3.94,-21.32],[-6.25,-17.67],[-9.37,-21.24],[-10.69,-21.39]],[[-1.45,17.74],[-0.83,16.24],[0.67,15.62],[2.16,16.24],[2.78,17.74],[2.16,19.23],[0.67,19.85],[-0.83,19.23]]]],"top":[[[[-17.95,3.45],[-20.82,6.41],[-22.36,10.88],[-21.96,15.52],[-19.51,19.24],[-15.79,19.86],[-11.34,19.07],[-1.06,12.69],[0.74,13.82],[2.81,13.27],[9.01,18.57],[14.76,22.6],[17.15,23.1],[19.68,22.6],[21.57,20.74],[22.34,18.6],[22.09,12.56],[20.64,8.31],[18.54,6.22],[15.86,5.4],[7.78,5.89],[11.56,-0.67],[12.48,-7.01],[13.83,-11.46],[16.04,-15.15],[19.49,-18.56],[15.94,-19.08],[15.97,-23.09],[14.78,-22.73],[12.03,-19.35],[9.45,-13.99],[7.85,-4.41],[6.33,0.72],[4.51,4.26],[1.09,8.86],[-2.47,-6.98],[-3.09,-19.36],[-5.88,-14.8],[-9.44,-18.24],[-6.46,-2.62],[-2.26,6.93],[-11.14,3.7]],[[-10.23,13.32],[-14.04,14.37],[-17.72,14.06],[-19.13,12.81],[-19.29,10.99],[-17.54,8.98],[-14.71,8.23],[-4.86,9.83]],[[11.11,15.77],[7.69,12.39],[5.24,8.45],[9.21,8.82],[13.99,10.27],[18.12,12.65],[19.11,14.43],[18.76,16.22],[16.78,17.59],[13.78,17.16]]]]};
 const MAX_TEXT = 12;
 const PRICE_ONE = 19900, PRICE_TWO = 29900;
 const TEXT_RE = /^[A-Za-z0-9 &.\-'!]+$/u;   // must match src/keychain.js
 const CART_KEY = 'ap_cart';
 
-const state = { text: 'Aswin', font: 'script', base: 'white', ink: 'pink', accent: 'gold', style: 'heart', twoTone: true };
+const state = { text: 'Priya', font: 'rounded', base: 'white', ink: 'pink', accent: 'gold', style: 'heart', twoTone: true };
 const $ = (id) => document.getElementById(id);
 const rupees = (p) => '₹' + (p / 100).toLocaleString('en-IN');
 const clean = (s) => String(s || '').normalize('NFC').replace(/\s+/g, ' ').trim();
@@ -241,7 +239,7 @@ function swatches(id, pick) {
   const box = $(id); box.replaceChildren();
   for (const [k, [name, hex]] of Object.entries(COLOURS)) {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'kc-swatch'; b.style.setProperty('--sw', hex);
+    b.type = 'button'; b.className = 'ks-swatch'; b.style.setProperty('--sw', hex);
     b.dataset.colour = k;
     b.setAttribute('aria-label', name); b.title = name;
     b.addEventListener('click', () => { pick(k); refresh(); });
@@ -253,7 +251,7 @@ function fontButtons() {
   const box = $('kcFonts'); box.replaceChildren();
   for (const [k, [name]] of Object.entries(FONTS)) {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'kc-font'; b.textContent = name; b.dataset.font = k;
+    b.type = 'button'; b.className = 'ks-font'; b.textContent = name; b.dataset.font = k;
     b.setAttribute('aria-pressed', String(k === state.font));
     b.addEventListener('click', () => { state.font = k; refresh(); });
     box.append(b);
@@ -264,26 +262,95 @@ function styleButtons() {
   const box = $('kcStyles'); box.replaceChildren();
   for (const [k, [name]] of Object.entries(STYLE_LIST)) {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'kc-style'; b.dataset.style = k;
-    const img = document.createElement('img');
-    img.src = '/assets/images/keychain-styles/' + k + '.webp'; img.alt = ''; img.loading = 'lazy'; img.width = 96; img.height = 72;
-    const label = document.createElement('span'); label.textContent = name;
-    b.append(img, label);
-    b.addEventListener('click', () => {
-      state.style = k;
-      // Each style opens in the font it was designed with.
-      state.font = DEFAULT_FONT[k] || state.font;
-      refresh();
-    });
+    b.type = 'button'; b.className = 'ks-chip'; b.dataset.style = k; b.textContent = name;
+    b.addEventListener('click', () => pickStyle(k, false));
     box.append(b);
   }
 }
+function pickStyle(k, scroll) {
+  state.style = k;
+  // Each style opens in the font it was designed with.
+  state.font = DEFAULT_FONT[k] || state.font;
+  refresh();
+  if (scroll) $('studio').scrollIntoView({ block: 'start' });
+}
+
+// ── the gallery: every style, redrawn with the visitor's name ──────
+// Light tints behind each card, from the filament colours.
+const TINTS = ['#e9f6ff', '#ffe6f2', '#fff4cc', '#dcfaee', '#efe9ff'];
+// Each card's example colours (base, text, accent), chosen to show the style.
+const LOOKS = {
+  heart: ['white', 'pink', 'white'], bubble: ['pink', 'white', 'pink'], double: ['white', 'pink', 'orange'],
+  topring: ['brown', 'white', 'brown'], classic: ['gold', 'white', 'gold'], chunky: ['white', 'blue', 'white'],
+  charm: ['pink', 'white', 'gold'], initial: ['blue', 'white', 'blue'], shadow: ['red', 'white', 'red'], ribbon: ['white', 'white', 'pink'],
+};
+const BLURB = {
+  heart: 'Name set into a tag', bubble: 'Raised script on an outline', double: 'Two outlines, three colours',
+  topring: 'Ring at the top', classic: 'Slim script, ring on the side', chunky: 'Bold letters, fat bubble',
+  charm: 'With a flower charm', initial: 'Your initial, big', shadow: 'Bold with a drop shadow', ribbon: 'Name on a bow',
+};
+const cards = {};
+function buildGallery() {
+  const box = $('kcGallery'); box.replaceChildren();
+  Object.keys(STYLE_LIST).forEach((k, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'ks-card'; b.dataset.style = k;
+    const art = document.createElement('span'); art.className = 'ks-art'; art.style.setProperty('--tint', TINTS[i % TINTS.length]);
+    // Until the first drawing lands, the static picture of the style.
+    const img = document.createElement('img'); img.src = '/assets/images/keychain-styles/' + k + '.webp'; img.alt = ''; img.width = 192; img.height = 144;
+    art.append(img);
+    const name = document.createElement('span'); name.className = 'ks-card-name'; name.textContent = STYLE_LIST[k][0];
+    const meta = document.createElement('span'); meta.className = 'ks-card-meta'; meta.textContent = BLURB[k];
+    b.append(art, name, meta);
+    b.setAttribute('aria-label', 'Design a ' + STYLE_LIST[k][0] + ' keychain: ' + BLURB[k]);
+    b.addEventListener('click', () => pickStyle(k, true));
+    box.append(b);
+    cards[k] = art;
+  });
+}
+
+// Drawn one card at a time in idle moments, newest name first: a style takes
+// 5-150 ms, and drawing all ten at once would make typing stutter.
+const drawn = new Map();
+let galleryJob = 0;
+async function drawGallery() {
+  const job = ++galleryJob;
+  const text = clean(state.text);
+  const ok = text && [...text].length <= MAX_TEXT && TEXT_RE.test(text);
+  const shown = ok ? text : 'Priya';
+  const rounded = await loadFont('rounded').catch(() => null);
+  for (const k of Object.keys(STYLE_LIST)) {
+    if (job !== galleryJob) return;
+    const fk = DEFAULT_FONT[k];
+    const font = await loadFont(fk).catch(() => null);
+    if (!font || !rounded) continue;
+    const key = k + '|' + fk + '|' + shown;
+    let svg = drawn.get(key);
+    if (!svg) {
+      await idle();
+      if (job !== galleryJob) return;
+      try {
+        const [b, t, a] = LOOKS[k].map((c) => COLOURS[c][1]);
+        svg = layersSvg(flatLayers(k, shown, font, rounded), [b, t, a]);
+      } catch { svg = ''; }
+      drawn.set(key, svg);
+      if (drawn.size > 200) drawn.delete(drawn.keys().next().value);
+    }
+    if (svg) cards[k].innerHTML = svg;
+  }
+}
+const idle = () => new Promise((r) => (window.requestIdleCallback ? requestIdleCallback(() => r(), { timeout: 120 }) : setTimeout(r, 16)));
+let galleryTimer = 0;
+function scheduleGallery() { clearTimeout(galleryTimer); galleryTimer = setTimeout(drawGallery, 250); }
+
 // The font each style was designed with (src/keychain.js STYLES / kc-styles.js).
 const DEFAULT_FONT = { heart: 'rounded', bubble: 'script', double: 'script', topring: 'hand', classic: 'brush',
   chunky: 'rounded', charm: 'rounded', initial: 'script', shadow: 'rounded', ribbon: 'hand' };
 
 function refresh() {
   for (const b of $('kcStyles').children) b.setAttribute('aria-pressed', String(b.dataset.style === state.style));
+  for (const b of $('kcGallery').children) b.setAttribute('aria-pressed', String(b.dataset.style === state.style));
+  $('kcStyleName').textContent = STYLE_LIST[state.style][0];
   for (const b of $('kcFonts').children) b.setAttribute('aria-pressed', String(b.dataset.font === state.font));
   markSwatches('kcBase', state.base);
   markSwatches('kcInk', state.ink);
@@ -327,7 +394,7 @@ function addToCart() {
 $('kcText').value = state.text;
 $('kcTwoTone').checked = state.twoTone; // the starting example is two-colour
 $('kcText').maxLength = MAX_TEXT + 4;
-$('kcText').addEventListener('input', (e) => { state.text = e.target.value; refresh(); });
+$('kcText').addEventListener('input', (e) => { state.text = e.target.value; refresh(); scheduleGallery(); });
 $('kcTwoTone').addEventListener('change', (e) => { state.twoTone = e.target.checked; if (state.twoTone && state.ink === state.base) state.ink = state.base === 'white' ? 'black' : 'white'; refresh(); });
 $('kcAdd').addEventListener('click', () => {
   if (!addToCart()) return;
@@ -343,9 +410,10 @@ $('kcBuy').addEventListener('click', () => {
   location.href = '/#checkout';
 });
 
+buildGallery();
 styleButtons();
 fontButtons();
 swatches('kcBase', (k) => { state.base = k; });
 swatches('kcInk', (k) => { state.ink = k; });
 swatches('kcAccent', (k) => { state.accent = k; });
-size(); refresh(); frame();
+size(); refresh(); frame(); drawGallery();

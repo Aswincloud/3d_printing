@@ -40,15 +40,27 @@ for (const [engine, name] of [[chromium, 'chromium'], [webkit, 'webkit']]) {
     // recesses), and the name. A blank name leaves just the plate.
     const parts = () => p.evaluate(() => window.__kcParts?.());
     ok(`${tag} the plate and the name are drawn`, (await parts()) === 3, String(await parts()));
+    // The gallery: all ten styles redraw with the typed name.
+    await p.fill('#kcText', 'Zoya'); await p.waitForTimeout(4000);
+    const cards = await p.$$eval('#kcGallery .ks-card', (cs) => cs.map((c) => ({ style: c.dataset.style, svg: Boolean(c.querySelector('.ks-art svg path')) })));
+    ok(`${tag} the gallery shows all ten styles, each drawn`, cards.length === 10 && cards.every((c) => c.svg), JSON.stringify(cards));
+    const before = await p.$eval('[data-style="bubble"].ks-card .ks-art', (a) => a.innerHTML.length);
+    await p.fill('#kcText', 'Zoya Rani'); await p.waitForTimeout(4000);
+    const after = await p.$eval('[data-style="bubble"].ks-card .ks-art', (a) => a.innerHTML.length);
+    ok(`${tag} a card redraws when the name changes`, before !== after, `${before} vs ${after}`);
+    await p.click('#kcGallery [data-style="charm"]'); await p.waitForTimeout(800);
+    ok(`${tag} tapping a card picks that style in the studio`, (await p.textContent('#kcStyleName')) === 'Flower charm'
+      && (await p.getAttribute('#kcStyles [data-style="charm"]', 'aria-pressed')) === 'true');
+    await p.click('#kcStyles [data-style="heart"]'); await p.waitForTimeout(300);
     await p.fill('#kcText', 'PRIYA'); await p.click('[data-font="brush"]');
-    await p.click('#kcBase .kc-swatch[aria-label="Blue"]'); await p.check('#kcTwoTone');
-    await p.click('#kcInk .kc-swatch[aria-label="Gold"]'); await p.waitForTimeout(500);
+    await p.click('#kcBase .ks-swatch[aria-label="Blue"]'); await p.check('#kcTwoTone');
+    await p.click('#kcInk .ks-swatch[aria-label="Gold"]'); await p.waitForTimeout(500);
     ok(`${tag} two colours → ₹299`, (await p.textContent('#kcPrice')) === '₹299');
     ok(`${tag} the summary reads the design`, (await p.textContent('#kcSummary')) === '"PRIYA" · Brush font · Blue base, Gold text', await p.textContent('#kcSummary'));
     // Keyboard: pick a colour with Enter; focus must stay on that swatch.
-    await p.focus('#kcBase .kc-swatch[aria-label="Green"]'); await p.keyboard.press('Enter'); await p.waitForTimeout(150);
+    await p.focus('#kcBase .ks-swatch[aria-label="Green"]'); await p.keyboard.press('Enter'); await p.waitForTimeout(150);
     ok(`${tag} a keyboard colour pick keeps focus on the swatch`, await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Green' && document.activeElement.getAttribute('aria-pressed') === 'true'));
-    await p.click('#kcBase .kc-swatch[aria-label="Blue"]'); await p.waitForTimeout(150);
+    await p.click('#kcBase .ks-swatch[aria-label="Blue"]'); await p.waitForTimeout(150);
     await p.click('#kcAdd'); await p.waitForTimeout(200);
     const cart = await p.evaluate(() => JSON.parse(localStorage.getItem('ap_cart') || '[]'));
     const want = designId({ text: 'PRIYA', font: 'brush', base: 'blue', ink: 'gold' });

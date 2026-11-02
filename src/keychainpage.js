@@ -11,46 +11,72 @@ export async function keychainPage(env) {
   const available = Boolean(row);
   const r = (p) => "₹" + (p / 100).toLocaleString("en-IN");
   const body = available ? `
-    <div class="kc-wrap">
-      <div class="kc-stage"><div id="kcCanvas" class="kc-canvas" role="img" aria-label="3D preview of your keychain. Drag to rotate."></div>
-        <p class="kc-hint">Drag to rotate · shown to scale</p></div>
-      <div class="kc-panel">
-        <h1>Design your name keychain</h1>
-        <p class="kc-sub">Type a name, pick a font and colours, and see it in 3D. Printed to order in Pondicherry.</p>
-        <label class="kc-label" for="kcText">Your text <span id="kcCount" class="kc-count"></span></label>
-        <input id="kcText" class="kc-input" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="e.g. Priya">
-        <p id="kcError" class="kc-error" role="status" aria-live="polite"></p>
-        <p class="kc-label">Style</p>
-        <div id="kcStyles" class="kc-styles" role="group" aria-label="Style"></div>
-        <p class="kc-label">Font</p>
-        <div id="kcFonts" class="kc-fonts" role="group" aria-label="Font"></div>
-        <p class="kc-label">Base colour</p>
-        <div id="kcBase" class="kc-swatches" role="group" aria-label="Base colour"></div>
-        <label class="kc-check"><input type="checkbox" id="kcTwoTone"> More than one colour <span class="kc-extra">(+${r(PRICE_TWO_PAISE - PRICE_ONE_PAISE)})</span></label>
-        <div id="kcInkRow" hidden><p class="kc-label">Text colour</p><div id="kcInk" class="kc-swatches" role="group" aria-label="Text colour"></div></div>
-        <div id="kcAccentRow" hidden><p class="kc-label" id="kcAccentLabel">Accent colour</p><div id="kcAccent" class="kc-swatches" role="group" aria-labelledby="kcAccentLabel"></div></div>
-        <div class="kc-buy">
-          <div><span id="kcPrice" class="kc-price"></span> <span id="kcPriceNote" class="kc-note"></span></div>
-          <p id="kcSummary" class="kc-summary"></p>
-          <div class="kc-actions">
-            <button id="kcAdd" type="button" class="kc-btn kc-btn-ghost">Add to cart</button>
-            <button id="kcBuy" type="button" class="kc-btn">Buy now</button>
-          </div>
-          <p id="kcAdded" class="kc-added" role="status" hidden>Added to your cart. <a href="/#cart">View cart</a> or design another.</p>
-        </div>
-        <p class="kc-small">${r(PRICE_ONE_PAISE)} in one colour, ${r(PRICE_TWO_PAISE)} in two or three colours. Up to ${MAX_TEXT} characters. Free shipping across India.</p>
+    <section class="ks-hero" aria-labelledby="ksTitle">
+      <h1 id="ksTitle" class="ks-title">Your name,<br>ten ways.</h1>
+      <p class="ks-lede">Type it once. Every keychain below redraws with your name, so you can pick the one you like best. Printed to order in Pondicherry, free shipping across India.</p>
+      <label class="ks-name-label" for="kcText">Your name or text <span id="kcCount" class="ks-count"></span></label>
+      <div class="ks-name">
+        <input id="kcText" class="ks-input" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Type a name" maxlength="16">
       </div>
-    </div>
+      <p id="kcError" class="ks-error" role="status" aria-live="polite"></p>
+      <p class="ks-price-line">${r(PRICE_ONE_PAISE)} in one colour · ${r(PRICE_TWO_PAISE)} in two or three</p>
+    </section>
+
+    <section class="ks-gallery" aria-label="Keychain styles">
+      <div id="kcGallery" class="ks-grid"></div>
+    </section>
+
+    <section id="studio" class="ks-studio" aria-labelledby="ksStudioTitle">
+      <div class="ks-stage">
+        <div id="kcCanvas" class="ks-canvas" role="img" aria-label="3D preview of your keychain. Drag to rotate."></div>
+        <p class="ks-hint">Drag to turn it · shown to scale</p>
+      </div>
+      <div class="ks-panel">
+        <h2 id="ksStudioTitle" class="ks-h2"><span id="kcStyleName">Heart tag</span></h2>
+        <p class="ks-panel-sub">Fine-tune it here. <a href="#kcGallery" class="ks-back">See all ten styles</a></p>
+        <p class="ks-label">Style</p>
+        <div id="kcStyles" class="ks-chips" role="group" aria-label="Style"></div>
+        <p class="ks-label">Font</p>
+        <div id="kcFonts" class="ks-fonts" role="group" aria-label="Font"></div>
+        <p class="ks-label">Base colour</p>
+        <div id="kcBase" class="ks-swatches" role="group" aria-label="Base colour"></div>
+        <label class="ks-check"><input type="checkbox" id="kcTwoTone"> More than one colour <span class="ks-extra">+${r(PRICE_TWO_PAISE - PRICE_ONE_PAISE)}</span></label>
+        <div id="kcInkRow" hidden><p class="ks-label">Text colour</p><div id="kcInk" class="ks-swatches" role="group" aria-label="Text colour"></div></div>
+        <div id="kcAccentRow" hidden><p class="ks-label" id="kcAccentLabel">Accent colour</p><div id="kcAccent" class="ks-swatches" role="group" aria-labelledby="kcAccentLabel"></div></div>
+        <div class="ks-buy">
+          <p class="ks-buy-price"><span id="kcPrice" class="ks-price"></span> <span id="kcPriceNote" class="ks-note"></span></p>
+          <p id="kcSummary" class="ks-summary"></p>
+          <div class="ks-actions">
+            <button id="kcAdd" type="button" class="ks-btn ks-btn-ghost">Add to cart</button>
+            <button id="kcBuy" type="button" class="ks-btn">Buy now</button>
+          </div>
+          <p id="kcAdded" class="ks-added" role="status" hidden>Added to your cart. <a href="/#cart">View cart</a> or design another.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="ks-how" aria-labelledby="ksHowTitle">
+      <h2 id="ksHowTitle" class="ks-h2">From your screen to your keys</h2>
+      <ol class="ks-steps">
+        <li><strong>You design it.</strong> Name, style, font and up to three colours, checked in 3D before you pay.</li>
+        <li><strong>We print it in Pondicherry.</strong> Layer by layer in PLA, usually within two working days.</li>
+        <li><strong>It ships free.</strong> Anywhere in India, with tracking on <a href="/track">your order page</a>.</li>
+      </ol>
+      <p class="ks-limit">Up to ${MAX_TEXT} characters: letters, numbers, spaces and &amp; . - ' !</p>
+    </section>
     <script type="module" src="/assets/js/keychain.js"></script>`
-    : `<h1>Custom keychains</h1><p>The keychain designer isn't available right now. <a href="/#shop">Browse the shop</a>.</p>`;
+    : `<section class="ks-hero"><h1 class="ks-title">Custom keychains</h1><p class="ks-lede">The keychain designer isn't available right now. <a href="/#shop">Browse the shop</a>.</p></section>`;
 
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Design your name keychain — AswinPrints</title>
 <meta name="description" content="Design a custom 3D-printed name keychain: type your text, choose a font and colours, and see a live 3D preview. ${r(PRICE_ONE_PAISE)}, shipped free across India.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/assets/css/keychain.css">
-</head><body><header class="kc-top"><a class="kc-home" href="/">← AswinPrints</a><a class="kc-cart" href="/#cart">Cart</a></header>
+</head><body><header class="ks-top"><a class="ks-home" href="/">AswinPrints</a><nav class="ks-nav" aria-label="Keychain studio"><a class="ks-pill" href="/#shop">Shop</a><a class="ks-pill ks-cart" href="/#cart">Cart</a></nav></header>
 <main>${body}</main>
 <script src="/assets/js/activity.js" defer></script>
 </body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" } });
