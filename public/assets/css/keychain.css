@@ -1,67 +1,180 @@
-/* /keychain — the custom name keychain designer. Same palette as the shop. */
-:root { --dark: #0a0a0f; --dark-2: #111118; --dark-3: #1a1a24; --dark-4: #22222e; --text: #e8e8f0; --muted: #8888a0;
-  --orange: #ff6b00; --orange-light: #ff8c38; --on-orange: #0a0a0f; color-scheme: dark; }
+/* /keychain — the keychain studio (redesign 2026-11-02).
+ *
+ * Its own bright look inside the dark shop: a printed keychain is a chunky,
+ * glossy, outlined thing, so the page is too. Thick ink outlines, solid offset
+ * shadows (no blur, like a print sitting on a bed), and the owner's filament
+ * colours as the palette. One bold idea: the gallery redraws all ten styles
+ * with the visitor's own name as they type.
+ */
+:root {
+  --paper: #f4f1ff;       /* pale lavender: a cool page the filament colours sit well on */
+  --card: #ffffff;
+  --ink: #1e1b33;         /* every outline and shadow; deep violet-black, not grey */
+  --ink-soft: #4b4766;
+  --pink: #f06fae;        /* filament colours */
+  --gold: #ffc93c;
+  --mint: #3dd6a3;
+  --sky: #8fd3ff;
+  --orange: #ff6b00;      /* the shop's own orange: buy buttons only */
+  --line: 2.5px;
+  --lift: 5px;            /* offset-shadow depth */
+  --radius-card: 22px;
+  --radius-ctl: 14px;
+  color-scheme: light;
+}
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--dark); color: var(--text); font-family: Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; line-height: 1.5; }
-a { color: var(--orange-light); }
-.kc-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; max-width: 1180px; margin: 0 auto; }
-.kc-home, .kc-cart { color: var(--orange-light); text-decoration: none; font-weight: 700; }
-.kc-cart { border: 1px solid var(--dark-4); border-radius: 10px; padding: 8px 14px; min-height: 40px; display: inline-flex; align-items: center; }
-main { max-width: 1180px; margin: 0 auto; padding: 0 16px 56px; }
-.kc-wrap { display: grid; grid-template-columns: 1.15fr 1fr; gap: 28px; align-items: start; }
-.kc-stage { position: sticky; top: 16px; }
-.kc-canvas { width: 100%; height: 440px; border-radius: 20px; overflow: hidden; touch-action: none; cursor: grab;
-  background: radial-gradient(120% 120% at 50% 0%, #2a2a38 0%, #14141c 60%, #0d0d13 100%); border: 1px solid var(--dark-4); }
-.kc-canvas:active { cursor: grabbing; }
-.kc-canvas canvas { display: block; width: 100%; height: 100%; }
-.kc-hint { text-align: center; color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; }
-h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); margin: 0 0 6px; letter-spacing: -0.5px; }
-.kc-sub { color: var(--muted); margin: 0 0 12px; }
-.kc-label { display: flex; justify-content: space-between; font-weight: 700; font-size: 0.9rem; margin: 12px 0 6px; }
-.kc-count { color: var(--muted); font-weight: 500; }
-.kc-input { width: 100%; min-height: 50px; padding: 0 14px; font-size: 1.15rem; font-weight: 700; letter-spacing: 1px;
-  border-radius: 12px; border: 1px solid var(--dark-4); background: var(--dark-2); color: var(--text); }
-.kc-input:focus { outline: 2px solid var(--orange); outline-offset: 1px; }
-.kc-error { min-height: 1.2em; margin: 4px 0 0; color: #f87171; font-size: 0.85rem; }
-.kc-fonts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.kc-font { min-height: 46px; border-radius: 10px; border: 1px solid var(--dark-4); background: var(--dark-2); color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
-.kc-font[aria-pressed="true"] { border-color: var(--orange); background: rgba(255, 107, 0, 0.14); color: #ffd08a; }
-.kc-swatches { display: grid; grid-template-columns: repeat(5, 44px); gap: 10px; }   /* 10 filaments: two even rows of five */
-.kc-swatch { width: 44px; height: 44px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.12); background: var(--sw); cursor: pointer;
-  box-shadow: inset 0 -6px 10px rgba(0,0,0,0.25); }
-.kc-swatch[aria-pressed="true"] { outline: 3px solid var(--orange); outline-offset: 3px; border-color: #fff; }
-.kc-swatch:focus-visible, .kc-font:focus-visible, .kc-btn:focus-visible { outline: 3px solid #ffd08a; outline-offset: 3px; }
-.kc-check { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 8px; font-weight: 600; cursor: pointer; }
-.kc-check input { width: 20px; height: 20px; accent-color: var(--orange); }
-.kc-extra { color: var(--muted); font-weight: 500; }
-.kc-buy { margin-top: 14px; padding: 16px; border-radius: 16px; border: 1px solid var(--dark-4); background: var(--dark-2); }
-.kc-price { font-size: 2rem; font-weight: 800; color: var(--orange-light); }
-.kc-note { color: var(--muted); font-weight: 600; }
-.kc-summary { color: var(--muted); font-size: 0.9rem; margin: 4px 0 14px; overflow-wrap: anywhere; }
-.kc-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.kc-btn { min-height: 50px; border-radius: 12px; border: 0; font: inherit; font-weight: 800; font-size: 1rem; cursor: pointer;
-  background: linear-gradient(135deg, var(--orange), var(--orange-light)); color: var(--on-orange); }
-.kc-btn-ghost { background: transparent; color: var(--text); border: 1px solid rgba(255, 140, 56, 0.55); }
-.kc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.kc-added { margin: 12px 0 0; color: #86efac; font-weight: 600; }
-.kc-small { color: var(--muted); font-size: 0.85rem; margin-top: 14px; }
-@media (max-width: 860px) {
-  .kc-wrap { grid-template-columns: 1fr; gap: 18px; }
-  .kc-stage { position: static; }
-  .kc-canvas { height: 300px; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-size: 16px; line-height: 1.55;
+  /* A faint dot grid, like a print bed's texture. */
+  background-image: radial-gradient(rgba(30, 27, 51, 0.07) 1.2px, transparent 1.4px);
+  background-size: 22px 22px;
 }
-@media (max-width: 420px) {
-  .kc-fonts { grid-template-columns: repeat(2, 1fr); }
-  .kc-swatches { grid-template-columns: repeat(5, 40px); }
-  .kc-swatch { width: 40px; height: 40px; }
-}
+a { color: var(--ink); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--orange); outline-offset: 3px; }
 
-/* Style picker (2026-11-02): ten tiles, a photo of each design and its name. */
-.kc-styles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-.kc-style { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px 8px; border-radius: 10px;
-  border: 1px solid var(--dark-4); background: var(--dark-2); color: var(--text); font: inherit; font-size: 12px; font-weight: 600;
-  line-height: 1.2; cursor: pointer; text-align: center; }
-.kc-style img { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; background: var(--dark-3, #222); }
-.kc-style[aria-pressed="true"] { border-color: var(--orange); background: rgba(255, 107, 0, 0.14); color: #ffd08a; }
-.kc-style:focus-visible { outline: 3px solid #ffd08a; outline-offset: 3px; }
-@media (max-width: 560px) { .kc-styles { grid-template-columns: repeat(3, 1fr); } }
+/* ── header ── */
+.ks-top { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  max-width: 1200px; margin: 0 auto; padding: 16px; }
+.ks-home { font-family: "Baloo 2", Inter, sans-serif; font-weight: 800; font-size: 1.35rem; text-decoration: none; letter-spacing: -0.3px; }
+.ks-nav { display: flex; gap: 8px; align-items: center; }
+.ks-nav a { text-decoration: none; font-weight: 700; padding: 8px 14px; min-height: 42px; display: inline-flex; align-items: center;
+  border-radius: 999px; }
+.ks-pill { background: var(--card); border: var(--line) solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.ks-cart { background: var(--gold); }
+
+main { max-width: 1200px; margin: 0 auto; padding: 0 16px 64px; }
+
+/* ── hero: the name field is the hero ── */
+.ks-hero { text-align: center; padding: 28px 0 8px; }
+.ks-title {
+  font-family: "Baloo 2", Inter, sans-serif; font-weight: 800; line-height: 0.95; letter-spacing: -1.5px;
+  font-size: clamp(2.6rem, 8vw, 5.2rem); margin: 0 0 14px;
+  /* Set like a printed name: solid colour, a 3D offset in ink. */
+  color: var(--pink); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill;
+  text-shadow: 3px 3px 0 var(--ink), 6px 6px 0 var(--gold);
+}
+.ks-lede { max-width: 34em; margin: 0 auto 22px; color: var(--ink-soft); font-size: 1.05rem; }
+.ks-name-label { display: block; font-weight: 700; margin-bottom: 8px; }
+.ks-count { color: var(--ink-soft); font-weight: 500; margin-left: 6px; }
+.ks-name { max-width: 560px; margin: 0 auto; }
+.ks-input {
+  width: 100%; min-height: 68px; padding: 0 22px; text-align: center;
+  font-family: "Baloo 2", Inter, sans-serif; font-size: clamp(1.6rem, 5vw, 2.1rem); font-weight: 800; color: var(--ink);
+  background: var(--card); border: 3px solid var(--ink); border-radius: 999px; box-shadow: var(--lift) var(--lift) 0 var(--ink);
+}
+.ks-input::placeholder { color: #b3aecb; }
+.ks-input:focus { outline: none; box-shadow: var(--lift) var(--lift) 0 var(--orange); }
+.ks-error { min-height: 1.4em; margin: 10px 0 0; color: #c1121f; font-weight: 600; }
+.ks-price-line { margin: 4px 0 0; font-weight: 700; }
+
+/* ── gallery ── */
+.ks-gallery { margin: 26px 0 8px; }
+.ks-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px; }
+.ks-card {
+  position: relative; display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 12px;
+  background: var(--card); color: var(--ink); text-align: left; font: inherit; cursor: pointer;
+  border: var(--line) solid var(--ink); border-radius: var(--radius-card); box-shadow: var(--lift) var(--lift) 0 var(--ink);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.ks-card:hover { transform: translate(-2px, -2px); box-shadow: calc(var(--lift) + 2px) calc(var(--lift) + 2px) 0 var(--ink); }
+.ks-card:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0 var(--ink); }
+.ks-card[aria-pressed="true"] { background: #fff7d6; box-shadow: var(--lift) var(--lift) 0 var(--orange); }
+@media (prefers-reduced-motion: reduce) { .ks-card { transition: none; } .ks-card:hover, .ks-card:active { transform: none; } }
+.ks-art {
+  display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: 14px; padding: 8px;
+  background: var(--tint, #e9f6ff); overflow: hidden;
+}
+.ks-art svg { width: 100%; height: 100%; filter: drop-shadow(2px 3px 0 rgba(30, 27, 51, 0.22)); }
+.ks-art img { width: 100%; height: 100%; object-fit: contain; }
+.ks-art.is-drawing svg { opacity: 0.45; }
+.ks-card-name { font-family: "Baloo 2", Inter, sans-serif; font-weight: 800; font-size: 1.08rem; line-height: 1.15; }
+.ks-card-meta { color: var(--ink-soft); font-size: 0.82rem; }
+.ks-back { font-weight: 700; white-space: nowrap; }
+#kcGallery { scroll-margin-top: 16px; }
+
+/* ── studio ── */
+.ks-studio {
+  display: grid; grid-template-columns: 1.1fr 1fr; gap: 26px; align-items: start; margin-top: 44px; padding: 22px;
+  background: var(--card); border: 3px solid var(--ink); border-radius: 28px; box-shadow: 8px 8px 0 var(--ink);
+  scroll-margin-top: 16px;
+}
+.ks-stage { position: sticky; top: 16px; }
+.ks-canvas { width: 100%; height: min(560px, 70vh); border-radius: 20px; overflow: hidden; touch-action: none; cursor: grab;
+  border: var(--line) solid var(--ink);
+  background: radial-gradient(110% 90% at 50% 15%, #ffffff 0%, #e9f6ff 55%, #cfe9fb 100%); }
+.ks-canvas:active { cursor: grabbing; }
+.ks-canvas canvas { display: block; width: 100%; height: 100%; }
+.ks-hint { text-align: center; color: var(--ink-soft); font-size: 0.85rem; margin: 8px 0 0; }
+.ks-h2 { font-family: "Baloo 2", Inter, sans-serif; font-weight: 800; font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.05; margin: 0 0 4px; letter-spacing: -0.5px; }
+.ks-panel-sub { color: var(--ink-soft); margin: 0 0 6px; }
+.ks-label { font-weight: 700; font-size: 0.92rem; margin: 16px 0 8px; }
+
+.ks-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ks-chip, .ks-font {
+  min-height: 42px; padding: 0 14px; border-radius: 999px; font: inherit; font-weight: 700; font-size: 0.9rem; cursor: pointer;
+  background: var(--card); color: var(--ink); border: 2px solid var(--ink);
+}
+.ks-chip[aria-pressed="true"], .ks-font[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.ks-fonts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.ks-font { padding: 0 6px; min-height: 48px; }
+
+.ks-swatches { display: grid; grid-template-columns: repeat(5, 44px); gap: 12px; }
+.ks-swatch { width: 44px; height: 44px; border-radius: 50%; cursor: pointer; background: var(--sw);
+  border: 2px solid var(--ink); box-shadow: inset 0 -6px 8px rgba(0, 0, 0, 0.18), 2px 2px 0 var(--ink); }
+.ks-swatch[aria-pressed="true"] { outline: 3px solid var(--orange); outline-offset: 3px; }
+
+.ks-check { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 12px; font-weight: 700; cursor: pointer; }
+.ks-check input { width: 22px; height: 22px; accent-color: var(--ink); }
+.ks-extra { padding: 2px 10px; border-radius: 999px; background: var(--gold); border: 2px solid var(--ink); font-size: 0.82rem; }
+
+.ks-buy { margin-top: 18px; padding: 16px; border-radius: 20px; background: #fff7d6; border: var(--line) solid var(--ink); }
+.ks-buy-price { margin: 0; }
+.ks-price { font-family: "Baloo 2", Inter, sans-serif; font-size: 2.2rem; font-weight: 800; }
+.ks-note { color: var(--ink-soft); font-weight: 700; }
+.ks-summary { color: var(--ink-soft); font-size: 0.9rem; margin: 2px 0 14px; overflow-wrap: anywhere; }
+.ks-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ks-btn {
+  min-height: 54px; border-radius: 999px; font: inherit; font-weight: 800; font-size: 1.02rem; cursor: pointer;
+  background: var(--orange); color: var(--ink); border: var(--line) solid var(--ink); box-shadow: 4px 4px 0 var(--ink);
+}
+.ks-btn:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); }
+.ks-btn-ghost { background: var(--card); color: var(--ink); }
+.ks-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: 4px 4px 0 var(--ink); }
+.ks-added { margin: 12px 0 0; font-weight: 700; color: #0d7a52; }
+
+/* ── how it's made ── */
+.ks-how { margin-top: 44px; }
+.ks-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 14px 0 0; padding: 0; list-style: none; counter-reset: s; }
+.ks-steps li { counter-increment: s; position: relative; padding: 18px 18px 18px 64px; background: var(--card);
+  border: var(--line) solid var(--ink); border-radius: var(--radius-card); box-shadow: 4px 4px 0 var(--ink); }
+/* A real sequence, so it is numbered. */
+.ks-steps li::before { content: counter(s); position: absolute; left: 16px; top: 16px; width: 34px; height: 34px; display: grid; place-items: center;
+  font-family: "Baloo 2", Inter, sans-serif; font-weight: 800; background: var(--mint); border: 2px solid var(--ink); border-radius: 50%; }
+.ks-steps strong { display: block; font-size: 1.02rem; }
+.ks-limit { color: var(--ink-soft); font-size: 0.9rem; margin-top: 16px; }
+
+/* ── responsive ── */
+@media (max-width: 1100px) { .ks-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  .ks-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ks-studio { grid-template-columns: 1fr; padding: 16px; }
+  .ks-stage { position: static; }
+  .ks-canvas { height: 320px; }
+  .ks-steps { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .ks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .ks-card { padding: 8px 8px 10px; }
+  .ks-card-meta { display: none; }
+  .ks-fonts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ks-studio { box-shadow: 5px 5px 0 var(--ink); border-radius: 22px; }
+  .ks-title { -webkit-text-stroke-width: 1.5px; text-shadow: 2px 2px 0 var(--ink), 4px 4px 0 var(--gold); }
+}
+@media (max-width: 380px) {
+  .ks-swatches { grid-template-columns: repeat(5, 40px); gap: 10px; }
+  .ks-swatch { width: 40px; height: 40px; }
+  .ks-actions { grid-template-columns: 1fr; }
+}
