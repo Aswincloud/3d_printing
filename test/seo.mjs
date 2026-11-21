@@ -209,6 +209,15 @@ section("Product JSON-LD");
   ok("validFrom from created_at", ld.offers.validFrom === "2026-10-01", ld.offers.validFrom);
 }
 {
+  // Shipping in the markup follows the checkout config, never a hardcoded 0.
+  const mk = (env, paise) => productJsonLd(env, { slug: "s", name: "S", price_paise: paise },
+    { pageUrl: "https://x/p/s", imageUrl: "https://x/i.jpg" }).offers.shippingDetails.shippingRate.value;
+  const paid = { ...ENV, FLAT_SHIP_PAISE: "6000", FREE_SHIP_THRESHOLD_PAISE: "200000" };
+  ok("flat shipping configured → markup charges it", mk(paid, 59900) === "60.00", mk(paid, 59900));
+  ok("item over the free threshold → free", mk(paid, 250000) === "0");
+  ok("FLAT_SHIP_PAISE 0 → free", mk({ ...ENV, FLAT_SHIP_PAISE: "0" }, 59900) === "0");
+}
+{
   // Prices that round badly are where a naive conversion shows.
   for (const [paise, expect] of [[99900, "999.00"], [1, "0.01"], [34950, "349.50"], [1200000, "12000.00"]]) {
     const ld = productJsonLd(ENV, { slug: "x", name: "X", price_paise: paise },
