@@ -66,7 +66,7 @@ async function loadProduct(env, slug) {
   // meta tags on the homepage, and both are required now that it renders a page.
   return env.DB.prepare(
     `SELECT id, slug, name, description, price_paise, image, images, category,
-              compare_at_paise
+              compare_at_paise, created_at
          FROM products WHERE slug = ? AND visible = 1`
   ).bind(slug).first();
 }
