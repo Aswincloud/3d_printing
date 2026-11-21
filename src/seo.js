@@ -180,6 +180,30 @@ const BUSINESS = (env) => {
   };
 };
 
+// Free shipping anywhere in India; printed and dispatched in 2–5 working days,
+// delivered 3–7 working days after that (public/shipping.html).
+const SHIPPING_DETAILS = (base) => ({
+  "@type": "OfferShippingDetails",
+  shippingRate: { "@type": "MonetaryAmount", value: "0", currency: "INR" },
+  shippingDestination: { "@type": "DefinedRegion", addressCountry: "IN" },
+  deliveryTime: {
+    "@type": "ShippingDeliveryTime",
+    handlingTime: { "@type": "QuantitativeValue", minValue: 2, maxValue: 5, unitCode: "DAY" },
+    transitTime: { "@type": "QuantitativeValue", minValue: 3, maxValue: 7, unitCode: "DAY" },
+  },
+});
+
+// Printed to order: no change-of-mind returns. Damaged / wrong / not-as-described
+// items are replaced or refunded within 7 days (public/refunds.html) — that is a
+// warranty-style remedy, not a return window, so Google's category is
+// MerchantReturnNotPermitted, with a link to the full policy.
+const RETURN_POLICY = (base) => ({
+  "@type": "MerchantReturnPolicy",
+  applicableCountry: "IN",
+  returnPolicyCategory: "https://schema.org/MerchantReturnNotPermitted",
+  merchantReturnLink: base + "/refunds",
+});
+
 // Product schema for one item.
 //
 // Returns null for anything unpriced. An Offer with price 0 is not "free" to
@@ -218,6 +242,12 @@ export function productJsonLd(env, product, { pageUrl, imageUrl, reviews = null 
       // indefinitely. A month is long enough not to churn and short enough that
       // Google re-checks.
       priceValidUntil: isoDay(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      // Search Console "Merchant listings" asks for these three. Each mirrors
+      // what /shipping and /refunds already promise — markup that disagrees
+      // with those pages is worse than none.
+      ...(product.created_at ? { validFrom: isoDay(product.created_at) } : {}),
+      shippingDetails: SHIPPING_DETAILS(base),
+      hasMerchantReturnPolicy: RETURN_POLICY(base),
     },
     isRelatedTo: { "@id": base + "/#store" },
   };
