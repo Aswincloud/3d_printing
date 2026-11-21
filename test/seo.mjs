@@ -191,6 +191,22 @@ section("Product JSON-LD");
   ok("currency is INR", ld.offers.priceCurrency === "INR");
   ok("marked in stock", /InStock/.test(ld.offers.availability));
   ok("has a priceValidUntil", /^\d{4}-\d{2}-\d{2}$/.test(ld.offers.priceValidUntil));
+
+  // Search Console "Merchant listings" fields — must match /shipping + /refunds.
+  const sd = ld.offers.shippingDetails;
+  ok("shipping is free", sd.shippingRate.value === "0" && sd.shippingRate.currency === "INR");
+  ok("ships to India", sd.shippingDestination.addressCountry === "IN");
+  ok("handling 2–5 days", sd.deliveryTime.handlingTime.minValue === 2 && sd.deliveryTime.handlingTime.maxValue === 5);
+  ok("transit 3–7 days", sd.deliveryTime.transitTime.minValue === 3 && sd.deliveryTime.transitTime.maxValue === 7);
+  const rp = ld.offers.hasMerchantReturnPolicy;
+  ok("return policy: printed to order, no general returns", /MerchantReturnNotPermitted$/.test(rp.returnPolicyCategory));
+  ok("return policy links the refunds page", rp.merchantReturnLink === "https://3d-prints.aswincloud.com/refunds");
+  ok("no validFrom without created_at", !("validFrom" in ld.offers));
+}
+{
+  const ld = productJsonLd(ENV, { slug: "d", name: "D", price_paise: 100, created_at: Date.UTC(2026, 9, 1) },
+    { pageUrl: "https://x/p/d", imageUrl: "https://x/i.jpg" });
+  ok("validFrom from created_at", ld.offers.validFrom === "2026-10-01", ld.offers.validFrom);
 }
 {
   // Prices that round badly are where a naive conversion shows.
