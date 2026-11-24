@@ -220,6 +220,9 @@ const RULES = [
   // Order lookup needs a receipt AND the matching email or phone; this bounds how
   // fast one IP can guess either. 10/min is plenty for a person retyping.
   { test: (p, m) => p === "/api/track" && m === "POST", limiter: "RL_TRACK" },
+  // Receipt page lookup. The receipt is only 8 hex characters, so cap how fast
+  // one address can walk the space.
+  { test: (p, m) => m === "GET" && p.startsWith("/api/orders/AP-"), limiter: "RL_RECEIPT" },
 ];
 
 export async function rateLimit(request, env, url) {

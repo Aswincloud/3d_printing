@@ -24,7 +24,7 @@ import {
 import {
   generateOtp, hashOtp, otpHashEquals,
   OTP_TTL_SECONDS, OTP_MAX_ATTEMPTS, OTP_RESEND_COOLDOWN_SECONDS,
-  upsertOtp, getOtp, incrementOtpAttempts, deleteOtp,
+  upsertOtp, getOtp, deleteOtp,
   otpEmail,
 } from "@aswincloud/auth/d1";
 import { json, bad, uid, now, isEmail, sendEmail, hmacHex, statusLabel, stageTimeline, trackingUrlFor } from "./lib.js";
@@ -171,6 +171,15 @@ export async function requestCode(request, env, ctx, body) {
 }
 
 // ── POST /api/auth/code/verify ────────────────────────────────────
+// One atomic UPDATE: counts the attempt only while under the cap, and says
+// whether it did. (Same statement as claimOtpAttempt in @aswincloud/auth 0.6.)
+async function claimAttempt(env, email) {
+  const res = await env.DB.prepare(
+    `UPDATE otp_codes SET attempts = attempts + 1 WHERE email = ? AND attempts < ?`
+  ).bind(email, OTP_MAX_ATTEMPTS).run();
+  return (res.meta?.changes ?? 0) > 0;
+}
+
 export async function verifyCode(request, env, body) {
   const email = normEmail(body?.email);
   const code = clip(body?.code, 12).replace(/\s+/g, "");
@@ -195,11 +204,16 @@ export async function verifyCode(request, env, body) {
     return reject();
   }
 
-  const given = await hashOtp(code, pepper(env));
-  if (!otpHashEquals(given, row.code_hash)) {
-    await incrementOtpAttempts(env.DB, email);
-    return reject();
+  // Count this attempt BEFORE comparing, in one atomic UPDATE. Reading the
+  // counter and incrementing it in separate queries let parallel guesses all
+  // pass the check above and exceed the cap.
+  if (!(await claimAttempt(env, email))) {
+    await deleteOtp(env.DB, email);
+    return bad("Too many attempts. Please request a new code.", 429);
   }
+
+  const given = await hashOtp(code, pepper(env));
+  if (!otpHashEquals(given, row.code_hash)) return reject();
 
   // Correct: burn the code immediately so it can't be replayed.
   await deleteOtp(env.DB, email);
