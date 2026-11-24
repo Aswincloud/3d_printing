@@ -123,8 +123,10 @@ function makeDB(seed = {}) {
     }
     if (s.startsWith("UPDATE otp_codes SET attempts")) {
       const e = db.otp_codes.find((x) => lc(x.email) === lc(a[0]));
-      if (e) e.attempts += 1;
-      return { meta: { changes: e ? 1 : 0 } };
+      // verifyCode claims an attempt with "AND attempts < ?", so honour the cap.
+      const capped = s.includes("attempts < ?");
+      if (e && (!capped || e.attempts < a[1])) { e.attempts += 1; return { meta: { changes: 1 } }; }
+      return { meta: { changes: 0 } };
     }
     if (s.startsWith("DELETE FROM otp_codes WHERE email = ?")) {
       const n = db.otp_codes.length;

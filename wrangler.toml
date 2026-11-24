@@ -156,6 +156,15 @@ namespace_id = "3007"
   limit = 10
   period = 60
 
+# Receipt lookup (GET /api/orders/AP-xxxxxxxx): 30/min per IP. The receipt is
+# short, so this keeps one address from enumerating orders.
+[[ratelimits]]
+name = "RL_RECEIPT"
+namespace_id = "3008"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
 [vars]
 APP_NAME = "AswinPrints"
 APP_BASE_URL = "https://3d-prints.aswincloud.com"
