@@ -33,6 +33,6 @@
     "workerd@1.20260730.1": true
   },
   "dependencies": {
-    "@aswincloud/auth": "^0.5.0"
+    "@aswincloud/auth": "^0.6.0"
   }
 }
